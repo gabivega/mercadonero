@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --nero: #F26722;
+  --nero-gray: #4D4D4D;
+}
+
+/* simple body backgrounds driven by Tailwind dark class on <html> */
+
+.container {
+  max-width: 1100px;
+}
+.uzzxk {
+  display: none !important;
+}
+
+/* Chrome, Safari, Edge, Opera */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Firefox */
+input[type=number] {
+  -moz-appearance: textfield;
+}
+
+@layer components {
+  .input-nero {
+    @apply w-full bg-gray-50 dark:bg-[#252525] border border-gray-200 dark:border-gray-800 
+           rounded-2xl px-5 py-1 font-black text-lg outline-none transition-all
+           focus:ring-2 focus:ring-blue-500 focus:border-transparent
+           dark:text-white dark:placeholder-gray-500 placeholder-gray-400;
+  }
+  
+  /* Podés crear una variante para los labels también */
+  .label-nero {
+    @apply text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 block;
+  }
+}

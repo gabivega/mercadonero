@@ -1,0 +1,144 @@
+[
+  {
+    "id": "ec-101",
+    "author": "Vendedor_Pro_88",
+    "isVerified": true,
+    "content": "¡Atención! Bajamos los precios de toda la línea de cámaras Mirrorless por esta semana. Envíos gratis a todo el país. ",
+    "timestamp": "2026-02-24T10:00:00Z",
+    "likes": 45,
+    "reposts": 12,
+    "replies": [
+      { "author": "User_Bari_82", "isVerified": false, "comment": "¿Cuánto demora el envío hasta Bariloche por correo privado?", "likes": 2 },
+      { "author": "Vendedor_Pro_88", "isVerified": true, "comment": "Hola! A Bariloche suele tardar entre 3 y 5 días hábiles.", "likes": 1 }
+    ]
+  },
+  {
+    "id": "ec-102",
+    "author": "CompradorCompulsivo",
+    "isVerified": false,
+    "content": "Pregunta seria: ¿Alguien compró el Smartwatch Z-40? El precio me parece demasiado bajo para ser real... ¿será imitación? ",
+    "timestamp": "2026-02-24T10:15:00Z",
+    "likes": 23,
+    "reposts": 8,
+    "replies": [
+      { "author": "TechReview_OK", "isVerified": true, "comment": "Cuidado, hay mucha copia dando vueltas. Asegúrate que el vendedor sea oficial.", "likes": 15 }
+    ]
+  },
+  {
+    "id": "ec-103",
+    "author": "Soporte_Oficial",
+    "isVerified": true,
+    "content": "Mantenimiento programado: Hoy de 23:00 a 01:00 la pasarela de pagos estará fuera de servicio por actualización de seguridad. ",
+    "timestamp": "2026-02-24T11:30:00Z",
+    "likes": 67,
+    "reposts": 34,
+    "replies": []
+  },
+  {
+    "id": "ec-104",
+    "author": "ModaSustentable",
+    "isVerified": true,
+    "content": "Nuevas remeras de algodón orgánico disponibles. Stock limitado. ¿Qué talle les gustaría ver más en el próximo drop? ",
+    "timestamp": "2026-02-24T12:05:00Z",
+    "likes": 89,
+    "reposts": 15,
+    "replies": [
+      { "author": "User_M", "isVerified": false, "comment": "¡Talle L por favor!", "likes": 5 },
+      { "author": "User_XL", "isVerified": false, "comment": "XL siempre se agota rápido :(", "likes": 3 }
+    ]
+  },
+  {
+    "id": "ec-105",
+    "author": "Logistica_Express",
+    "isVerified": true,
+    "content": "Hemos habilitado la opción de 'Retiro en punto de entrega' para Córdoba y Rosario. ¡Ahorren en costos de envío! ",
+    "timestamp": "2026-02-24T13:40:00Z",
+    "likes": 156,
+    "reposts": 78,
+    "replies": [
+      { "author": "Cba_Ventas", "isVerified": false, "comment": "Excelente noticia, ¡hacía falta!", "likes": 10 }
+    ]
+  },
+  {
+    "id": "ec-106",
+    "author": "Gamer_Store_AR",
+    "isVerified": true,
+    "content": "Stock renovado de placas de video RTX. Solo por hoy, 12 cuotas sin interés con tarjetas seleccionadas. ",
+    "timestamp": "2026-02-24T14:10:00Z",
+    "likes": 234,
+    "reposts": 89,
+    "replies": [
+      { "author": "NoTengoUnMango", "isVerified": false, "comment": "¿Aceptan permuta por una PS4 y diferencia?", "likes": 44 }
+    ]
+  },
+  {
+    "id": "ec-107",
+    "author": "Cliente_Enojado_99",
+    "isVerified": false,
+    "content": "Mi paquete figura como 'entregado' pero no recibí nada. ¿A quién tengo que reclamar? El vendedor no me responde. ",
+    "timestamp": "2026-02-24T14:50:00Z",
+    "likes": 12,
+    "reposts": 3,
+    "replies": [
+      { "author": "Soporte_Oficial", "isVerified": true, "comment": "Hola, por favor envíanos tu número de pedido por mensaje privado para ayudarte.", "likes": 2 }
+    ]
+  },
+  {
+    "id": "ec-108",
+    "author": "DecoHome_Design",
+    "isVerified": true,
+    "content": "Tip de hoy: Mide bien el espacio de tu living antes de comprar un sillón online. ¡Evita devoluciones innecesarias! 🛋️📐",
+    "timestamp": "2026-02-24T15:20:00Z",
+    "likes": 78,
+    "reposts": 45,
+    "replies": []
+  },
+  {
+    "id": "ec-109",
+    "author": "CryptoPay_Latam",
+    "isVerified": true,
+    "content": "¡Ya es oficial! Ahora puedes pagar tus compras usando USDT directamente en nuestra plataforma. 🚀💵",
+    "timestamp": "2026-02-24T16:00:00Z",
+    "likes": 345,
+    "reposts": 167,
+    "replies": [
+      { "author": "Bitcoin_Fan", "isVerified": false, "comment": "¿Qué red usan? ¿TRC20 o ERC20?", "likes": 7 }
+    ]
+  },
+  {
+    "id": "ec-110",
+    "author": "Emprendedora_Joyas",
+    "isVerified": false,
+    "content": "Acabo de subir mis nuevos diseños de plata 925. Hago envíos a todo el interior. ¿Cuál les gusta más? 💍✨",
+    "timestamp": "2026-02-24T16:45:00Z",
+    "likes": 56,
+    "reposts": 23,
+    "replies": [
+      { "author": "RegaloIdeal", "isVerified": false, "comment": "¡El anillo con piedra azul es hermoso!", "likes": 4 }
+    ]
+  },
+  {
+    "id": "ec-111",
+    "author": "Gourmet_Online",
+    "isVerified": true,
+    "content": "Oferta relámpago: Pack de 6 vinos Malbec reserva con 40% OFF. Solo quedan 10 unidades. 🍷🇦🇷",
+    "timestamp": "2026-02-24T17:10:00Z",
+    "likes": 123,
+    "reposts": 67,
+    "replies": [
+      { "author": "VinoLover", "isVerified": false, "comment": "¡Comprado! Espero que llegue para el asado del domingo.", "likes": 9 }
+    ]
+  },
+  {
+    "id": "ec-112",
+    "author": "Aduana_Helper",
+    "isVerified": false,
+    "content": "Guía rápida: Cómo declarar tus compras internacionales para que no queden retenidas. Link en mi bio. 📦🌎",
+    "timestamp": "2026-02-24T17:50:00Z",
+    "likes": 98,
+    "reposts": 41,
+    "replies": [
+      { "author": "Comprador_Global", "isVerified": false, "comment": "Justo lo que necesitaba, gracias.", "likes": 18 }
+    ]
+  }
+]
