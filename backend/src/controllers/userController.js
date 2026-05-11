@@ -2,7 +2,7 @@ import User from "../models/User.js";
 
 export const updateProfile = async (req, res) => {
   try {
-    const { username, firstName, lastName, avatar, dni, phone } = req.body;
+    const { username, firstName, lastName, avatar, dni, phone, addresses } = req.body;
     console.log("updateProfile: ", req.body);
     const userId = req.user._id;
 
@@ -32,6 +32,7 @@ export const updateProfile = async (req, res) => {
           phone,
           username: username?.toLowerCase(),
           avatar,
+          addresses: addresses
         },
       },
       { new: true, runValidators: true },

@@ -324,7 +324,7 @@ export default function ProductDetail() {
                 </div>
               </div>
               {/* Stock Selector - Solo si NO es clasificado */}
-              {product.listingType !== "classified" || product.category !== "autos-motos-y-otros" && product.stock > 0 && (
+              {product.listingType !== "classified" && product.stock > 0 && (
                 <div className="py-2">
                   <p className="text-sm font-semibold mb-1.5 dark:text-white">
                     Stock disponible
@@ -405,7 +405,7 @@ export default function ProductDetail() {
 
               {/* Info extra compacta */}
               {/* Solo mostramos confianza y garantía en productos físicos/ecommerce */}
-              {product.listingType === "product" || product.category !== "autos-motos-y-otros" && (
+              {product.listingType === "product" && (
                 <div className="text-[11px] space-y-2 pt-4 text-gray-500">
                   <div className="flex gap-2">
                     <Shield className="w-3.5 h-3.5 shrink-0 text-gray-400" />

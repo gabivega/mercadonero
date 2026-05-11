@@ -11,6 +11,7 @@ import {
   Check,
   Phone,
   Star,
+  Edit
 } from "lucide-react";
 import NeroUploader from "../../components/NeroUploader";
 import { AddressSection } from "../../components/AddressSection";
@@ -27,6 +28,7 @@ export default function Profile() {
     dni: "",
   }); // Empezamos en null
   const [loading, setLoading] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
 
   const { getAccessToken } = usePrivy();
   useEffect(() => {
@@ -79,7 +81,9 @@ export default function Profile() {
     const { name, value } = e.target;
     setProfile((prev) => ({ ...prev, [name]: value }));
   };
-
+const handleSelectAddress = () => {
+  return;
+};
   const handleSaveProfile = async () => {
     try {
       setLoading(true);
@@ -134,6 +138,7 @@ export default function Profile() {
         timerProgressBar: true,
       });
     } finally {
+      setIsEditing(false);
       setLoading(false);
     }
   };
@@ -142,23 +147,23 @@ export default function Profile() {
       <div className="p-20 text-center dark:text-white">Cargando perfil...</div>
     );
   return (
-    <div className="max-w-5xl mx-auto pb-20 px-4">
-      <header className="mb-10">
-        <h2 className="text-3xl font-black dark:text-white">
+    <div className="max-w-5xl mx-auto pb-20 px-4 sm:px-6">
+      <header className="mb-8 sm:mb-10">
+        <h2 className="text-2xl sm:text-3xl font-black dark:text-white">
           Ajustes de Cuenta
         </h2>
-        <p className="text-gray-500">
+        <p className="text-sm sm:text-base text-gray-500">
           Gestiona tu identidad y logística en Nero.
         </p>
       </header>
       {/* Sección de Identidad y Verificación */}
-      <div className="flex items-center justify-between mb-8 p-6 bg-gray-50 dark:bg-white/5 rounded-[32px]">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 sm:gap-6 mb-8 p-4 sm:p-6 bg-gray-50 dark:bg-white/5 rounded-[32px]">
+        <div className="flex items-center gap-3 sm:gap-4">
           <div className="relative">
             <img
               onClick={() => setIsModalOpen(true)}
               src={profile.avatar || genericProfile}
-              className="w-20 h-20 cursor-pointer rounded-full object-cover border-2 border-blue-500/20"
+              className="w-16 h-16 sm:w-20 sm:h-20 cursor-pointer rounded-full object-cover border-2 border-blue-500/20"
             />
             <NeroUploader
               isOpen={isModalOpen}
@@ -189,22 +194,22 @@ export default function Profile() {
           </div>
 
           <div>
-            <h2 className="text-2xl font-black dark:text-white">
+            <h2 className="text-xl sm:text-2xl font-black dark:text-white">
               @{profile.username}
             </h2>
             <div className="flex gap-2 mt-1">
               {/* Rating de Comprador */}
-              <div className="flex items-center gap-1 px-2 py-0.5 bg-yellow-400/10 text-yellow-600 rounded-lg text-[10px] font-black uppercase">
+              <div className="flex items-center gap-1 px-2 py-0.5 bg-yellow-400/10 text-yellow-600 rounded-lg text-[10px] sm:text-xs font-black uppercase">
                 <Star size={10} className="fill-yellow-600" />
-                {profile.buyerRating || "5.0"} ({profile.buyerReviewsCount || 0}
-                )
+                <span className="hidden sm:inline">{profile.buyerRating || "5.0"} ({profile.buyerReviewsCount || 0})</span>
+                <span className="sm:hidden">{profile.buyerRating || "5.0"}</span>
               </div>
             </div>
           </div>
         </div>
 
         {!profile.verification?.isVerified && (
-          <button className="text-[10px] font-black uppercase tracking-wider text-blue-600 bg-blue-600/10 px-4 py-2 rounded-xl hover:bg-blue-600 hover:text-white transition-all">
+          <button className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-blue-600 bg-blue-600/10 px-3 sm:px-4 py-2 rounded-xl hover:bg-blue-600 hover:text-white transition-all whitespace-nowrap">
             Obtener Verificado 🚀
           </button>
         )}
@@ -214,11 +219,18 @@ export default function Profile() {
         {/* FORMULARIO Y DIRECCIONES */}
         <div className="lg:col-span-2 space-y-6">
           {/* DATOS PERSONALES */}
-          <section className="bg-white dark:bg-[#1a1a1a] rounded-3xl p-8 border border-gray-100 dark:border-gray-800">
-            <div className="flex items-center gap-2 mb-6 text-blue-600 font-bold uppercase text-xs tracking-widest">
-              <Shield size={16} /> Información Personal
+          <section className="bg-white dark:bg-[#1a1a1a] rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 border border-gray-100 dark:border-gray-800">
+            <div className="relative flex flex-row w-full items-center justify-between">
+            <div className="flex items-center gap-2 mb-4 sm:mb-6 text-blue-600 font-bold uppercase text-xs tracking-widest">
+              <Shield size={16} /> <span className="hidden sm:inline">Información Personal</span><span className="sm:hidden">Perfil</span>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="flex items-center gap-2 cursor-pointer"
+            onClick={()=>{setIsEditing(!isEditing)}}>
+              <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Haz clic para editar</p>
+              <Edit size={16} className="cursor-pointer"/>
+            </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-gray-400 uppercase ml-1">
                   Teléfono de Contacto
@@ -231,11 +243,12 @@ export default function Profile() {
                       setProfile({ ...profile, phone: e.target.value })
                     }
                     placeholder="+54 9 3492 ..."
-                    className="input-nero w-full pl-10"
+                    className="input-nero w-full pl-10 text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!isEditing}
                   />
                   <Phone
                     size={16}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
+                    className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 text-gray-400"
                   />
                 </div>
               </div>
@@ -247,8 +260,9 @@ export default function Profile() {
                   name="username"
                   value={profile?.username}
                   onChange={handleChange}
-                  className="input-nero w-full"
+                  className="input-nero w-full text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
                   type="text"
+                  disabled={!isEditing}
                 />
               </div>
               <div className="space-y-2">
@@ -259,8 +273,9 @@ export default function Profile() {
                   name="firstName"
                   value={profile?.firstName}
                   onChange={handleChange}
-                  className="input-nero w-full"
+                  className="input-nero w-full text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
                   type="text"
+                  disabled={!isEditing}
                 />
               </div>
               <div className="space-y-2">
@@ -271,8 +286,9 @@ export default function Profile() {
                   name="lastName"
                   value={profile?.lastName}
                   onChange={handleChange}
-                  className="input-nero w-full"
+                  className="input-nero w-full text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
                   type="text"
+                  disabled={!isEditing}
                 />
               </div>
               <div className="space-y-2">
@@ -282,7 +298,7 @@ export default function Profile() {
                 <input
                   value={profile?.email}
                   disabled
-                  className="input-nero w-full opacity-50 bg-gray-50"
+                  className="input-nero w-full opacity-50 bg-gray-50 text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
                   type="email"
                 />
               </div>
@@ -294,22 +310,24 @@ export default function Profile() {
                   name="dni"
                   value={profile?.dni}
                   onChange={handleChange}
-                  className="input-nero w-full opacity-50 bg-gray-50"
+                  className="input-nero w-full opacity-50 bg-gray-50 text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
                   type="number"
+                  disabled={!isEditing}
                 />
               </div>
             </div>
             <button
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 mt-6 rounded-2xl shadow-xl shadow-blue-500/20 transition-all active:scale-[0.98]"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3 sm:py-4 mt-4 sm:mt-6 rounded-xl sm:rounded-2xl shadow-xl shadow-blue-500/20 transition-all active:scale-[0.98] text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
               onClick={handleSaveProfile}
+              disabled={!isEditing}
             >
               GUARDAR
             </button>
           </section>
 
           {/* DIRECCIONES DE ENVÍO */}
-          <section className="bg-white dark:bg-[#1a1a1a] rounded-3xl p-8 border border-gray-100 dark:border-gray-800">
-            <h2 className="text-2xl font-black text-gray-900 dark:text-white mb-6">
+          <section className="bg-white dark:bg-[#1a1a1a] rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 border border-gray-100 dark:border-gray-800">
+            <h2 className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white mb-4 sm:mb-6">
               Administrar direcciones
             </h2>
             <AddressSection
@@ -317,6 +335,7 @@ export default function Profile() {
               getAccessToken={getAccessToken}
               profile={profile}
               setProfile={setProfile}
+              handleSelectAddress={handleSelectAddress}
             />
           </section>
         </div>

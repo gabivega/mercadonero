@@ -26,6 +26,9 @@ import ShopPage from "./pages/ShopPage";
 import ScrollToTop from "./components/ScrollToTop";
 import Checkout from "./pages/Checkout";
 import OrderDetail from "./pages/dashboard/OrderDetail";
+import TermsAndConditions from "./pages/TermsAndConditions";
+import LoginPage from "./pages/LoginPage";
+import MyOrders from "./pages/dashboard/MyOrders";
 
 export default function App() {
   const theme = useSelector((s) => s.theme.mode);
@@ -46,6 +49,7 @@ export default function App() {
         <Header />
         <main className="w-full min-h-screen px-2">
           <Routes>
+            <Route path="/login" element={<LoginPage />} />
             <Route path="/" element={<Home />} />
             <Route path="/post/:id" element={<PostDetail />} />
             <Route path="/product/:id" element={<ProductDetail />} />
@@ -55,7 +59,7 @@ export default function App() {
             <Route path="/cart" element={<Cart />} />
             <Route path="/shop/:username" element={<ShopPage />} />
             <Route path="/checkout/:sellerId" element={<Checkout />} />
-            <Route path="vender" element={<CreateProduct />} />
+            <Route path="/vender" element={<CreateProduct />} />
             <Route element={<DashboardLayout />}>
               <Route path="perfil" element={<Profile />} />
               <Route path="billetera" element={<WalletPage />} />
@@ -65,8 +69,10 @@ export default function App() {
               <Route path="publicaciones" element={<SellerDashboard />} />
               <Route path="historial" element={<History />} />
               <Route path="posts" element={<Posts />} />
+              <Route path="mis-ordenes" element={<MyOrders />} />
               {/* Agrega historial y posts de la misma forma */}
             </Route>
+            <Route path="/terminos-y-condiciones" element={<TermsAndConditions />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useCartStore } from "../store/useCartStore";
 import {
@@ -14,23 +14,32 @@ import Swal from "sweetalert2";
 import { AddressSection } from "../components/AddressSection";
 import { useUserStore } from "../store/useUserStore";
 import { usePrivy } from "@privy-io/react-auth";
+import AuthOnboarding from "../components/AuthOnboarding";
+import { useSyncUser } from "../Utils/userSync";
 
 export default function Checkout() {
   const { sellerId } = useParams();
   const navigate = useNavigate();
   const { cart, removeFromCart } = useCartStore();
   const { dbUser, setDbUser } = useUserStore();
-  const { getAccessToken } = usePrivy(); // Asumiendo que viene de Privy
+  const { getAccessToken, ready, user, authenticated } = usePrivy(); // Asumiendo que viene de Privy
   const [selectedAddress, setSelectedAddress] = useState(
     dbUser?.addresses?.[0] || null,
   );
+  const { syncUser } = useSyncUser(setDbUser);
 
   const getEffectivePrice = (item) => {
     if (item.salePrice && item.salePrice > 0) {
       return item.salePrice;
     }
-    return item.priceARS;
+    return item.price;
   };
+
+  useEffect(() => {
+    if (dbUser?.addresses?.[0]) {
+      setSelectedAddress(dbUser.addresses[0]);
+    }
+  }, [dbUser]);
 
   const handleSelectAddress = (addr) => {
     // 1. Primero actualizamos el estado local
@@ -59,6 +68,30 @@ export default function Checkout() {
     });
   };
 
+
+// Validación robusta basada en tu objeto real de usuario
+const canProceedToCheckout = (user) => {
+  if (!user) return false;
+
+  const hasIdentity = user.firstName && user.lastName && user.dni;
+  const hasContact = user.phone;
+  // const hasDefaultAddress = user.addresses?.some(addr => addr.isDefault === true);
+
+  return hasIdentity && hasContact;
+};
+
+console.log(dbUser)
+
+const isProfileIncomplete = (user) => {
+  if (!user) return true;
+  
+  const hasBasicData = user.firstName && user.dni && user.phone;
+  // const hasAddress = user.addresses && user.addresses.length > 0;
+  
+  // return !hasBasicData || !hasAddress;
+  return !hasBasicData;
+};
+
   const handleFinalConfirm = async () => {
     if (!selectedAddress) {
       return Swal.fire({ icon: "warning", title: "Falta la dirección" });
@@ -74,8 +107,10 @@ export default function Checkout() {
     <div style="text-align: left; font-size: 0.9rem; line-height: 1.5; color: ${isDark ? "#e4e4e7" : "#374151"};">
       
       <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid ${isDark ? "#27272a" : "#e5e7eb"};">
-        <p style="margin: 5px 0;">📦 <b>Resumen:</b> ${sellerProducts.reduce((acc, p) => acc + p.quantity, 0)} unidades de <b>${sellerProducts[0]?.name}${sellerProducts.length > 1 ? " y otros" : ""}</b></p>
-        <p style="margin: 5px 0;">💰 <b>Importe Total:</b> <span style="color: #3483fa; font-weight: 800;">$${total.toLocaleString()}</span></p>
+        <p style="margin: 5px 0;"> <b>Resumen:</b> ${sellerProducts.reduce((acc, p) => acc + p.quantity, 0)} unidades de <b>${sellerProducts[0]?.name}${sellerProducts.length > 1 ? " y otros" : ""}</b></p>
+        <p style="margin: 5px 0;">📦 <b>Importe de Productos:</b> <span style="color: #3483fa; font-weight: 800;">$${total.toLocaleString()}</span></p>
+        <p style="margin: 5px 0;">🚚 <b>Importe de Envío:</b> <span style="color: #3483fa; font-weight: 800;">$${shippingTotal.toLocaleString()}</span></p>
+        <p style="margin: 5px 0;">💰 <b>Importe Final:</b> <span style="color: #3483fa; font-weight: 800;">$${finalTotal.toLocaleString()}</span></p>
         <p style="margin: 5px 0;">👤 <b>Vendedor:</b> ${sellerName}</p>
       </div>
 
@@ -140,7 +175,7 @@ export default function Checkout() {
         <p style="margin: 5px 0;"><b>CBU:</b> 0000003100012345678901</p>
         <p style="margin: 5px 0;"><b>Alias:</b> mercado.nero.demo</p>
         <p style="margin: 10px 0 0 0; font-size: 1.1rem; color: #3483fa; font-weight: bold;">
-          Total: $${total.toLocaleString()}
+          Total: $${response.data.order.totalAmount.toLocaleString()}
         </p>
       </div>
       <p>Transferí y presioná el botón de abajo para avisarle al vendedor.</p>
@@ -161,8 +196,8 @@ export default function Checkout() {
               const token = await getAccessToken();
               // Actualizamos la orden a "verifying_payment"
               return await axios.patch(
-                `${import.meta.env.VITE_SERVER_URL}/api/order/mark-as-paid/${newOrderId}`,
-                {},
+                `${import.meta.env.VITE_SERVER_URL}/api/order/${newOrderId}`,
+                { status: 'verifying_payment' },
                 { headers: { Authorization: `Bearer ${token}` } },
               );
             } catch (error) {
@@ -205,11 +240,24 @@ const total = useMemo(() => {
     // Verificamos si existe el precio de oferta y es mayor a 0
     const effectivePrice = (p.sale && p.sale.price > 0) 
       ? p.sale.price 
-      : p.priceARS;
+      : p.price;
       
     return acc + (effectivePrice * p.quantity);
   }, 0);
 }, [sellerProducts]);
+
+// CALCULO DEL COSTO DE ENVIO: Se toma el valor mas alto
+  const shippingTotal = useMemo(() => {
+  const costs = sellerProducts.map(p => p.shipping?.free ? 0 : (p.shipping?.cost || 0));
+  
+  // Si todos son gratis, el max será 0. Si hay costos, tomamos el mayor.
+  return Math.max(...costs);
+}, [sellerProducts]);
+
+// Calculamos el total final sumando productos + envío
+const finalTotal = useMemo(() => total + shippingTotal, [total, shippingTotal]);
+
+
   const sellerName = sellerProducts[0]?.sellerName || "Vendedor";
 
   // 2. Función para crear la orden real
@@ -237,12 +285,14 @@ const total = useMemo(() => {
           items: sellerProducts.map((p) => ({
             productId: p._id,
             title: p.name,
-            price: p.priceARS,
+            price: p.price,
             quantity: p.quantity,
             image: p.images?.[0]?.url || p.image,
           })),
           shippingAddress: selectedAddress,
           totalAmount: total,
+          productsAmount: productsAmount,
+          shippingAmount: shippingTotal,
         },
         {
           headers: { Authorization: `Bearer ${token}` },
@@ -273,6 +323,12 @@ const total = useMemo(() => {
       );
     }
   };
+
+// Ahora puedes pasarle la función al Onboarding sin problemas
+// if (!authenticated || isProfileIncomplete(dbUser) || !dbUser || !canProceedToCheckout(dbUser)) {
+if (!authenticated ||  !dbUser ) {
+  return <AuthOnboarding onComplete={syncUser} initialStep={authenticated ? 2 : 1} />;
+}
 
   if (sellerProducts.length === 0) {
     return (
@@ -325,6 +381,7 @@ const total = useMemo(() => {
               profile={dbUser}
               setProfile={setDbUser}
               handleSelectAddress={handleSelectAddress}
+              selectedAddress={selectedAddress}
             />
 
             {selectedAddress && (
@@ -401,7 +458,7 @@ const total = useMemo(() => {
                     ) : (
                       /* Precio normal si no hay oferta */
                       <p className="text-sm font-medium dark:text-white">
-                        ${(item.priceARS * item.quantity).toLocaleString()}
+                        ${(item.price * item.quantity).toLocaleString()}
                       </p>
                     )}
                   </div>
@@ -424,20 +481,20 @@ const total = useMemo(() => {
                 <span>${total.toLocaleString()}</span>
               </div>
               <div className="flex justify-between text-sm text-green-600 font-bold">
-                <span>Envío</span>
-                <span>Gratis</span>
+                <span>Envío: </span>
+                <span>${shippingTotal.toLocaleString()}</span>
               </div>
               <div className="border-t dark:border-zinc-800 pt-4 flex justify-between">
                 <span className="text-lg font-bold dark:text-white">Total</span>
                 <span className="text-lg font-bold dark:text-white">
-                  ${total.toLocaleString()}
+                  ${finalTotal.toLocaleString()}
                 </span>
               </div>
             </div>
 
             <button
               onClick={handleFinalConfirm}
-              disabled={!selectedAddress}
+              // disabled={!selectedAddress}
               className={`w-full py-4 rounded-md font-bold text-white transition-all flex items-center justify-center gap-2 ${
                 selectedAddress
                   ? "bg-[#3483fa] hover:bg-[#2968c8]"

@@ -253,6 +253,7 @@ export const deleteProduct = async (req, res) => {
 const NERO_CATEGORY_MAP = {
   "vehiculos": "autos-motos-y-otros",
   "propiedades": "inmuebles",
+  "inmuebles": "inmuebles",  // Direct mapping for inmuebles
   "televisores": { cat: "electronica-audio-y-video", sub: "televisores" },
   "celulares": { cat: "celulares-y-telefonos", sub: "celulares" },
   "supermercado": "alimentos-y-bebidas",

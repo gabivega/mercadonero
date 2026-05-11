@@ -13,7 +13,6 @@ export default function ProductCard({ product }) {
   const handleAddToCart = (e) => {
     e.stopPropagation();
     addToCart(product);
-    console.log("product: ", product);
     // TODO: Implement cart functionality
     // console.log('Added to cart:', product.name, "id:", product.id, "sold:", product.sold)
   };

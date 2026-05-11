@@ -1,11 +1,11 @@
+// DashboardLayout.jsx
 import { Outlet, Navigate } from 'react-router-dom';
 import { usePrivy } from '@privy-io/react-auth';
 import Sidebar from './Sidebar.jsx';
 
-const DashboardLayout = () => {
+const DashboardLayout = ({ children }) => { // <--- Agregamos children
   const { authenticated, ready, logout } = usePrivy();
 
-  // 1. Mientras Privy está verificando la sesión, mostramos un estado de carga
   if (!ready) {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-50 dark:bg-[#1A1A1A]">
@@ -14,21 +14,21 @@ const DashboardLayout = () => {
     );
   }
 
-  // 2. Si no está autenticado, lo mandamos al inicio (Protección de Ruta)
-  if (!authenticated) {
+  // IMPORTANTE: Quitamos el <Navigate /> de aquí si queremos 
+  // que CreateProduct controle su propia lógica de login.
+  // Si no, CreateProduct nunca se verá si no hay login.
+  if (!authenticated && !children) { 
     return <Navigate to="/" replace />;
   }
 
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-[#1A1A1A]">
-      {/* Sidebar fijo a la izquierda */}
       <Sidebar handleLogout={logout} />
-
-      {/* Contenido dinámico a la derecha */}
       <main className="flex-1 p-8 transition-all">
-        {/* El componente Outlet es donde React Router inyectará las páginas del dashboard */}
         <div className="max-w-6xl mx-auto">
-          <Outlet />
+          {/* Si pasamos hijos manualmente (CreateProduct), los muestra. 
+              Si no, muestra lo que venga por el Router (Perfil, etc) */}
+          {children ? children : <Outlet />}
         </div>
       </main>
     </div>

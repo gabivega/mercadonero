@@ -11,13 +11,13 @@ import {
 import ProductImageUploadModal from "../components/ProductImageuploader";
 import { deformatMoney, formatMoney } from "../Utils/currencyFormatter";
 
-const ProductForm = ({handleSubmit, isSubmitting}) => {
+const ProductForm = ({ handleSubmit, isSubmitting }) => {
   const [product, setProduct] = useState({
     name: "",
     brand: "",
     description: "",
     price: "",
-    currency: "",
+    currency: "ARS",
     sale: {
       price: "",
     },
@@ -42,7 +42,7 @@ const ProductForm = ({handleSubmit, isSubmitting}) => {
   });
   const [isImgModalOpen, setIsImgModalOpen] = useState(false);
 
-    const handleInputChange = (e) => {
+  const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
     const val = type === "checkbox" ? checked : value;
     setProduct((prev) => {
@@ -99,7 +99,7 @@ const ProductForm = ({handleSubmit, isSubmitting}) => {
       };
     });
   };
-const internalSubmit = (e) => {
+  const internalSubmit = (e) => {
     e.preventDefault(); // Evitamos que recargue la página
     handleSubmit(product); // Ejecutamos la función del padre pasando los datos del hijo
   };
@@ -197,15 +197,15 @@ const internalSubmit = (e) => {
             <label className="text-xs font-black text-gray-400 uppercase">
               Moneda
             </label>
-           <select
-           name="currency"
-           className="input-nero"
-           value={product.currency}
-           onChange={handleInputChange}
-           >
-            <option value="ARS">ARS</option>
-            <option value="USD">USD</option>
-           </select>
+            <select
+              name="currency"
+              className="input-nero"
+              value={product.currency}
+              onChange={handleInputChange}
+            >
+              <option value="ARS">ARS</option>
+              <option value="USD">USD</option>
+            </select>
           </div>
           <div className="space-y-2">
             <label className="text-xs font-black text-gray-400 uppercase">

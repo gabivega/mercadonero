@@ -26,7 +26,7 @@ export default function Cart() {
 
   // Agrupamos por ID de vendedor para procesar órdenes individuales
   const groupedBySeller = cart.reduce((acc, item) => {
-    const sellerId = item.seller._id || "unknown";
+    const sellerId = item.seller || "unknown";
     const sellerName = item.sellerName || "Vendedor de Mercado Nero";
     if (!acc[sellerId]) {
       acc[sellerId] = {
@@ -75,7 +75,7 @@ export default function Cart() {
             const sellerTotal = group.products.reduce((acc, p) => {
               // Verificamos si tiene precio de oferta activo
               const currentPrice =
-                p.sale && p.sale.price > 0 ? p.sale.price : p.priceARS;
+                p.sale && p.sale.price > 0 ? p.sale.price : p.price;
 
               return acc + currentPrice * p.quantity;
             }, 0);

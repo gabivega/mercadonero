@@ -3,7 +3,7 @@ import { MapPin, Plus, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import axios from "axios";
 import Swal from "sweetalert2";
 
-export const AddressSection = ({ addresses, getAccessToken, profile, setProfile, handleSelectAddress }) => {
+export const AddressSection = ({ addresses, getAccessToken, profile, setProfile, handleSelectAddress, selectedAddress }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [newAddress, setNewAddress] = useState({
     addressType: "home",
@@ -294,7 +294,7 @@ const handleDelete = async (addressId) => {
             <div className="md:col-span-6">
               <input
                 list="city-suggestions"
-                placeholder="Ciudad *"
+                placeholder="Ciudad/Partido *"
                 className="input-nero w-full"
                 value={newAddress.city}
                 onChange={(e) =>
@@ -360,40 +360,52 @@ const handleDelete = async (addressId) => {
         {addresses.map((addr, idx) => (
           <div
             key={idx}
-            className="flex items-center justify-between p-4 bg-white dark:bg-[#1A1A1A] border border-gray-100 dark:border-gray-800 rounded-2xl group cursor-pointer"
+            className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-white dark:bg-[#1A1A1A] border-2 rounded-2xl group cursor-pointer transition-all ${
+              addr.isDefault && addr._id === selectedAddress?._id
+                ? 'border-blue-500 dark:border-blue-400 shadow-md shadow-blue-500/20' 
+                : addr._id === selectedAddress?._id
+                  ? 'border-blue-500 dark:border-blue-400 shadow-md shadow-blue-500/20'
+                  : 'border-gray-100 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-600'
+            }`}
             onClick={() => handleSelectAddress(addr)}
           >
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-gray-50 dark:bg-white/5 rounded-lg text-gray-400">
+            <div className="flex items-start sm:items-center gap-3 flex-1">
+              <div className="p-2 bg-gray-50 dark:bg-white/5 rounded-lg text-gray-400 flex-shrink-0">
                 <MapPin size={18} />
               </div>
-              <div>
-                <p className="text-sm font-bold dark:text-white">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold dark:text-white truncate">
                   {addr.street} {addr.streetNumber ? `N° ${addr.streetNumber}` : ''}
                 </p>
-                <p className="text-[10px] text-gray-500">
+                <p className="text-[10px] text-gray-500 truncate">
                   {addr.city}, {addr.province} (CP {addr.zipCode})
                 </p>
               </div>
             </div>
-            <h3 className="text-s text-gray-500 capitalize flex-1 ml-6">
-              {addr.addressType === "home"
-                ? "Casa"
-                : addr.addressType === "work"
-                  ? "Trabajo"
-                  : "Otro"}
-            </h3>
-            {addr.isDefault && (
-              <span className="text-[10px] font-black uppercase tracking-tighter text-blue-600 mr-6">
-                Dirección principal
-              </span>
-            )}
-            <button
-              onClick={() => handleDelete(addr._id)}
-              className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg transition-all"
-            >
-              <Trash2 size={16} />
-            </button>
+            
+            <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto mt-2 sm:mt-0 gap-2 sm:gap-3">
+              <h3 className="text-xs text-gray-500 capitalize flex-1 sm:flex-none">
+                {addr.addressType === "home"
+                  ? "Casa"
+                  : addr.addressType === "work"
+                    ? "Trabajo"
+                    : "Otro"}
+              </h3>
+              {addr.isDefault && (
+                <span className="text-[10px] font-black uppercase tracking-tighter text-blue-600 whitespace-nowrap">
+                  Principal
+                </span>
+              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDelete(addr._id);
+                }}
+                className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg transition-all flex-shrink-0"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
           </div>
         ))}
       </div>

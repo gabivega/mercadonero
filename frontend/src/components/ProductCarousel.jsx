@@ -29,7 +29,6 @@ const fetchProducts = async () => {
 
     // --- EL FILTRO MÁGICO EN EL FRONT ---
     const allProducts = response.data.products;
-    console.log(allProducts)
     
     // Si hay usuario logueado, filtramos sus productos. Si no, mostramos todo.
     const filtered = dbUser?._id 

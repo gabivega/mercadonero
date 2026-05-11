@@ -20,6 +20,8 @@ const formato = new Intl.DateTimeFormat('es-ES', {
     console.log("User route hit Endpoint at: ", formato.format(ahora));
     const { did } = req.user; // Viene del middleware
     const { email, walletAddress } = req.body;
+    console.log("email:", email)
+    console.log("walletAddress:", walletAddress)
 
     // Buscamos si ya existe
     let user = await User.findOne({ privyDid: did });

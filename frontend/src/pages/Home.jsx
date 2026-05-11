@@ -90,6 +90,15 @@ export default function Home() {
         />
       )}
 
+      {/* Inmuebles Carousel */}
+      {validProducts.length > 0 && (
+        <ProductCarousel
+          title="Inmuebles"
+          category="inmuebles"
+          sectionId="inmuebles"
+        />
+      )}
+
 
       <ProductCarousel 
   title="Hogar muebles y Jardin" 

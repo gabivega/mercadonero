@@ -14,6 +14,9 @@ import {
   List,
   MessageSquare,
   LogOut,
+  ShoppingBag,
+  FileText,
+  LayoutDashboard,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSelector, useDispatch } from "react-redux";
@@ -23,6 +26,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { usePrivy } from "@privy-io/react-auth";
 import { useCartStore } from "../store/useCartStore";
 import { useUserStore } from "../store/useUserStore";
+import { useSyncUser } from "../Utils/userSync";
 
 // Asset Imports
 import darkLogo from "../assets/img/mercado-nero-logo-white.png";
@@ -31,6 +35,7 @@ import whiteLogo from "../assets/img/mercado-nero-logo-full-white-tr.png";
 import whiteLogoGray from "../assets/img/mercado-nero-logo-full-white-gray.png";
 import blackLogo from "../assets/img/mn-logo-black.png";
 import { categories } from "../data/categories";
+import NeroLogin from "./NeroLogin";
 
 const NavLink = ({ href, children, mobile = false }) => {
   // Check if it's an internal link (starts with /)
@@ -92,7 +97,7 @@ const IconButton = ({ icon: Icon, onClick, badge = 0, mobile = false }) => (
 );
 
 export default function Header() {
-const { dbUser, setDbUser } = useUserStore();
+  const { dbUser, setDbUser } = useUserStore();
   const theme = useSelector((s) => s.theme.mode);
   const dispatch = useDispatch();
   const navigate = useNavigate();
@@ -104,62 +109,33 @@ const { dbUser, setDbUser } = useUserStore();
   const [areCategoriesExpanded, setAreCategoriesExpanded] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isLoginOpen, setIsLoginOpen] = useState(false);
+  
   // Prevent hydration mismatch
   useEffect(() => {
     setMounted(true);
   }, []);
 
-useEffect(() => {
-  const syncUser = async () => {
-    if (ready && authenticated && user && !isSyncing) {
-      setIsSyncing(true);
-      try {
-        const token = await getAccessToken();
+  const { syncUser } = useSyncUser(setDbUser);
 
-        const response = await fetch(
-          "http://localhost:3000/api/auth/sync-user",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              email: user.email?.address,
-              walletAddress: user.wallet?.address,
-            }),
-          }
-        );
+  useEffect(() => {
+    if (ready && authenticated && user) {
+    syncUser();
+  }
+  }, [ready, authenticated, user, setDbUser, user?.wallet?.address]);
 
-        const data = await response.json();
-        
-        // Verificamos qué viene en la consola para estar seguros
-
-        if (data) {
-          setDbUser(data);
-        }
-      } catch (error) {
-        console.error("❌ Error en la sincronización:", error);
-      } finally {
-        setIsSyncing(false);
-      }
-    }
-  };
-
-  syncUser();
-}, [ready, authenticated, user, setDbUser]);
 
   const handleToggleTheme = () => {
     dispatch(toggleTheme());
   };
 
-  const handleLogin = async () => {
-    try {
-      await login();
-      console.log("user: ", user);
-    } catch (error) {
-      console.error("Error al autenticar:", error);
-    }
+  const handleLogin = () => {
+    setIsLoginOpen(true);
+    // try {
+    //   await login();
+    // } catch (error) {
+    //   console.error("Error al autenticar:", error);
+    // }
   };
 
   const handleLogout = async () => {
@@ -181,6 +157,19 @@ useEffect(() => {
   };
 
   const menuItems = ["Categorias", "Ofertas", "Comunidad", "Vender", "Ayuda"];
+
+if (isLoginOpen) {
+  return (    
+    <NeroLogin 
+      isOpen={isLoginOpen} 
+      onClose={() => setIsLoginOpen(false)}
+      onLoginSuccess={(user) => {
+        // Opcional: Aquí podrías navegar a otra página si quieres
+        // navigate('/dashboard');
+      }}
+    />
+  );
+}
 
   return (
     <header className="sticky top-0 z-50 w-full bg-[#FB6002] dark:bg-[#1a1a1a] shadow-sm transition-colors duration-300 dark:border-b border-gray-200 dark:border-zinc-800">
@@ -224,7 +213,9 @@ useEffect(() => {
             {/* Navigation Links */}
             <nav className="hidden lg:flex items-center gap-8 mt-3 w-full justify-center">
               <div className="relative group">
-                <p className="cursor-pointer" href="#categorias">Categorias</p>
+                <p className="cursor-pointer" href="#categorias">
+                  Categorias
+                </p>
                 <div className="absolute left-0 top-full w-56 bg-white dark:bg-zinc-900 rounded-lg shadow-lg border border-gray-100 dark:border-zinc-800 opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-all z-50">
                   <ul className="py-2">
                     {categories.map((cat) => (
@@ -535,10 +526,24 @@ useEffect(() => {
                 </nav>
 
                 {/* Mobile Quick Actions */}
-                <div className="grid grid-cols-4 gap-4 py-4 border-t border-gray-100 dark:border-zinc-800">
+                <div className="grid grid-cols-3 gap-4 py-4 border-t border-gray-100 dark:border-zinc-800">
                   {ready && authenticated ? (
                     <>
-                      <div className="flex flex-col items-center gap-2">
+                      <div
+                        className="flex flex-col items-center gap-2 cursor-pointer"
+                        onClick={() => handleMenuClick("/perfil")}
+                      >
+                        <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-blue-600">
+                          <User className="w-6 h-6" />
+                        </div>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          Perfil
+                        </span>
+                      </div>
+                      <div
+                        className="flex flex-col items-center gap-2 cursor-pointer"
+                        onClick={() => handleMenuClick("/billetera")}
+                      >
                         <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-[#FB6002]">
                           <Wallet className="w-6 h-6" />
                         </div>
@@ -546,15 +551,10 @@ useEffect(() => {
                           Billetera
                         </span>
                       </div>
-                      <div className="flex flex-col items-center gap-2">
-                        <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-[#FB6002]">
-                          <Heart className="w-6 h-6" />
-                        </div>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          Favoritos
-                        </span>
-                      </div>
-                      <div className="flex flex-col items-center gap-2">
+                      <div
+                        className="flex flex-col items-center gap-2 cursor-pointer"
+                        onClick={() => handleMenuClick("/notificaciones")}
+                      >
                         <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-[#FB6002]">
                           <Bell className="w-6 h-6" />
                         </div>
@@ -564,15 +564,73 @@ useEffect(() => {
                       </div>
                       <div
                         className="flex flex-col items-center gap-2 cursor-pointer"
-                        onClick={handleLogout}
+                        onClick={() => handleMenuClick("/vender")}
                       >
-                        <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-red-500">
-                          <LogOut className="w-6 h-6" />
+                        <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-green-600">
+                          <Plus className="w-6 h-6" />
                         </div>
                         <span className="text-xs text-gray-500 dark:text-gray-400">
-                          Salir
+                          Vender
                         </span>
                       </div>
+                      <div
+                        className="flex flex-col items-center gap-2 cursor-pointer"
+                        onClick={() => handleMenuClick("/compras")}
+                      >
+                        <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-[#FB6002]">
+                          <ShoppingBag className="w-6 h-6" />
+                        </div>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          Compras
+                        </span>
+                      </div>
+                      <div
+                        className="flex flex-col items-center gap-2 cursor-pointer"
+                        onClick={() => handleMenuClick("/historial")}
+                      >
+                        <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-[#FB6002]">
+                          <Clock className="w-6 h-6" />
+                        </div>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          Historial
+                        </span>
+                      </div>
+                      <div
+                        className="flex flex-col items-center gap-2 cursor-pointer"
+                        onClick={() => handleMenuClick("/posts")}
+                      >
+                        <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-[#FB6002]">
+                          <FileText className="w-6 h-6" />
+                        </div>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          Posts
+                        </span>
+                      </div>
+                      <div
+                        className="flex flex-col items-center gap-2 cursor-pointer"
+                        onClick={() => handleMenuClick("/publicaciones")}
+                      >
+                        <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-green-600">
+                          <List className="w-6 h-6" />
+                        </div>
+                        {/* <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-[#FB6002]">
+                          <LayoutDashboard className="w-6 h-6" />
+                          </div> */}
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          Publicaciones
+                        </span>
+                      </div>
+                          <div
+                            className="flex flex-col items-center gap-2 cursor-pointer"
+                            onClick={handleLogout}
+                          >
+                            <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-green-600">
+                              <LogOut className="w-6 h-6" />
+                            </div>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                              Cerrar Sesion
+                            </span>
+                          </div>
                     </>
                   ) : (
                     <div className="col-span-4 flex justify-center">
