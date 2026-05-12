@@ -27,6 +27,7 @@ const formato = new Intl.DateTimeFormat('es-ES', {
     let user = await User.findOne({ privyDid: did });
 
     if (!user) {
+      console.log("creando usuario nuevo")
       // generamos un username utilizando el id de privy
       const shortId = did.split(':').pop().slice(-6); 
       const tempUsername = `nero-${shortId}`;
@@ -41,12 +42,14 @@ const formato = new Intl.DateTimeFormat('es-ES', {
           name: `Tienda de ${tempUsername}`
         }
       });
+      console.log("usuario creado:", user)
       await user.save();
       console.log("Nuevo usuario registrado en Mongo:", did);
     }
 
     res.status(200).json(user);
   } catch (error) {
+    console.log(error)
     res.status(500).json({ message: "Error al sincronizar usuario" });
   }
 });

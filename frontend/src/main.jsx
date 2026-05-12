@@ -6,7 +6,7 @@ import App from "./App";
 import "./index.css";
 import { PrivyProvider } from "@privy-io/react-auth";
 // Replace this with any of the networks listed at https://github.com/wevm/viem/blob/main/src/chains/index.ts
-import { bsc } from "viem/chains";
+import { bsc, bscTestnet } from "viem/chains";
 import logoDark from "./assets/img/mn-logo-dark.png";
 import logoLight from "./assets/img/mn-logo-light.png";
 
@@ -47,8 +47,8 @@ const PrivyAppWrapper = () => {
       coinbaseWallet: {
         enabled: false,
       }},
-        supportedChains: [bsc],
-        defaultChain: bsc,
+        supportedChains: [bsc, bscTestnet],
+        defaultChain: bscTestnet,
         embeddedWallets: {
           ethereum: {
             createOnLogin: "users-without-wallets",

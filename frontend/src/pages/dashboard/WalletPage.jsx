@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { createPublicClient, http, formatUnits, createWalletClient, custom, parseUnits } from 'viem';
-import { bsc } from 'viem/chains';
+import { bsc, bscTestnet } from 'viem/chains';
 import { Wallet, RefreshCcw, ArrowUpRight } from 'lucide-react';
 import SendTokenModal from '../../components/SendTokenModal';
 
 const TOKENS = [
-  { symbol: 'NERO', name: 'Nero Token', address: '0xd827582763bF4b562bb4e69C025f8AD26c51078b', decimals: 18 },
+  // { symbol: 'NERO', name: 'Nero Token', address: '0xd827582763bF4b562bb4e69C025f8AD26c51078b', decimals: 18 },
   { symbol: 'USDT', name: 'Tether USD', address: '0x55d398326f99059fF775485246999027B3197955', decimals: 18 },
   { symbol: 'USDC', name: 'USD Coin', address: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d', decimals: 18 },
   { symbol: 'DAI', name: 'DAI Stablecoin', address: '0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3', decimals: 18 },

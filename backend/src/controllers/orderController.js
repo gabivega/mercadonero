@@ -156,7 +156,7 @@ const getOrderById = async (req, res) => {
   try {
     console.log("Getting order by id:", req.params.orderId);
     const order = await Order.findById(req.params.orderId)
-      .populate("buyer", "username avatar")
+      .populate("buyer", "username avatar firstName lastName dni")
       .populate("seller", "username shop bankDetails"); // Traemos datos del vendedor
 
     if (!order) return res.status(404).json({ message: "Orden no encontrada" });
@@ -223,6 +223,7 @@ const updateOrder = async (req, res) => {
     if (isSeller) {
       if (updates.status === "paid" && order.status === "verifying_payment") {
         order.status = "paid";
+        order.paymentVerifiedAt = new Date();
       }
 
       if (order.status === "paid" && updates.shipping && updates.shipping.trackingNumber && updates.shipping.provider) {
@@ -239,12 +240,13 @@ const updateOrder = async (req, res) => {
 
     // 3. Comprador confirma recepción final
     if (updates.status === "completed" && isBuyer) {
-      if (order.status !== "paid" && !order.trackingNumber) {
+      if (order.status !== "shipped") {
         return res
           .status(400)
-          .json({ message: "No podés completar sin pago/envío" });
+          .json({ message: "No podés completar la orden ya que el pago no fue confirmado por el vendedor" });
       }
       order.status = "completed";
+      order.completedAt = new Date();
     }
 
     // 4. Cancelación (Solo si está pendiente)

@@ -18,6 +18,7 @@ import ShippingForm from "../../components/ShippingForm";
 import PaymentAction from "../../components/PaymentAction";
 import ConfirmPaymentAction from "../../components/ConfirmPaymentAction";
 import ShippingStatusCard from "../../components/ShippingStatusCard";
+import OrderInfoAccordion from "../../components/OrderInfoAccordion";
 
 export default function OrderDetail() {
   const { id } = useParams();
@@ -43,7 +44,7 @@ export default function OrderDetail() {
         },
       );
       setOrder(res.data.order);
-      console.log(res.data.order);
+      // console.log(res.data.order);
     } catch (err) {
       console.error(err);
     } finally {
@@ -113,7 +114,7 @@ export default function OrderDetail() {
     },
     { id: "paid", label: "Pagado", icon: <CheckCircle size={20} /> },
     { id: "shipped", label: "En camino", icon: <Truck size={20} /> },
-    { id: "completed", label: "Entregado", icon: <Package size={20} /> },
+    { id: "completed", label: "Completado", icon: <Package size={20} /> },
   ];
 
   const currentStepIndex = steps.findIndex((s) => s.id === order.status);
@@ -200,6 +201,7 @@ export default function OrderDetail() {
           {role === "buyer" && order.status === "paid" || order.status === "shipped" && (
             <ShippingStatusCard
               order={order}
+              role={role}
             />
           )}
 
@@ -265,6 +267,10 @@ export default function OrderDetail() {
               </div>
             )}
           </section>
+
+          <OrderInfoAccordion 
+          order={order} 
+          role={role === 'seller' ? 'seller' : 'buyer'}/>
 
           <section className="bg-gray-50 dark:bg-zinc-900/50 p-6 rounded-2xl border dark:border-zinc-800">
             <h4 className="text-xs font-bold text-gray-400 uppercase mb-3">

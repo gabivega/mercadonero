@@ -29,6 +29,7 @@ import OrderDetail from "./pages/dashboard/OrderDetail";
 import TermsAndConditions from "./pages/TermsAndConditions";
 import LoginPage from "./pages/LoginPage";
 import MyOrders from "./pages/dashboard/MyOrders";
+import AdminDashboard from "./pages/AdminDashboard";
 
 export default function App() {
   const theme = useSelector((s) => s.theme.mode);
@@ -72,6 +73,7 @@ export default function App() {
               <Route path="mis-ordenes" element={<MyOrders />} />
               {/* Agrega historial y posts de la misma forma */}
             </Route>
+            <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/terminos-y-condiciones" element={<TermsAndConditions />} />
             <Route path="*" element={<NotFound />} />
           </Routes>

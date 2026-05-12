@@ -85,10 +85,13 @@ const orderSchema = new mongoose.Schema(
       default: "pending_payment",
     },
     paymentProof: { type: String },
+    paymentVerifiedAt: { type: Date },   // Cuando el vendedor da el OK al pago
+    completedAt: { type: Date },        // Cierre final (disparo de Smart Contract)
     shippingDetails: {
       provider: { type: String },
       trackingNumber: { type: String },
       shippedAt: { type: Date },
+      deliveredAt: { type: Date },
       otherProviderDetail: { type: String }, // Por si eligen "Otro"
     },
     expiresAt: { type: Date, required: true },
