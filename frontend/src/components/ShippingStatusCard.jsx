@@ -169,7 +169,7 @@ export default function ShippingStatusCard({ order, role }) {
                 {loading ? 'Procesando...' : <><CheckCircle size={20} /> Confirmar Recepción</>}
               </button>
               <p className="mt-2 text-[9px] text-center text-zinc-400 font-medium">
-                Al confirmar, el colateral del vendedor será liberado.
+                Al confirmar que recibiste todo en orden, se termina la proteccion de la compra.
               </p>
             </div>
           )}

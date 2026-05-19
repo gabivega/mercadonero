@@ -1,5 +1,6 @@
 import Order from "../models/Order.js";
 import Product from "../models/Product.js";
+import { calculateOrderFinancials } from "../../../frontend/src/Utils/OrderUtils.js";
 
 const createOrder = async (req, res) => {
   try {
@@ -7,13 +8,12 @@ const createOrder = async (req, res) => {
     const buyerId = req.user._id; // Viene de tu middleware attachUser
 
     let maxShippingCost = 0;
-
+    let calculatedTotal = 0;
     // 1. Obtener los IDs de los productos para buscarlos en la DB
     const productIds = items.map((item) => item.productId);
     const dbProducts = await Product.find({ _id: { $in: productIds } });
 
     // 2. Construir el itemsSnapshot validando datos reales
-    let calculatedTotal = 0;
     const itemsSnapshot = items.map((cartItem) => {
       const actualProduct = dbProducts.find(
         (p) => p._id.toString() === cartItem.productId,
@@ -41,6 +41,7 @@ const createOrder = async (req, res) => {
         maxShippingCost = shippingCost;
       }
 
+      
       // Creamos el clon del producto para la posteridad
       return {
         productId: actualProduct._id,
@@ -58,7 +59,8 @@ const createOrder = async (req, res) => {
         specifications: actualProduct.specifications,
       };
     });
-
+    const financials = await calculateOrderFinancials(calculatedTotal, maxShippingCost);
+    
     // 3. Definir expiración (Parametrizable)
     const MINUTES_TO_EXPIRATION = 60;
     const expiresAt = new Date();
@@ -75,6 +77,7 @@ const createOrder = async (req, res) => {
       productsAmount: calculatedTotal,
       shippingAmount: maxShippingCost,
       status: "pending_payment",
+      financials,
       expiresAt: expiresAt,
     });
 

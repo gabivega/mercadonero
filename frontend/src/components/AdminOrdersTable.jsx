@@ -1,22 +1,34 @@
 import React, { useEffect, useState } from 'react';
 import { Eye, RefreshCw, ExternalLink } from 'lucide-react';
+import axios from 'axios';
 import { usePrivy } from '@privy-io/react-auth';
+import { formatMoney } from '../utils/currencyFormatter';
+import AdminOrderModal from './AdminOrderModal';
 
 const AdminOrdersTable = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-const { user, authenticated, ready } = usePrivy();
-  const ADMIN_ID = import.meta.env.VITE_ADMIN_PRIVY_ID;
+  const {getAccessToken} = usePrivy();
+  const [selectedOrder, setSelectedOrder] = useState(null);
+const [isModalOpen, setIsModalOpen] = useState(false);
 
-
-  
+const handleOpenModal = (order) => {
+  setSelectedOrder(order);
+  setIsModalOpen(true);
+};
   
   // Simulación de fetch a tu controlador de admin
   useEffect(() => {
     const fetchOrders = async () => {
+      const token = await getAccessToken();
       try {
-        // const res = await axios.get('/api/admin/orders');
-        // setOrders(res.data);
+        const res = await axios.get(`${import.meta.env.VITE_SERVER_URL}/api/admin/orders`, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+        console.log(res.data);
+        setOrders(res.data);
         setLoading(false);
       } catch (err) {
         console.error(err);
@@ -38,16 +50,6 @@ const { user, authenticated, ready } = usePrivy();
       </span>
     );
   };
-
-    if (!ready) return <p>Cargando...</p>;
-
-    if (!authenticated || user?.id !== ADMIN_ID) {
-    return (
-      <div className="h-screen flex items-center justify-center">
-        <h1 className="text-xl font-black uppercase italic">403 | Acceso Denegado</h1>
-      </div>
-    );
-  }
   return (
     <div className="bg-white dark:bg-zinc-900 rounded-[2.5rem] border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
@@ -55,25 +57,36 @@ const { user, authenticated, ready } = usePrivy();
           <thead>
             <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/50">
               <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">ID Orden</th>
-              <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">Comprador / Vendedor</th>
+              <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">Comprador</th>
+              <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">Vendedor</th>
               <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">Monto</th>
+              <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">Fecha</th>
               <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">Estado</th>
               <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {/* Aquí harás el map de orders */}
+            {orders.map((order) => (
             <tr className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
-              <td className="p-6 font-mono text-xs text-zinc-500">#65f2...a12c</td>
+              <td className="p-6 font-mono text-xs text-zinc-500">{order._id}</td>
               <td className="p-6">
-                <div className="text-sm font-bold">Gabi Vega</div>
-                <div className="text-[10px] text-zinc-400 uppercase">A: Juan Marketing</div>
+                <div className="text-sm font-bold">{order.buyer.firstName + ' ' + order.buyer.lastName}</div>
               </td>
-              <td className="p-6 font-black text-sm">$ 150.00</td>
-              <td className="p-6"><StatusBadge status="shipped" /></td>
+              <td className="p-6">
+                <div className="text-sm font-bold">{order.seller.username}</div>
+              </td>
+              <td className="p-6 font-black text-sm">${formatMoney(order.totalAmount)}</td>
+              <td className="p-6"><div className="text-sm text-zinc-500 flex flex-col">
+                <p>{new Date(order.createdAt).toLocaleDateString()}</p>
+                <p>{new Date(order.createdAt).toLocaleTimeString()}</p>
+              </div></td>
+              <td className="p-6"><StatusBadge status={order.status} /></td>
               <td className="p-6">
                 <div className="flex items-center gap-2">
-                  <button className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-[#F26722] transition-colors">
+                  <button 
+                  onClick={() => handleOpenModal(order)}
+                  className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-[#F26722] transition-colors">
                     <Eye size={18} />
                   </button>
                   <button className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-blue-500 transition-colors">
@@ -82,8 +95,10 @@ const { user, authenticated, ready } = usePrivy();
                 </div>
               </td>
             </tr>
+            ))}
           </tbody>
         </table>
+        <AdminOrderModal order={selectedOrder} isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
       </div>
     </div>
   );

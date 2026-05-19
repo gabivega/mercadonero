@@ -22,7 +22,7 @@ const PrivyAppWrapper = () => {
     <PrivyProvider
       appId={privyAppId}
       config={{
-        loginMethods: ["email", "google",],
+        loginMethods: ["email", "google"],
         appearance: {
           theme: themeMode,
           accentColor: "#F3BA2F",
@@ -30,23 +30,29 @@ const PrivyAppWrapper = () => {
           landingHeader: "Mercado Nero",
           loginMessage: "Elige el metodo para autenticarte",
         },
-        language: 'es',
+        session: {
+          updateAfterTime: 0, // Mantiene la sesión activa
+        },
+        language: "es",
         intl: {
-    messages: {
-      'login-method-email-placeholder': 'tu@email.com',
-      'login-method-email-submit': 'Continuar',
-      'mfa-email-code-header': 'Ingresá el código',
-      'mfa-email-code-description': 'Revisá tu casilla de correo para ver el código enviado por privy.io.',
-      'mfa-email-code-resend-prompt': '¿No recibiste el correo?',
-      'mfa-email-code-resend-button': 'Reenviar código'
-    }},
-    externalWallets: {
-      metamask: {
-        enabled: false, // Desactiva explícitamente MetaMask
-      },
-      coinbaseWallet: {
-        enabled: false,
-      }},
+          messages: {
+            "login-method-email-placeholder": "tu@email.com",
+            "login-method-email-submit": "Continuar",
+            "mfa-email-code-header": "Ingresá el código",
+            "mfa-email-code-description":
+              "Revisá tu casilla de correo para ver el código enviado por privy.io.",
+            "mfa-email-code-resend-prompt": "¿No recibiste el correo?",
+            "mfa-email-code-resend-button": "Reenviar código",
+          },
+        },
+        externalWallets: {
+          metamask: {
+            enabled: false, // Desactiva explícitamente MetaMask
+          },
+          coinbaseWallet: {
+            enabled: false,
+          },
+        },
         supportedChains: [bsc, bscTestnet],
         defaultChain: bscTestnet,
         embeddedWallets: {

@@ -47,7 +47,7 @@ useEffect(() => {
       // SweetAlert de éxito y redirección
       Swal.fire({
         title: "¡SESIÓN INICIADA!",
-        text: "Te estamos redirigiendo para que sigas operando en Nero.",
+        text: "Te estamos redirigiendo para que sigas operando en Mercado Nero.",
         icon: "success",
         timer: 2000,
         showConfirmButton: false,
@@ -167,7 +167,7 @@ const handlePaste = (e) => {
                 )}
               </div>
               <h2 className="text-2xl font-black uppercase tracking-tighter dark:text-white">
-                {isCodeSent ? "Verifica el código" : "Ingresar a Nero"}
+                {isCodeSent ? "Verifica el código" : "Ingresar a Mercado Nero"}
               </h2>
               <p className="text-zinc-500 dark:text-zinc-400 mt-2 text-sm">
                 {isCodeSent

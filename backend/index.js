@@ -7,6 +7,8 @@ import productRoutes from './src/routes/productRoutes.js';
 import userRoutes from './src/routes/userRoutes.js';
 import orderRoutes from './src/routes/orderRoutes.js';
 import cartRoutes from './src/routes/cartRoutes.js';
+import adminRoutes from './src/routes/adminRoutes.js';
+import startOrderCleanup from './src/services/orderCleanup.js';
 
 const PORT = process.env.PORT || 3000;
 const app = express();
@@ -26,8 +28,12 @@ try {
   app.use('/api/user', userRoutes);
   app.use('/api/order', orderRoutes);
   app.use('/api/cart', cartRoutes);
+  app.use('/api/admin', adminRoutes);
   app.get('/', (req, res) => res.json({ success: true, message: 'API running' }));
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+  // Iniciar el servicio de limpieza de órdenes
+  startOrderCleanup();
 } catch (err) {
   console.error('DB connection failed', err);
   process.exit(1);

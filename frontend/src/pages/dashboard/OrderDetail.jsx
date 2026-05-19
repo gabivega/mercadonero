@@ -44,7 +44,7 @@ export default function OrderDetail() {
         },
       );
       setOrder(res.data.order);
-      // console.log(res.data.order);
+      console.log(res.data.order);
     } catch (err) {
       console.error(err);
     } finally {
@@ -124,7 +124,7 @@ export default function OrderDetail() {
       {/* 1. Línea de Tiempo / Status */}
       <div className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
         <div className="flex flex-wrap justify-between gap-4">
-          {steps.map((step, index) => (
+       {order.status !== "expired" ? steps.map((step, index) => (
             <div
               key={step.id}
               className={`flex flex-col items-center gap-2 flex-1 min-w-[100px] ${index <= currentStepIndex ? "opacity-100" : "opacity-30"}`}
@@ -144,7 +144,24 @@ export default function OrderDetail() {
                 {step.label}
               </p>
             </div>
-          ))}
+          )) : 
+          <div className="flex flex-col items-center gap-2 flex-1 min-w-[100px]">
+            <div className="p-3 rounded-full bg-red-500 text-white">
+              <AlertCircle size={20} />
+            </div>
+            <p className="text-[10px] font-bold uppercase text-center text-red-500">
+              Orden Expirada por falta de pago en el plazo establecido de 60 minutos.
+            </p>
+            <p className="text-[9px] text-gray-500 dark:text-gray-400 text-center">
+              {order.expiresAt ? new Date(order.expiresAt).toLocaleDateString('es-AR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              }) : 'Fecha no disponible'}
+            </p>
+          </div>}
         </div>
       </div>
 
@@ -184,6 +201,7 @@ export default function OrderDetail() {
                   // Refrescar la orden
                   fetchOrder();
                 }}
+                sellerId={order.seller._id}
               />
             </section>
           )}
@@ -216,6 +234,9 @@ export default function OrderDetail() {
               />
             </section>
           )}
+          <OrderInfoAccordion 
+          order={order} 
+          role={role === 'seller' ? 'seller' : 'buyer'}/>
 
           {/* {order.shippingDetails?.trackingNumber && (
             <section className="bg-blue-50 dark:bg-blue-900/10 p-6 rounded-2xl border border-blue-200 dark:border-blue-800">
@@ -268,9 +289,6 @@ export default function OrderDetail() {
             )}
           </section>
 
-          <OrderInfoAccordion 
-          order={order} 
-          role={role === 'seller' ? 'seller' : 'buyer'}/>
 
           <section className="bg-gray-50 dark:bg-zinc-900/50 p-6 rounded-2xl border dark:border-zinc-800">
             <h4 className="text-xs font-bold text-gray-400 uppercase mb-3">

@@ -21,7 +21,7 @@ export const useSyncUser = (setDbUser) => {
           { headers: { Authorization: `Bearer ${token}` } }
         );
 
-        if (data) setDbUser(data);
+        if (data) setDbUser(data, user.id);
       } catch (error) {
         console.error("❌ Error en la sincronización:", error);
       } finally {

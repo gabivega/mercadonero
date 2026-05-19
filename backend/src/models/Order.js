@@ -84,15 +84,41 @@ const orderSchema = new mongoose.Schema(
       ],
       default: "pending_payment",
     },
+    statusHistory: [
+      {
+        status: {
+          type: String,
+          enum: [
+            "pending_payment",
+            "verifying_payment",
+            "paid",
+            "shipped",
+            "completed",
+            "cancelled",
+            "expired",
+          ],
+          required: true,
+        },
+        changedAt: { type: Date, default: Date.now },
+        comment: { type: String }, // Útil para cuando el admin cancela manualmente
+      },
+    ],
     paymentProof: { type: String },
-    paymentVerifiedAt: { type: Date },   // Cuando el vendedor da el OK al pago
-    completedAt: { type: Date },        // Cierre final (disparo de Smart Contract)
+    paymentVerifiedAt: { type: Date }, // Cuando el vendedor da el OK al pago
+    completedAt: { type: Date }, // Cierre final (disparo de Smart Contract)
     shippingDetails: {
       provider: { type: String },
       trackingNumber: { type: String },
       shippedAt: { type: Date },
       deliveredAt: { type: Date },
       otherProviderDetail: { type: String }, // Por si eligen "Otro"
+    },
+    financials: {
+      usdRate: { type: Number, required: true }, // Cotización usada al momento de la orden
+      totalUsd: { type: Number, required: true }, // Valor total de la orden en USD
+      platformFeeUsd: { type: Number, required: true }, // El 3% en USD
+      shippingCostUsd: { type: Number, default: 0 }, // Costo de envío en USD (si aplica)
+      sellerNetReleaseUsd: { type: Number, required: true }, // Lo que efectivamente recibe el vendedor
     },
     expiresAt: { type: Date, required: true },
   },

@@ -14,16 +14,36 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
+import axios from "axios";
 
 export default function SellerDashboard() {
   const { getAccessToken } = usePrivy();
   const [products, setProducts] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchMyProducts();
+    fetchMyOrders();
   }, []);
+
+  const fetchMyOrders = async () => {
+    try {
+      const token = await getAccessToken();
+      const { data } = await axios.get(
+        `${import.meta.env.VITE_SERVER_URL}/api/order/my-orders?role=seller`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      );
+      setOrders(data.orders || []);
+    } catch (error) {
+      console.error("Error al traer órdenes:", error);
+    }
+  };
 
   const fetchMyProducts = async () => {
     try {
@@ -149,10 +169,12 @@ Swal.fire({
       color: "text-purple-500",
     },
     {
-      label: "Ventas (Mock)",
-      value: "14",
+      label: "Mis Órdenes",
+      value: orders.length,
       icon: <ShoppingCart size={20} />,
       color: "text-green-500",
+      clickable: true,
+      onClick: () => navigate("/mis-ordenes"),
     },
     {
       label: "Ingresos (Mock)",
@@ -195,9 +217,15 @@ Swal.fire({
         {stats.map((s, i) => (
           <div
             key={i}
-            className="bg-white dark:bg-[#1A1A1A] p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm"
+            onClick={s.clickable ? s.onClick : undefined}
+            className={`bg-white dark:bg-[#1A1A1A] p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm ${
+              s.clickable ? 'cursor-pointer hover:border-green-500 hover:shadow-md transition-all' : ''
+            }`}
           >
-            <div className={`mb-3 ${s.color}`}>{s.icon}</div>
+            <div className="flex justify-between items-start">
+              <div className={`mb-3 ${s.color}`}>{s.icon}</div>
+              {s.clickable && <ExternalLink size={16} className="text-gray-400" />}
+            </div>
             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
               {s.label}
             </p>

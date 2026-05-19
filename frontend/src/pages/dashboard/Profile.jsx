@@ -11,13 +11,14 @@ import {
   Check,
   Phone,
   Star,
-  Edit
+  Edit,
 } from "lucide-react";
 import NeroUploader from "../../components/NeroUploader";
 import { AddressSection } from "../../components/AddressSection";
 import { usePrivy } from "@privy-io/react-auth";
 import Swal from "sweetalert2";
 import genericProfile from "../../assets/img/generic-profile.png";
+import BankAccountSection from "../../components/BankAccountSection";
 
 export default function Profile() {
   const [profile, setProfile] = useState({
@@ -81,10 +82,10 @@ export default function Profile() {
     const { name, value } = e.target;
     setProfile((prev) => ({ ...prev, [name]: value }));
   };
-const handleSelectAddress = () => {
-  return;
-};
-  const handleSaveProfile = async () => {
+  const handleSelectAddress = () => {
+    return;
+  };
+  const handleSaveProfile = async (additionalData = {}) => {
     try {
       setLoading(true);
       const token = await getAccessToken();
@@ -95,6 +96,8 @@ const handleSelectAddress = () => {
         avatar: profile.avatar,
         dni: profile.dni,
         phone: profile.phone,
+        bankAccounts: profile.bankAccounts,
+        ...additionalData, // Sobrescribe con datos adicionales si se proporcionan
       };
       console.log(dataToUpdate);
 
@@ -201,8 +204,13 @@ const handleSelectAddress = () => {
               {/* Rating de Comprador */}
               <div className="flex items-center gap-1 px-2 py-0.5 bg-yellow-400/10 text-yellow-600 rounded-lg text-[10px] sm:text-xs font-black uppercase">
                 <Star size={10} className="fill-yellow-600" />
-                <span className="hidden sm:inline">{profile.buyerRating || "5.0"} ({profile.buyerReviewsCount || 0})</span>
-                <span className="sm:hidden">{profile.buyerRating || "5.0"}</span>
+                <span className="hidden sm:inline">
+                  {profile.buyerRating || "5.0"} (
+                  {profile.buyerReviewsCount || 0})
+                </span>
+                <span className="sm:hidden">
+                  {profile.buyerRating || "5.0"}
+                </span>
               </div>
             </div>
           </div>
@@ -221,14 +229,22 @@ const handleSelectAddress = () => {
           {/* DATOS PERSONALES */}
           <section className="bg-white dark:bg-[#1a1a1a] rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 border border-gray-100 dark:border-gray-800">
             <div className="relative flex flex-row w-full items-center justify-between">
-            <div className="flex items-center gap-2 mb-4 sm:mb-6 text-blue-600 font-bold uppercase text-xs tracking-widest">
-              <Shield size={16} /> <span className="hidden sm:inline">Información Personal</span><span className="sm:hidden">Perfil</span>
-            </div>
-            <div className="flex items-center gap-2 cursor-pointer"
-            onClick={()=>{setIsEditing(!isEditing)}}>
-              <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Haz clic para editar</p>
-              <Edit size={16} className="cursor-pointer"/>
-            </div>
+              <div className="flex items-center gap-2 mb-4 sm:mb-6 text-blue-600 font-bold uppercase text-xs tracking-widest">
+                <Shield size={16} />{" "}
+                <span className="hidden sm:inline">Información Personal</span>
+                <span className="sm:hidden">Perfil</span>
+              </div>
+              <div
+                className="flex items-center gap-2 cursor-pointer"
+                onClick={() => {
+                  setIsEditing(!isEditing);
+                }}
+              >
+                <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+                  Haz clic para editar
+                </p>
+                <Edit size={16} className="cursor-pointer" />
+              </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
               <div className="space-y-2">
@@ -336,6 +352,13 @@ const handleSelectAddress = () => {
               profile={profile}
               setProfile={setProfile}
               handleSelectAddress={handleSelectAddress}
+            />
+            <BankAccountSection
+              bankAccounts={profile?.bankAccounts || []}
+              getAccessToken={getAccessToken}
+              profile={profile}
+              setProfile={setProfile}
+              handleSaveProfile={handleSaveProfile}
             />
           </section>
         </div>

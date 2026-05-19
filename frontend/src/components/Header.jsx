@@ -97,7 +97,7 @@ const IconButton = ({ icon: Icon, onClick, badge = 0, mobile = false }) => (
 );
 
 export default function Header() {
-  const { dbUser, setDbUser } = useUserStore();
+  const { dbUser, setDbUser, isAdmin } = useUserStore();
   const theme = useSelector((s) => s.theme.mode);
   const dispatch = useDispatch();
   const navigate = useNavigate();
@@ -306,6 +306,15 @@ if (isLoginOpen) {
                               <ShoppingCart className="w-4 h-4" />
                               Compras
                             </button>
+                            {isAdmin && (
+                              <button
+                                onClick={() => handleMenuClick("/admin")}
+                                className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
+                              >
+                                <LayoutDashboard className="w-4 h-4" />
+                                Admin
+                              </button>
+                            )}
                             <button
                               onClick={() => handleMenuClick("/historial")}
                               className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
@@ -584,6 +593,19 @@ if (isLoginOpen) {
                           Compras
                         </span>
                       </div>
+                      {isAdmin && (
+                        <div
+                          className="flex flex-col items-center gap-2 cursor-pointer"
+                          onClick={() => handleMenuClick("/admin")}
+                        >
+                          <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-full text-red-600">
+                            <LayoutDashboard className="w-6 h-6" />
+                          </div>
+                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                            Admin
+                          </span>
+                        </div>
+                      )}
                       <div
                         className="flex flex-col items-center gap-2 cursor-pointer"
                         onClick={() => handleMenuClick("/historial")}

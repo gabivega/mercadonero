@@ -100,52 +100,70 @@ const isProfileIncomplete = (user) => {
     const isDark = document.documentElement.classList.contains("dark");
 
     // MODAL 1: Compromiso de compra
-    const step1 = await Swal.fire({
-      title:
-        '<span style="font-size: 1.25rem; font-weight: 800;">Confirmar Compromiso de Compra</span>',
-      html: `
+ const productListHtml = sellerProducts.map(p => `
+  <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px; padding-left: 10px; border-left: 2px solid #3483fa;">
+    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 250px;">
+      ${p.quantity}x ${p.name}
+    </span>
+    <span style="font-weight: 600;">$${(p.sale?.price ? p.sale.price * p.quantity :p.price * p.quantity).toLocaleString()}</span>
+  </div>
+`).join('');
+
+const step1 = await Swal.fire({
+  title: '<span style="font-size: 1.25rem; font-weight: 800;">Confirmar Compromiso de Compra</span>',
+  html: `
     <div style="text-align: left; font-size: 0.9rem; line-height: 1.5; color: ${isDark ? "#e4e4e7" : "#374151"};">
       
       <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid ${isDark ? "#27272a" : "#e5e7eb"};">
-        <p style="margin: 5px 0;"> <b>Resumen:</b> ${sellerProducts.reduce((acc, p) => acc + p.quantity, 0)} unidades de <b>${sellerProducts[0]?.name}${sellerProducts.length > 1 ? " y otros" : ""}</b></p>
-        <p style="margin: 5px 0;">📦 <b>Importe de Productos:</b> <span style="color: #3483fa; font-weight: 800;">$${total.toLocaleString()}</span></p>
-        <p style="margin: 5px 0;">🚚 <b>Importe de Envío:</b> <span style="color: #3483fa; font-weight: 800;">$${shippingTotal.toLocaleString()}</span></p>
-        <p style="margin: 5px 0;">💰 <b>Importe Final:</b> <span style="color: #3483fa; font-weight: 800;">$${finalTotal.toLocaleString()}</span></p>
-        <p style="margin: 5px 0;">👤 <b>Vendedor:</b> ${sellerName}</p>
+        <p style="margin: 0 0 10px 0;"><b>Resumen de productos:</b></p>
+        <div style="margin-bottom: 12px;">
+          ${productListHtml}
+        </div>
+        <div style="background-color: ${isDark ? "#27272a" : "#f8fafc"}; padding: 10px; border-radius: 12px; margin-top: 10px;">
+          <p style="margin: 3px 0; display: flex; justify-content: space-between;">
+            <span>📦 Subtotal Productos:</span>
+            <span style="font-weight: 700;">$${total.toLocaleString()}</span>
+          </p>
+          <p style="margin: 3px 0; display: flex; justify-content: space-between;">
+            <span>🚚 Costo de Envío:</span>
+            <span style="font-weight: 700; color: ${shippingTotal === 0 ? '#10b981' : 'inherit'}">
+              ${shippingTotal === 0 ? 'GRATIS' : `$${shippingTotal.toLocaleString()}`}
+            </span>
+          </p>
+          <p style="margin: 8px 0 0 0; display: flex; justify-content: space-between; font-size: 1.1rem; border-top: 1px solid ${isDark ? "#3f3f46" : "#e5e7eb"}; pt-2">
+            <b>Total Final:</b>
+            <span style="color: #3483fa; font-weight: 900;">$${finalTotal.toLocaleString()}</span>
+          </p>
+        </div>
+        <p style="margin: 10px 0 0 0; font-size: 0.85rem;">👤 <b>Vendedor:</b> ${sellerName}</p>
       </div>
 
       <div style="margin-bottom: 15px;">
         <p style="margin: 5px 0;">📍 <b>Envío a:</b> ${selectedAddress.street} ${selectedAddress.streetNumber}, ${selectedAddress.city}</p>
         <p style="margin: 5px 0;">🚚 <b>Despacho:</b> El vendedor despacha en <b>${sellerProducts[0]?.shipping?.shippingTime || "48h"}</b></p>
-        <p style="margin: 10px 0 0 0; font-size: 0.8rem; color: #10b981; display: flex; items-center: center; gap: 4px;">
+        <p style="margin: 10px 0 0 0; font-size: 0.8rem; color: #10b981; display: flex; align-items: center; gap: 4px;">
           🛡️ Compra protegida por Mercado Nero
         </p>
       </div>
 
       <div style="background-color: ${isDark ? "#1e1b4b" : "#eff6ff"}; border: 1px solid ${isDark ? "#312e81" : "#bfdbfe"}; padding: 12px; border-radius: 8px; margin-top: 15px;">
         <p style="margin: 0; font-weight: 600; color: ${isDark ? "#93c5fd" : "#1e40af"}; font-size: 0.85rem;">
-          ⏱️ Tienes 60 minutos para realizar y notificar el pago al vendedor. De lo contrario, la orden se cancelará automáticamente.
-        </p>
-      </div>
-
-      <div style="margin-top: 10px; padding: 8px;">
-        <p style="margin: 0; font-size: 0.75rem; color: ${isDark ? "#fca5a5" : "#b91c1c"}; font-style: italic;">
-          * Crear órdenes y no abonarlas conlleva penalizaciones y posible cierre de cuenta.
+          ⏱️ Tienes 60 minutos para realizar y notificar el pago. De lo contrario, la orden se cancelará automáticamente.
         </p>
       </div>
     </div>
   `,
-      icon: "question",
-      showCancelButton: true,
-      confirmButtonText: "Confirmar Orden",
-      cancelButtonText: "Volver",
-      confirmButtonColor: "#3483fa",
-      cancelButtonColor: isDark ? "#27272a" : "#6b7280",
-      background: isDark ? "#121212" : "#ffffff",
-      color: isDark ? "#f3f4f6" : "#1f2937",
-      reverseButtons: true,
-      width: "500px",
-    });
+  icon: "question",
+  showCancelButton: true,
+  confirmButtonText: "Confirmar Orden",
+  cancelButtonText: "Volver",
+  confirmButtonColor: "#3483fa",
+  cancelButtonColor: isDark ? "#27272a" : "#6b7280",
+  background: isDark ? "#121212" : "#ffffff",
+  color: isDark ? "#f3f4f6" : "#1f2937",
+  reverseButtons: true,
+  width: "550px",
+});
 
     if (step1.isConfirmed) {
       try {
@@ -166,14 +184,30 @@ const isProfileIncomplete = (user) => {
 
         const newOrderId = response.data.order._id;
 
+        // Obtener datos bancarios del vendedor
+        let bankAccount = null;
+        try {
+          const bankResponse = await axios.get(
+            `${import.meta.env.VITE_SERVER_URL}/api/user/bank-accounts/${sellerId}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          if (bankResponse.data.success) {
+            bankAccount = bankResponse.data.bankAccount;
+          }
+        } catch (error) {
+          console.error("Error al obtener datos bancarios del vendedor:", error);
+        }
+
         const step2 = await Swal.fire({
           title: "¡Orden Creada! Realiza el pago",
           html: `
     <div style="text-align: left; font-size: 0.9rem;">
       <div style="background: ${isDark ? "#1f2937" : "#f3f4f6"}; padding: 15px; border-radius: 10px; margin-bottom: 15px;">
-        <p style="margin: 5px 0;"><b>Titular:</b> Juan Pérez</p>
-        <p style="margin: 5px 0;"><b>CBU:</b> 0000003100012345678901</p>
-        <p style="margin: 5px 0;"><b>Alias:</b> mercado.nero.demo</p>
+        <p style="margin: 5px 0;"><b>Titular:</b> ${bankAccount?.holderName || 'No disponible'}</p>
+        <p style="margin: 5px 0;"><b>CBU:</b> ${bankAccount?.cbuCvu || 'No disponible'}</p>
+        <p style="margin: 5px 0;"><b>Alias:</b> ${bankAccount?.alias || 'No disponible'}</p>
+        <p style="margin: 5px 0;"><b>Banco:</b> ${bankAccount?.bankName || 'No disponible'}</p>
+        <p style="margin: 5px 0;"><b>Cuit/Cuil:</b> ${bankAccount?.cuitCuil || 'No disponible'}</p>
         <p style="margin: 10px 0 0 0; font-size: 1.1rem; color: #3483fa; font-weight: bold;">
           Total: $${response.data.order.totalAmount.toLocaleString()}
         </p>
@@ -482,7 +516,7 @@ if (!authenticated ||  !dbUser ) {
               </div>
               <div className="flex justify-between text-sm text-green-600 font-bold">
                 <span>Envío: </span>
-                <span>${shippingTotal.toLocaleString()}</span>
+                <span>{shippingTotal.toLocaleString() > 0 ? ("$" + shippingTotal.toLocaleString()) : 'Gratis'} </span>
               </div>
               <div className="border-t dark:border-zinc-800 pt-4 flex justify-between">
                 <span className="text-lg font-bold dark:text-white">Total</span>

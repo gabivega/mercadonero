@@ -5,21 +5,22 @@ import {
   FileText, Tag, LogOut, LayoutDashboard,
   ChevronLeft, ChevronRight, Menu, X 
 } from 'lucide-react';
+import { useUserStore } from '../store/useUserStore';
 
 const Sidebar = ({ handleLogout }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const { dbUser, isAdmin } = useUserStore();
 
   const menuItems = [
     { name: 'Perfil', icon: <User size={20}/>, path: '/perfil' },
     { name: 'Billetera', icon: <Wallet size={20}/>, path: '/billetera' },
     { name: 'Notificaciones', icon: <Bell size={20}/>, path: '/notificaciones' },
     { name: 'Compras', icon: <ShoppingBag size={20}/>, path: '/compras' },
-    // { name: 'Historial', icon: <History size={20}/>, path: '/historial' },
     { name: 'Posts', icon: <FileText size={20}/>, path: '/posts' },
     { name: 'Vender', icon: <Tag size={20}/>, path: '/vender' },
     { name: 'Mis Publicaciones', icon: <LayoutDashboard size={20}/>, path: '/publicaciones' },
-    // { name: 'Mis Ordenes', icon: <LayoutDashboard size={20}/>, path: '/mis-ordenes' },
+    ...(isAdmin ? [{ name: 'Admin', icon: <History size={20}/>, path: '/admin' }] : [])
   ];
 
   return (
@@ -76,6 +77,23 @@ const Sidebar = ({ handleLogout }) => {
                 <span className="font-medium">{item.name}</span>
               </NavLink>
             ))}
+            {isAdmin && (
+              <NavLink
+                key="Admin"
+                to="/admin"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={({ isActive }) =>
+                  `flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${
+                    isActive 
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' 
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#333]'
+                  }`
+                }
+              >
+                <ShieldCogCorner size={20}/>
+                <span className="font-medium">Admin</span>
+              </NavLink>
+            )}
           </nav>
           
           {/* Mobile Logout Button */}

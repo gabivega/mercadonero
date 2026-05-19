@@ -1,8 +1,44 @@
 import User from "../models/User.js";
 
+export const getBankAccounts = async (req, res) => {
+  try {
+    const { sellerId } = req.params;
+    
+    const seller = await User.findById(sellerId).select('bankAccounts');
+    
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        message: 'Vendedor no encontrado'
+      });
+    }
+    
+    // Buscar la cuenta bancaria default
+    const defaultAccount = seller.bankAccounts?.find(acc => acc.isDefault) || seller.bankAccounts?.[0];
+    
+    if (!defaultAccount) {
+      return res.status(404).json({
+        success: false,
+        message: 'El vendedor no tiene cuentas bancarias configuradas'
+      });
+    }
+    
+    res.json({
+      success: true,
+      bankAccount: defaultAccount
+    });
+  } catch (error) {
+    console.error('Error al obtener cuentas bancarias:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener cuentas bancarias'
+    });
+  }
+};
+
 export const updateProfile = async (req, res) => {
   try {
-    const { username, firstName, lastName, avatar, dni, phone, addresses } = req.body;
+    const { username, firstName, lastName, avatar, dni, phone, addresses, bankAccounts } = req.body;
     console.log("updateProfile: ", req.body);
     const userId = req.user._id;
 
@@ -32,7 +68,8 @@ export const updateProfile = async (req, res) => {
           phone,
           username: username?.toLowerCase(),
           avatar,
-          addresses: addresses
+          addresses: addresses,
+          bankAccounts: bankAccounts
         },
       },
       { new: true, runValidators: true },
