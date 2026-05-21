@@ -4,6 +4,7 @@ import axios from 'axios';
 import ProductCard from '../components/ProductCard';
 import FilterSidebar from '../components/FilterSidebar'; // Importamos tu componente unificado
 import { SlidersHorizontal } from 'lucide-react';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 const SearchResults = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -97,7 +98,7 @@ const SearchResults = () => {
 
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20">
-            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#F26722]"></div>
+            <LoadingSpinner size="lg" text="Buscando productos..." />
             <p className="mt-4 text-zinc-500 font-bold uppercase text-xs tracking-widest">Cargando Nero...</p>
           </div>
         ) : (

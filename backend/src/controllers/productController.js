@@ -264,9 +264,9 @@ export const getProducts = async (req, res) => {
   try {
     const { search, category, subCategory, brand, minPrice, maxPrice, sort } = req.query;
     let query = { status: "active" };
-    console.log("search", search)
-    console.log("category", category)
-    console.log("subCategory", subCategory)
+    // console.log("search", search)
+    // console.log("category", category)
+    // console.log("subCategory", subCategory)
     // 1. Construcción de la Query (Tu lógica de $or mejorada)
    if (search) {
       // 1. Limpiamos espacios extras y preparamos el término

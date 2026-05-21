@@ -3,6 +3,7 @@ import { CreditCard, CheckCircle, ExternalLink } from "lucide-react";
 import axios from "axios";
 import { usePrivy } from "@privy-io/react-auth";
 import Swal from "sweetalert2";
+import LoadingSpinner from "./LoadingSpinner";
 
 export default function PaymentAction({ orderId, onUpdate, sellerId }) {
   const { getAccessToken } = usePrivy();
@@ -17,6 +18,7 @@ export default function PaymentAction({ orderId, onUpdate, sellerId }) {
   }, [orderId]);
 
   const getSellerBankingAccount = async (sellerId) => {
+    setLoading(true);
     try {
       const token = await getAccessToken();
       const response = await axios.get(
@@ -29,6 +31,8 @@ export default function PaymentAction({ orderId, onUpdate, sellerId }) {
     } catch (error) {
       console.error("Error al obtener datos bancarios del vendedor:", error);
       return null;
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -141,7 +145,10 @@ export default function PaymentAction({ orderId, onUpdate, sellerId }) {
       >
         <div className="flex items-center justify-center gap-2 relative z-10">
           {loading ? (
-            <span className="animate-pulse">Procesando...</span>
+            <>
+              <LoadingSpinner size="sm" />
+              Procesando...
+            </>
           ) : (
             <>
               <CheckCircle

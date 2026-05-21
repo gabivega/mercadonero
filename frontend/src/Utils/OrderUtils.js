@@ -17,7 +17,7 @@ export const calculateOrderFinancials = async (totalArs, shippingArs = 0) => {
     // 4. Calcular neto para el vendedor
     // Nota: El envío se le resta si Nero lo gestiona, o se le suma si él lo pagó. 
     // Asumimos que Nero gestiona y descuenta el costo.
-    const sellerNetReleaseUsd = parseFloat((totalUsd - platformFeeUsd - shippingUsd).toFixed(2));
+    const sellerNetReleaseUsd = parseFloat((totalUsd - platformFeeUsd).toFixed(2));
 
     return {
       usdRate,

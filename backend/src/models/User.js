@@ -198,8 +198,8 @@ const userSchema = new Schema(
     },
 
     // Wallet Integrada
-    wallet: walletSchema,
-
+    // wallet: walletSchema,
+    walletAddress: { type: String, unique: true, sparse: true },
     // Relaciones con otros modelos del Marketplace
     favorites: [{ type: Schema.Types.ObjectId, ref: "Product" }],
     purchases: [{ type: Schema.Types.ObjectId, ref: "Order" }],

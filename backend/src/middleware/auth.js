@@ -18,7 +18,7 @@ const formato = new Intl.DateTimeFormat('es-ES', {
   hour12: false      // Formato 24h o 12h
 });
   try {
-    console.log("User route hit middleware at: ", formato.format(ahora));
+    // console.log("User route hit middleware at: ", formato.format(ahora));
 
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
@@ -29,10 +29,10 @@ const formato = new Intl.DateTimeFormat('es-ES', {
     
     // Validamos el token y obtenemos los claims (datos del usuario)
     const verifiedClaims = await privy.verifyAuthToken(token);
-    
+    // console.log("Verified claims:", verifiedClaims)
     // Guardamos el ID de Privy en el objeto req para usarlo en las rutas
     req.user = { did: verifiedClaims.userId };
-    console.log("User ID from Privy:", verifiedClaims.userId);
+    // console.log("User ID from Privy:", verifiedClaims.userId);
     
     next();
   } catch (error) {

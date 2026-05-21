@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { usePrivy } from "@privy-io/react-auth";
 import {
@@ -19,6 +19,7 @@ import PaymentAction from "../../components/PaymentAction";
 import ConfirmPaymentAction from "../../components/ConfirmPaymentAction";
 import ShippingStatusCard from "../../components/ShippingStatusCard";
 import OrderInfoAccordion from "../../components/OrderInfoAccordion";
+import LoadingSpinner from "../../components/LoadingSpinner";
 
 export default function OrderDetail() {
   const { id } = useParams();
@@ -27,6 +28,7 @@ export default function OrderDetail() {
   const { getAccessToken } = usePrivy();
   const user = useUserStore((state) => state.dbUser);
   let role = "buyer"; // Default role
+  const navigate = useNavigate();
 
   const isDark = document.documentElement.classList.contains("dark");
 
@@ -69,6 +71,7 @@ export default function OrderDetail() {
     });
 
     if (file) {
+      setLoading(true);
       const formData = new FormData();
       formData.append("paymentProof", file);
 
@@ -88,6 +91,8 @@ export default function OrderDetail() {
         fetchOrder(); // Refrescar datos
       } catch (err) {
         Swal.fire("Error", "No se pudo subir el archivo", "error");
+      } finally {
+        setLoading(false);
       }
     }
   };
@@ -96,7 +101,9 @@ export default function OrderDetail() {
   }
   if (loading)
     return (
-      <div className="p-20 text-center">Cargando detalles de la orden...</div>
+      <div className="p-20 text-center">
+        <LoadingSpinner size="lg" text="Cargando detalles de la orden..." />
+      </div>
     );
   if (!order)
     return <div className="p-20 text-center">Orden no encontrada.</div>;
@@ -121,6 +128,14 @@ export default function OrderDetail() {
 
   return (
     <div className="max-w-5xl mx-auto p-4 md:p-8 space-y-8">
+      {role === "seller" && (
+        <h4
+          onClick={() => navigate("/mis-ordenes")}
+          className="cursor-pointer text-blue-500"
+        >
+          Volver a mis ordenes
+        </h4>
+      )}
       {/* 1. Línea de Tiempo / Status */}
       <div className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
         <div className="flex flex-wrap justify-between gap-4">
@@ -165,9 +180,9 @@ export default function OrderDetail() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-1 gap-8">
         {/* Columna Izquierda: Productos y Datos */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-1 space-y-6">
           <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
             <h3 className="font-bold text-lg mb-4">Productos en esta orden</h3>
             {order.itemsSnapshot.map((item, idx) => (
@@ -255,21 +270,21 @@ export default function OrderDetail() {
         </div>
 
         {/* Columna Derecha: Resumen y Pago */}
-        <div className="space-y-6">
+        {/* <div className="space-y-6">
           <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
             <h3 className="font-bold mb-4">Resumen de pago</h3>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between text-gray-500">
                 <span>Subtotal</span>
-                <span>${order.productsAmount.toLocaleString()}</span>
+                <span>${order.productsAmount?.toLocaleString()}</span>
               </div>
               <div className="flex justify-between text-gray-500">
                 <span>Envío</span>
-                <span>${order.shippingAmount.toLocaleString()}</span>
+                <span>${order.shippingAmount?.toLocaleString()}</span>
               </div>
               <div className="flex justify-between font-bold text-lg border-t dark:border-zinc-800 pt-2">
                 <span>Total</span>
-                <span>${order.totalAmount.toLocaleString()}</span>
+                <span>${order.totalAmount?.toLocaleString()}</span>
               </div>
             </div>
 
@@ -300,7 +315,7 @@ export default function OrderDetail() {
               {order.shippingAddress.city}, {order.shippingAddress.province}
             </p>
           </section>
-        </div>
+        </div> */}
       </div>
     </div>
   );

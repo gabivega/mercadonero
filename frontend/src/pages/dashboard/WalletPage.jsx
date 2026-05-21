@@ -7,6 +7,7 @@ import SendTokenModal from '../../components/SendTokenModal';
 import Swal from 'sweetalert2';
 import CollateralManager from '../../components/CollateralManager';
 import DepositCollateral from '../../components/DepositCollateral';
+import LoadingSpinner from '../../components/LoadingSpinner';
 
 const TOKENS = [
   // { symbol: 'NERO', name: 'Nero Token', address: '0xd827582763bF4b562bb4e69C025f8AD26c51078b', decimals: 18 },
@@ -227,9 +228,18 @@ const handleSend = async () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold dark:text-white">Mi Billetera</h2>
-        <button onClick={fetchAllBalances} disabled={isLoading} className="flex items-center gap-2 text-sm text-blue-600 font-medium">
-          <RefreshCcw size={16} className={isLoading ? "animate-spin" : ""} />
-          Actualizar
+        <button onClick={fetchAllBalances} disabled={isLoading} className="flex items-center gap-2 text-sm text-blue-600 font-medium disabled:opacity-50">
+          {isLoading ? (
+            <>
+              <LoadingSpinner size="sm" />
+              Actualizando...
+            </>
+          ) : (
+            <>
+              <RefreshCcw size={16} />
+              Actualizar
+            </>
+          )}
         </button>
       </div>
 
@@ -276,7 +286,7 @@ const handleSend = async () => {
         </div>
       </div>
       <CollateralManager />
-      <DepositCollateral />
+      {/* <DepositCollateral /> */}
 
 
       <SendTokenModal 

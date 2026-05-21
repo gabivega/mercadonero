@@ -3,6 +3,7 @@ import { CheckCircle2, XCircle, ShieldCheck } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { usePrivy } from '@privy-io/react-auth';
 import axios from 'axios';
+import LoadingSpinner from './LoadingSpinner';
 
 const ConfirmPaymentAction = ({ orderId, onUpdate }) => {
   const { getAccessToken } = usePrivy();
@@ -80,7 +81,10 @@ const ConfirmPaymentAction = ({ orderId, onUpdate }) => {
         className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black uppercase tracking-widest transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
       >
         {loading ? (
-          <span className="animate-pulse">Actualizando...</span>
+          <>
+            <LoadingSpinner size="sm" />
+            Actualizando...
+          </>
         ) : (
           <><CheckCircle2 size={18} /> Confirmar Recepción</>
         )}

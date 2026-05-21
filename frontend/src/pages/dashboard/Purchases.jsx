@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { usePrivy } from '@privy-io/react-auth';
 import { useNavigate } from 'react-router-dom';
-import { Package, Clock, CheckCircle, AlertCircle } from 'lucide-react';
+import { Package, Clock, CheckCircle, AlertCircle, Truck, Ban } from 'lucide-react';
 
 export default function Purchases() {
   const [orders, setOrders] = useState([]);
@@ -35,6 +35,8 @@ export default function Purchases() {
       verifying_payment: { label: 'Verificando pago', color: 'text-blue-500 bg-blue-50 dark:bg-blue-900/10', icon: <AlertCircle size={14}/> },
       paid: { label: 'Pagado', color: 'text-green-500 bg-green-50 dark:bg-green-900/10', icon: <CheckCircle size={14}/> },
       completed: { label: 'Entregado', color: 'text-zinc-500 bg-zinc-100 dark:bg-zinc-800', icon: <Package size={14}/> },
+      shipped: { label: 'Despachado', color: 'text-zinc-500 bg-zinc-100 dark:bg-zinc-800', icon: <Truck size={14}/> },
+      expired: { label: 'Expirado', color: 'text-zinc-500 bg-zinc-100 dark:bg-zinc-800', icon: <Ban size={14}/> },
       cancelled: { label: 'Cancelado', color: 'text-red-500 bg-red-50 dark:bg-red-900/10', icon: <AlertCircle size={14}/> },
     };
     return states[status] || { label: status, color: 'text-gray-500 bg-gray-50', icon: null };

@@ -106,6 +106,8 @@ const orderSchema = new mongoose.Schema(
     paymentProof: { type: String },
     paymentVerifiedAt: { type: Date }, // Cuando el vendedor da el OK al pago
     completedAt: { type: Date }, // Cierre final (disparo de Smart Contract)
+    releaseTxHash: { type: String }, // Hash de la transacción de liberación
+    collateralTxHash: { type: String }, // Hash de la transacción de congelamiento del colateral
     shippingDetails: {
       provider: { type: String },
       trackingNumber: { type: String },

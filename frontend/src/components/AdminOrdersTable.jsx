@@ -4,6 +4,7 @@ import axios from 'axios';
 import { usePrivy } from '@privy-io/react-auth';
 import { formatMoney } from '../utils/currencyFormatter';
 import AdminOrderModal from './AdminOrderModal';
+import LoadingSpinner from './LoadingSpinner';
 
 const AdminOrdersTable = () => {
   const [orders, setOrders] = useState([]);
@@ -29,9 +30,10 @@ const handleOpenModal = (order) => {
         });
         console.log(res.data);
         setOrders(res.data);
-        setLoading(false);
       } catch (err) {
         console.error(err);
+      } finally {
+        setLoading(false);
       }
     };
     fetchOrders();
@@ -50,6 +52,14 @@ const handleOpenModal = (order) => {
       </span>
     );
   };
+  if (loading) {
+    return (
+      <div className="bg-white dark:bg-zinc-900 rounded-[2.5rem] border border-zinc-200 dark:border-zinc-800 shadow-sm p-12">
+        <LoadingSpinner size="lg" text="Cargando órdenes..." />
+      </div>
+    );
+  }
+
   return (
     <div className="bg-white dark:bg-zinc-900 rounded-[2.5rem] border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden">
       <div className="overflow-x-auto">

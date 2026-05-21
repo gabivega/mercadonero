@@ -3,6 +3,7 @@ import { Truck, Send } from 'lucide-react';
 import axios from 'axios';
 import { usePrivy } from '@privy-io/react-auth';
 import Swal from 'sweetalert2';
+import LoadingSpinner from './LoadingSpinner';
 
 const ShippingForm = ({ orderId, onUpdate }) => {
   const [loading, setLoading] = useState(false);
@@ -115,11 +116,16 @@ const ShippingForm = ({ orderId, onUpdate }) => {
           />
         </div>
 
-        <button 
+        <button
           disabled={loading}
           className="w-full py-4 bg-zinc-900 dark:bg-white dark:text-black text-white rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
         >
-          {loading ? "Procesando..." : (
+          {loading ? (
+            <>
+              <LoadingSpinner size="sm" />
+              Procesando...
+            </>
+          ) : (
             <><Send size={18} /> Confirmar Envío</>
           )}
         </button>

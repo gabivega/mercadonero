@@ -6,12 +6,14 @@ import {
 } from "@privy-io/react-auth";
 import { Mail, KeyRound, ArrowRight, X, CheckCircle2 } from "lucide-react";
 import Swal from "sweetalert2";
+import LoadingSpinner from "./LoadingSpinner";
 
 export default function NeroLogin({ isOpen, onClose, onLoginSuccess }) {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [isCodeSent, setIsCodeSent] = useState(false);
   const [isDone, setIsDone] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const inputRefs = React.useRef([]);
 const [otp, setOtp] = useState(['', '', '', '', '', '']);
 
@@ -77,6 +79,7 @@ useEffect(() => {
 
   const handleSendCode = async (e) => {
     e.preventDefault();
+    setIsLoading(true);
     try {
       await sendCode({ email });
       setIsCodeSent(true);
@@ -86,12 +89,19 @@ useEffect(() => {
         "No pudimos enviar el email. Verifica el formato.",
         "error",
       );
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleVerifyCode = async (e) => {
     e.preventDefault();
-    await loginWithCode({ code });
+    setIsLoading(true);
+    try {
+      await loginWithCode({ code });
+    } catch (error) {
+      setIsLoading(false);
+    }
   };
 
   const handleOtpChange = (element, index) => {
@@ -110,6 +120,7 @@ useEffect(() => {
   // Si es el último dígito y está completo, disparar el login
   const finalCode = newOtp.join('');
   if (finalCode.length === 6 && index === 5) {
+    setIsLoading(true);
     loginWithCode({ code: finalCode });
   }
 };
@@ -126,6 +137,7 @@ const handlePaste = (e) => {
   const data = e.clipboardData.getData('text').slice(0, 6).split('');
   if (data.length === 6) {
     setOtp(data);
+    setIsLoading(true);
     loginWithCode({ code: data.join('') });
   }
 };
@@ -188,9 +200,19 @@ const handlePaste = (e) => {
                 />
                 <button
                   type="submit"
-                  className="w-full py-4 bg-[#F26722] text-white rounded-2xl font-black uppercase tracking-widest hover:brightness-110 transition-all flex items-center justify-center gap-2"
+                  disabled={isLoading}
+                  className="w-full py-4 bg-[#F26722] text-white rounded-2xl font-black uppercase tracking-widest hover:brightness-110 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Continuar <ArrowRight size={18} />
+                  {isLoading ? (
+                    <>
+                      <LoadingSpinner size="sm" />
+                      Enviando...
+                    </>
+                  ) : (
+                    <>
+                      Continuar <ArrowRight size={18} />
+                    </>
+                  )}
                 </button>
               </form>
             ) : (
@@ -215,10 +237,17 @@ const handlePaste = (e) => {
 
                 <button
                   onClick={() => loginWithCode({ code: otp.join("") })}
-                  disabled={otp.some((v) => v === "")}
-                  className="w-full py-4 bg-zinc-900 dark:bg-white dark:text-black text-white rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
+                  disabled={otp.some((v) => v === "") || isLoading}
+                  className="w-full py-4 bg-zinc-900 dark:bg-white dark:text-black text-white rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Verificar Ingreso
+                  {isLoading ? (
+                    <>
+                      <LoadingSpinner size="sm" />
+                      Verificando...
+                    </>
+                  ) : (
+                    "Verificar Ingreso"
+                  )}
                 </button>
 
                 <button

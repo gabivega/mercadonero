@@ -2,9 +2,11 @@ import React, { useState } from "react";
 import { MapPin, Plus, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import axios from "axios";
 import Swal from "sweetalert2";
+import LoadingSpinner from "./LoadingSpinner";
 
 export const AddressSection = ({ addresses, getAccessToken, profile, setProfile, handleSelectAddress, selectedAddress }) => {
   const [isAdding, setIsAdding] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [newAddress, setNewAddress] = useState({
     addressType: "home",
     street: "",
@@ -86,14 +88,16 @@ export const AddressSection = ({ addresses, getAccessToken, profile, setProfile,
   });
   return;
     }
-    const token = await getAccessToken();
-    const response = await axios.post(
-      `${import.meta.env.VITE_SERVER_URL}/api/user/new-address`,
-      newAddress,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      },
-    );
+    setIsLoading(true);
+    try {
+      const token = await getAccessToken();
+      const response = await axios.post(
+        `${import.meta.env.VITE_SERVER_URL}/api/user/new-address`,
+        newAddress,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
     if (response.data.success) {
       console.log("response addresses :", response.data.addresses);
 Swal.fire({
@@ -119,7 +123,12 @@ Swal.fire({
       });
       setIsAdding(false);
     }
-  };
+  } catch (error) {
+    Swal.fire('Error', 'No se pudo guardar la dirección', 'error');
+  } finally {
+    setIsLoading(false);
+  }
+};
 // eliminar address
 const handleDelete = async (addressId) => {
   // 1. Confirmación de seguridad
@@ -138,10 +147,11 @@ const handleDelete = async (addressId) => {
   });
 
   if (result.isConfirmed) {
+    setIsLoading(true);
     try {
       const token = await getAccessToken();
       const response = await axios.delete(
-        `${import.meta.env.VITE_SERVER_URL}/api/user/address/${addressId}`, 
+        `${import.meta.env.VITE_SERVER_URL}/api/user/address/${addressId}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
@@ -160,6 +170,8 @@ const handleDelete = async (addressId) => {
       }
     } catch (error) {
       Swal.fire('Error', 'No se pudo eliminar la dirección', 'error');
+    } finally {
+      setIsLoading(false);
     }
   }
 };
@@ -341,9 +353,17 @@ const handleDelete = async (addressId) => {
 
           <button
             onClick={saveAddress}
-            className="w-full py-4 bg-blue-600 text-white font-black text-xs rounded-2xl shadow-lg shadow-blue-500/20 hover:bg-blue-700 transition-all active:scale-[0.98]"
+            disabled={isLoading}
+            className="w-full py-4 bg-blue-600 text-white font-black text-xs rounded-2xl shadow-lg shadow-blue-500/20 hover:bg-blue-700 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            GUARDAR DIRECCIÓN
+            {isLoading ? (
+              <>
+                <LoadingSpinner size="sm" />
+                Guardando...
+              </>
+            ) : (
+              "GUARDAR DIRECCIÓN"
+            )}
           </button>
 
           <datalist id="city-suggestions">

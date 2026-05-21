@@ -16,6 +16,7 @@ import { useUserStore } from "../store/useUserStore";
 import { usePrivy } from "@privy-io/react-auth";
 import AuthOnboarding from "../components/AuthOnboarding";
 import { useSyncUser } from "../Utils/userSync";
+import LoadingSpinner from "../components/LoadingSpinner";
 
 export default function Checkout() {
   const { sellerId } = useParams();
@@ -27,6 +28,7 @@ export default function Checkout() {
     dbUser?.addresses?.[0] || null,
   );
   const { syncUser } = useSyncUser(setDbUser);
+  const [isLoading, setIsLoading] = useState(false);
 
   const getEffectivePrice = (item) => {
     if (item.salePrice && item.salePrice > 0) {
@@ -166,6 +168,7 @@ const step1 = await Swal.fire({
 });
 
     if (step1.isConfirmed) {
+      setIsLoading(true);
       try {
         // 1. CREAMOS LA ORDEN EN EL BACKEND
         const token = await getAccessToken();
@@ -256,7 +259,10 @@ const step1 = await Swal.fire({
 
         navigate("/compras");
       } catch (error) {
-        Swal.fire("Error", "No pudimos procesar la orden", "error");
+        const errorMsg = error.response?.data?.message || "No pudimos procesar la orden";
+        Swal.fire("Error", errorMsg, "error");
+      } finally {
+        setIsLoading(false);
       }
     }
   };
@@ -297,6 +303,7 @@ const finalTotal = useMemo(() => total + shippingTotal, [total, shippingTotal]);
   // 2. Función para crear la orden real
   const handleCreateOrder = async () => {
     const isDark = document.documentElement.classList.contains("dark");
+    setIsLoading(true);
     try {
       Swal.fire({
         title: "Procesando tu orden...",
@@ -355,6 +362,8 @@ const finalTotal = useMemo(() => total + shippingTotal, [total, shippingTotal]);
         "No pudimos crear la orden. Reintenta en unos momentos.",
         "error",
       );
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -528,14 +537,23 @@ if (!authenticated ||  !dbUser ) {
 
             <button
               onClick={handleFinalConfirm}
-              // disabled={!selectedAddress}
+              disabled={isLoading || !selectedAddress}
               className={`w-full py-4 rounded-md font-bold text-white transition-all flex items-center justify-center gap-2 ${
                 selectedAddress
                   ? "bg-[#3483fa] hover:bg-[#2968c8]"
                   : "bg-gray-300 cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-500"
-              }`}
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
-              Confirmar compra <ChevronRight size={18} />
+              {isLoading ? (
+                <>
+                  <LoadingSpinner size="sm" />
+                  Procesando...
+                </>
+              ) : (
+                <>
+                  Confirmar compra <ChevronRight size={18} />
+                </>
+              )}
             </button>
 
             <div className="mt-6 flex items-start gap-2">

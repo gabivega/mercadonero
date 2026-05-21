@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { ShoppingBag, Tag, Clock, ChevronRight, AlertCircle } from 'lucide-react';
 import { usePrivy } from "@privy-io/react-auth";
+import LoadingSpinner from "../../components/LoadingSpinner";
 
 export default function MyOrders() {
   const [orders, setOrders] = useState([]);
@@ -57,7 +58,7 @@ export default function MyOrders() {
     return map[status] || status;
   };
 
-  if (loading) return <div className="p-8 text-center animate-pulse text-zinc-500">Cargando órdenes...</div>;
+  if (loading) return <div className="p-8 text-center"><LoadingSpinner size="lg" text="Cargando órdenes..." /></div>;
 
   return (
     <div className="space-y-4">

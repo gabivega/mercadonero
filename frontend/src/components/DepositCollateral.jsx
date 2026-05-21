@@ -3,7 +3,7 @@ import { useWallets } from "@privy-io/react-auth";
 import { ethers } from "ethers";
 
 // REEMPLAZA ESTOS DATOS CON LOS TUYOS
-const CONTRACT_ADDRESS = "0xbA7AcBB38dcb90301605f2Fd8A2eC83DA5Ec20B9";
+const CONTRACT_ADDRESS = "0x49fB72b9783e8DD934233C9155CdEA45eC17822D";
 const USDT_TESTNET_ADDRESS = "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd"; 
 
 // ABIs mínimos para interactuar desde el Front

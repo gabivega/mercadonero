@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import ProductCarousel from "../components/ProductCarousel"; // Reutilizamos para relacionados
 import { useCartStore } from "../store/useCartStore";
+import LoadingSpinner from "../components/LoadingSpinner";
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -52,7 +53,7 @@ export default function ProductDetail() {
   if (loading)
     return (
       <div className="min-h-screen flex items-center justify-center dark:bg-gray-900 dark:text-white">
-        Cargando producto...
+        <LoadingSpinner size="lg" text="Cargando producto..." />
       </div>
     );
   if (!product)

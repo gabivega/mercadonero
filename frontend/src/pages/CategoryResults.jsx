@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import ProductCard from '../components/ProductCard'
 import axios from 'axios'
 import FilterSidebar from '../components/FIlterSidebar'
+import LoadingSpinner from '../components/LoadingSpinner'
 
 
 
@@ -80,14 +81,7 @@ useEffect(() => {
   if (loading) {
     return (
       <div className="container mx-auto px-4 py-8">
-        <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/4 mb-8"></div>
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {[...Array(12)].map((_, i) => (
-              <div key={i} className="bg-gray-200 dark:bg-gray-700 rounded-lg h-80"></div>
-            ))}
-          </div>
-        </div>
+        <LoadingSpinner size="lg" text="Cargando productos..." />
       </div>
     )
   }

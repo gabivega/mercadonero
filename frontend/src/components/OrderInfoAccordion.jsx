@@ -65,9 +65,6 @@ if (!order) {
             
             {/* COLUMNA 1: DATOS GENERALES */}
             <div className="flex flex-col">
-              <h4 className="text-[11px] font-black text-[#F26722] uppercase tracking-[0.2em] mb-2 mt-4">
-                Información General
-              </h4>
               <InfoRow icon={Hash} label="ID de Orden" value={order._id} />
               <InfoRow icon={Tag} label="Estado Actual" value={order.status.toUpperCase()} />
               <InfoRow 
@@ -82,6 +79,16 @@ if (!order) {
               />}
               <InfoRow icon={CreditCard} label="Precio Total" value={`$ ${order.totalAmount}`} />
               <InfoRow icon={Calendar} label="Fecha de Compra" value={formatDate(order.createdAt)} />
+              {isSeller && (
+                <>
+              <h4 className="text-[11px] font-black text-[#F26722] uppercase tracking-[0.2em] mb-2 mt-4">
+                Información Financiera
+              </h4>
+                  <InfoRow icon={CreditCard} label="Precio total en USD (con envio)" value={`$ ${order.financials?.totalUsd + order.financials?.shippingCostUsd}`} />
+                  <InfoRow icon={CreditCard} label="Tipo de cambio" value={`$ ${order.financials?.usdRate}`} />
+                  <InfoRow icon={CreditCard} label="Comision descontada" value={`$ ${order.financials?.platformFeeUsd}`} />
+                </>
+              )}
             </div>
 
             {/* COLUMNA 2: LOGÍSTICA Y TIEMPOS */}
@@ -98,6 +105,21 @@ if (!order) {
                 icon={MapPin} 
                 label="Altura" 
                 value={order.shippingAddress?.streetNumber || "-"} 
+              />
+              <InfoRow 
+                icon={MapPin} 
+                label="Ciudad" 
+                value={order.shippingAddress?.city || "-"} 
+              />
+              <InfoRow 
+                icon={MapPin} 
+                label="Código Postal" 
+                value={order.shippingAddress?.zipCode || "-"} 
+              />
+              <InfoRow 
+                icon={MapPin} 
+                label="Provincia" 
+                value={order.shippingAddress?.province || "-"} 
               />
               <InfoRow 
                 icon={Truck} 

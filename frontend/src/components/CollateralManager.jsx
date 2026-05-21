@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useWallets } from "@privy-io/react-auth";
 import { ethers } from "ethers";
+import LoadingSpinner from "./LoadingSpinner";
 
 // DIRECCIONES DE TU CONFIGURACIÓN (Asegurate de que sean las mismas)
-const CONTRACT_ADDRESS = "0xbA7AcBB38dcb90301605f2Fd8A2eC83DA5Ec20B9"; 
+const CONTRACT_ADDRESS = import.meta.env.VITE_COLLATERAL_CONTRACT_ADDRESS;
 const USDT_TESTNET_ADDRESS = "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd"; 
 
 // ABIs requeridos para las tres operaciones
@@ -171,7 +172,7 @@ export default function CollateralManager() {
         
         {/* SUB-COMPONENTE: DEPOSITAR */}
         <form onSubmit={handleDeposit} className="space-y-3 p-4 bg-gray-50 dark:bg-gray-800/40 rounded-xl border border-gray-100 dark:border-gray-800">
-          <h3 className="text-sm font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wide">Cargar Crédito</h3>
+          <h3 className="text-sm font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wide">Colocar Colateral en Garantía</h3>
           <div className="relative rounded-md shadow-sm">
             <input
               type="number"
@@ -186,9 +187,16 @@ export default function CollateralManager() {
           <button
             type="submit"
             disabled={loading || !activeWallet}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm py-2 px-4 rounded-lg shadow transition-colors disabled:bg-gray-400"
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm py-2 px-4 rounded-lg shadow transition-colors disabled:bg-gray-400 flex items-center justify-center gap-2"
           >
-            {loading ? "Procesando..." : "Depositar USDT"}
+            {loading ? (
+              <>
+                <LoadingSpinner size="sm" />
+                Procesando...
+              </>
+            ) : (
+              "Depositar USDT"
+            )}
           </button>
         </form>
 
@@ -209,9 +217,16 @@ export default function CollateralManager() {
           <button
             type="submit"
             disabled={loading || !activeWallet || balances.available === "0.00"}
-            className="w-full bg-red-600 hover:bg-red-700 text-white font-medium text-sm py-2 px-4 rounded-lg shadow transition-colors disabled:bg-gray-400"
+            className="w-full bg-red-600 hover:bg-red-700 text-white font-medium text-sm py-2 px-4 rounded-lg shadow transition-colors disabled:bg-gray-400 flex items-center justify-center gap-2"
           >
-            {loading ? "Procesando..." : "Retirar USDT"}
+            {loading ? (
+              <>
+                <LoadingSpinner size="sm" />
+                Procesando...
+              </>
+            ) : (
+              "Retirar USDT"
+            )}
           </button>
         </form>
 

@@ -15,6 +15,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 import axios from "axios";
+import LoadingSpinner from "../../components/LoadingSpinner";
 
 export default function SellerDashboard() {
   const { getAccessToken } = usePrivy();
@@ -67,12 +68,13 @@ export default function SellerDashboard() {
   const toggleStatus = async (id, currentStatus) => {
     const token = await getAccessToken();
   const newStatus = currentStatus === "active" ? "paused" : "active";
+  setIsLoading(true);
 
   try {
     // 1. Petición al Backend (PATCH porque solo modificamos un campo)
     const response = await fetch(`${import.meta.env.VITE_SERVER_URL}/api/product/toggle-status/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json", 
+      headers: { "Content-Type": "application/json",
         Authorization: `Bearer ${token}`
        },
       body: JSON.stringify({ status: newStatus }),
@@ -102,6 +104,8 @@ export default function SellerDashboard() {
       background: "#1A1A1A",
       color: "#fff",
     });
+  } finally {
+    setIsLoading(false);
   }
 };
 
@@ -119,12 +123,13 @@ Swal.fire({
   color: "#fff",
 }).then(async (result) => {
   if (result.isConfirmed) {
+    setIsLoading(true);
     try {
       const token = await getAccessToken();
       // 1. Llamada al Backend
       const response = await fetch(`${import.meta.env.VITE_SERVER_URL}/api/product/delete/${id}`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json", 
+        headers: { "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
          },
       });
@@ -150,6 +155,8 @@ Swal.fire({
         background: "#1A1A1A",
         color: "#fff",
       });
+    } finally {
+      setIsLoading(false);
     }
   }
 });
@@ -187,8 +194,8 @@ Swal.fire({
 
   if (isLoading)
     return (
-      <div className="p-10 text-center text-gray-500 animate-pulse font-black uppercase tracking-widest">
-        Cargando Panel...
+      <div className="p-10 text-center">
+        <LoadingSpinner size="lg" text="Cargando Panel..." />
       </div>
     );
 
