@@ -13,9 +13,23 @@ import startOrderCleanup from './src/services/orderCleanup.js';
 const PORT = process.env.PORT || 3000;
 const app = express();
 
+const allowedOrigins = [
+  'https://mercadonero.com',
+  'https://www.mercadonero.com',
+  'http://localhost:5173'
+];
+
 // En tu server.js o app.js
 app.use(cors({
-  origin: 'http://localhost:5173', // La URL de tu app de Vite
+ origin: function (origin, callback) {
+    // Permite peticiones sin origen (como apps móviles o curl)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'El cliente CORS para este sitio no permite el acceso desde el origen especificado.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  }, // La URL de tu app de Vite
   methods: ['GET', 'POST','PATCH','DELETE', 'PUT'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
