@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Eye, RefreshCw, ExternalLink } from 'lucide-react';
 import axios from 'axios';
 import { usePrivy } from '@privy-io/react-auth';
-import { formatMoney } from '../utils/currencyFormatter';
+import { formatMoney } from '../Utils/currencyFormatter';
 import AdminOrderModal from './AdminOrderModal';
 import LoadingSpinner from './LoadingSpinner';
 
