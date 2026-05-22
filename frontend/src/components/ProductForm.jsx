@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { allCategories } from "../data/allCategories.js";
 import {
   Package,
@@ -11,7 +11,7 @@ import {
 import ProductImageUploadModal from "../components/ProductImageuploader";
 import { deformatMoney, formatMoney } from "../Utils/currencyFormatter";
 
-const ProductForm = ({ handleSubmit, isSubmitting }) => {
+const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
   const [product, setProduct] = useState({
     name: "",
     brand: "",
@@ -41,6 +41,22 @@ const ProductForm = ({ handleSubmit, isSubmitting }) => {
     listingType: "product",
   });
   const [isImgModalOpen, setIsImgModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (initialData) {
+      setProduct({
+        ...product, // Mantiene la estructura base por las dudas
+        ...initialData,
+        // Nos aseguramos de que los objetos anidados no se rompan si no venían completos
+        sale: { ...product.sale, ...initialData.sale },
+        shipping: { 
+          ...product.shipping, 
+          ...initialData.shipping,
+          dimensions: { ...product.shipping.dimensions, ...initialData.shipping?.dimensions }
+        }
+      });
+    }
+  }, [initialData]);
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;

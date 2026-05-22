@@ -371,3 +371,46 @@ export const getProductById = async (req, res) => {
     res.status(500).json({ message: "Error al obtener el producto" });
   }
 };
+
+// EDITAR PRODUCTO 
+
+export const updateProduct = async (req, res) => {
+  console.log("en update product")
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+
+    // 1. Buscamos el producto
+    const product = await Product.findById(id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Producto no encontrado." });
+    }
+
+    // 2. Control de Seguridad: ¿El que edita es el dueño de la publicación?
+    // req.user._id viene de tu middleware de autenticación
+    if (product.seller.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "No tenés permisos para editar este producto." 
+      });
+    }
+
+    // 3. Actualizamos en MongoDB
+    // { new: true } devuelve el producto ya modificado; runValidators aplica los checks del esquema
+    const updatedProduct = await Product.findByIdAndUpdate(
+      id, 
+      updateData, 
+      { new: true, runValidators: true }
+    );
+
+    res.json({ 
+      success: true, 
+      message: "¡Producto actualizado con éxito!", 
+      product: updatedProduct 
+    });
+
+  } catch (err) {
+    console.error("Error al editar producto:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};

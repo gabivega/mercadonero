@@ -91,7 +91,7 @@ export const getUserProfile = async (req, res) => {
   try {
     const userId = req.user._id;
     const user = await User.findById(userId).select(
-      "username email phone firstName lastName isVerified avatar dni rating reviews addresses",
+      "username email phone firstName lastName isVerified avatar dni rating reviews addresses bankAccounts",
     );
     if (!user)
       return res.status(404).json({ message: "Usuario no encontrado" });

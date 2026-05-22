@@ -29,7 +29,7 @@ const Sidebar = ({ handleLogout }) => {
       <div className="lg:hidden fixed top-20 left-4 z-40">
         <button
           onClick={() => setIsMobileMenuOpen(true)}
-          className="p-3 bg-white dark:bg-[#252525] border border-gray-200 dark:border-gray-800 rounded-full shadow-lg hover:scale-110 transition-transform"
+          className="p-3 bg-white dark:bg-[#252525] border border-gray-200 dark:border-gray-800 rounded-full shadow-lg hover:scale-110 transition-transform sm:mt-5"
         >
           <Menu size={20} className="text-gray-600 dark:text-gray-400" />
         </button>

@@ -15,6 +15,9 @@
 .uzzxk {
   display: none !important;
 }
+#protected-by-privy {
+  display:none !important;
+}
 
 /* Chrome, Safari, Edge, Opera */
 input::-webkit-outer-spin-button,
