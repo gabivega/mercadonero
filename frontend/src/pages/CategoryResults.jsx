@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import ProductCard from '../components/ProductCard'
 import axios from 'axios'
-import FilterSidebar from '../components/FIlterSidebar'
+import FilterSidebar from '../components/FilterSidebar'
 import LoadingSpinner from '../components/LoadingSpinner'
 
 
