@@ -4,28 +4,28 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 // Estructura de objetos para Desktop
 const desktopBanners = [
   {
-    image: '/src/assets/img/banner-desktop/D_NQ_613264-MLA105897706743_012026-OO.webp',
+    image: '/assets/img/banner-desktop/D_NQ_613264-MLA105897706743_012026-OO.webp',
     title: "Mercado Nero v3",
     subtitle: "El marketplace Web3 definitivo. Transacciones blindadas con Smart Contracts.",
     button: "Explorar Protocolo",
     overlay: "bg-black/40" // Capa oscura intermedia
   },
   {
-    image: '/src/assets/img/banner-desktop/D_NQ_697706-MLA107603493611_022026-OO.webp',
+    image: '/assets/img/banner-desktop/D_NQ_697706-MLA107603493611_022026-OO.webp',
     title: "Garantía Colateralizada",
     subtitle: "Comprá con fiat, respaldado por la blockchain. Sin intermediarios abusivos.",
     button: "Ver Categorías",
     overlay: "bg-black/50" // Un poco más oscuro si la imagen brilla mucho
   },
   {
-    image: '/src/assets/img/banner-desktop/D_NQ_841442-MLA107603905375_022026-OO.webp',
+    image: '/assets/img/banner-desktop/D_NQ_841442-MLA107603905375_022026-OO.webp',
     title: "Liquidación en USDT",
     subtitle: "Tu dinero a salvo de la inflación. Conversión automática al vuelo.",
     button: "Empezar a Vender",
     overlay: "bg-gradient-to-r from-black/70 to-transparent" // Degradado estético de izquierda a derecha
   },
   {
-    image: '/src/assets/img/banner-desktop/D_NQ_910600-MLA107452239907_022026-OO.webp',
+    image: '/assets/img/banner-desktop/D_NQ_910600-MLA107452239907_022026-OO.webp',
     title: "Catálogo Sincronizado",
     subtitle: "Miles de productos disponibles con stock real verificado.",
     button: "Ver Ofertas",
@@ -36,28 +36,28 @@ const desktopBanners = [
 // Estructura de objetos para Mobile (Mismos textos, adaptados a su imagen vertical/cuadrada)
 const mobileBanners = [
   {
-    image: '/src/assets/img/banner-mobile/D_NQ_600438-MLA106780989562_022026-F.webp',
+    image: '/assets/img/banner-mobile/D_NQ_600438-MLA106780989562_022026-F.webp',
     title: "Mercado Nero v3",
     subtitle: "Marketplace Web3 blindado.",
     button: "Explorar",
     overlay: "bg-black/50"
   },
   {
-    image: '/src/assets/img/banner-mobile/D_NQ_693973-MLA105897885041_012026-F.webp',
+    image: '/assets/img/banner-mobile/D_NQ_693973-MLA105897885041_012026-F.webp',
     title: "Garantía P2P",
     subtitle: "Respaldado por la blockchain.",
     button: "Comprar",
     overlay: "bg-black/50"
   },
   {
-    image: '/src/assets/img/banner-mobile/D_NQ_956371-MLA106921213930_022026-F.webp',
+    image: '/assets/img/banner-mobile/D_NQ_956371-MLA106921213930_022026-F.webp',
     title: "Fondeo Seguro",
     subtitle: "Liquidación directa en USDT.",
     button: "Vender",
     overlay: "bg-black/60"
   },
   {
-    image: '/src/assets/img/banner-mobile/D_NQ_966194-MLA106921390268_022026-F.webp',
+    image: '/assets/img/banner-mobile/D_NQ_966194-MLA106921390268_022026-F.webp',
     title: "Comunidad Web3",
     subtitle: "Cero comisiones abusivas.",
     button: "Ver Más",
