@@ -2,12 +2,14 @@ import React, { useState, useEffect } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { MapPin, User, Phone, ArrowRight, CheckCircle } from "lucide-react";
 import axios from "axios";
+import NeroLogin from "./NeroLogin";
 
 export default function AuthOnboarding({ onComplete }) {
   const { login, authenticated, user, getAccessToken } = usePrivy();
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
+  const [isNeroLogin, setIsNeroLogin] = useState(false);
 
   const [formData, setFormData] = useState({
     firstName: "",
@@ -235,11 +237,18 @@ export default function AuthOnboarding({ onComplete }) {
             vez, el registro se realiza de una forma muy simple y rápida.
           </p>
           <button
-            onClick={login}
+            onClick={() => setIsNeroLogin(true)}
             className="w-full py-4 bg-[#F26722] text-white rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] transition-transform"
           >
             Continuar con Email
           </button>
+          <NeroLogin
+           isOpen={isNeroLogin} 
+      onClose={() => setIsNeroLogin(false)}
+      onLoginSuccess={(user) => {
+        // Opcional: Aquí podrías navegar a otra página si quieres
+        // navigate('/dashboard');
+      }} />
         </div>
       )}
 

@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { 
   User, Wallet, Bell, ShoppingBag, History, 
   FileText, Tag, LogOut, LayoutDashboard,
-  ChevronLeft, ChevronRight, Menu, X 
+  ChevronLeft, ChevronRight, Menu, X , Users
 } from 'lucide-react';
 import { useUserStore } from '../store/useUserStore';
 
@@ -17,9 +17,10 @@ const Sidebar = ({ handleLogout }) => {
     { name: 'Billetera', icon: <Wallet size={20}/>, path: '/billetera' },
     { name: 'Notificaciones', icon: <Bell size={20}/>, path: '/notificaciones' },
     { name: 'Compras', icon: <ShoppingBag size={20}/>, path: '/compras' },
-    { name: 'Posts', icon: <FileText size={20}/>, path: '/posts' },
     { name: 'Vender', icon: <Tag size={20}/>, path: '/vender' },
+    { name: 'Posts', icon: <FileText size={20}/>, path: '/posts' },
     { name: 'Mis Publicaciones', icon: <LayoutDashboard size={20}/>, path: '/publicaciones' },
+    { name: 'Referidos', icon: <Users size={20}/>, path: '/referidos' },
     ...(isAdmin ? [{ name: 'Admin', icon: <History size={20}/>, path: '/admin' }] : [])
   ];
 

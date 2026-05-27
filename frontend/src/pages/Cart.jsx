@@ -39,6 +39,7 @@ export default function Cart() {
   }, {});
 
   const handleContinueToCheckout = (sellerId) => {
+    console.log("sellerID: ", sellerId);
     // Navegamos al checkout de ese vendedor específico
     navigate(`/checkout/${sellerId}`);
   };

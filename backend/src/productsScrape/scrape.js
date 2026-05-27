@@ -15,51 +15,51 @@ const seedDB = async () => {
     await mongoose.connect(process.env.MONGODB_URI);
     console.log("Connected to MongoDB for seeding...");
 
-    const sellerMap = {};
+    // const sellerMap = {};
 
-    // Creamos primero el usuario para productos sin vendedor
-    const genericUser = await User.findOneAndUpdate(
-      { username: "mercado-nero" },
-      {
-        name: "Mercado Nero",
-        email: "info@mercadonero.com",
-        privyDid: "did:privy:generic-seller",
-        isSeller: true,
-        username: "mercado-nero",
-        shop: {
-          active: true,
-          name: "MERCADO NERO",
-          description: "Productos seleccionados",
-        },
-      },
-      { upsert: true, new: true },
-    );
+    // // Creamos primero el usuario para productos sin vendedor
+    // const genericUser = await User.findOneAndUpdate(
+    //   { username: "mercado-nero" },
+    //   {
+    //     name: "Mercado Nero",
+    //     email: "info@mercadonero.com",
+    //     privyDid: "did:privy:generic-seller",
+    //     isSeller: true,
+    //     username: "mercado-nero",
+    //     shop: {
+    //       active: true,
+    //       name: "MERCADO NERO",
+    //       description: "Productos seleccionados",
+    //     },
+    //   },
+    //   { upsert: true, new: true },
+    // );
 
-    // 2. Mapear vendedores existentes
-    const uniqueSellers = [
-      ...new Set(
-        productsData
-          .map((p) => p.seller?.name)
-          .filter((name) => name !== null && name !== undefined),
-      ),
-    ];
+    // // 2. Mapear vendedores existentes
+    // const uniqueSellers = [
+    //   ...new Set(
+    //     productsData
+    //       .map((p) => p.seller?.name)
+    //       .filter((name) => name !== null && name !== undefined),
+    //   ),
+    // ];
 
-    for (const sName of uniqueSellers) {
-      const username = sName.toLowerCase().trim().replace(/\s+/g, "-");
-      const user = await User.findOneAndUpdate(
-        { username },
-        {
-          name: sName,
-          email: `${username}@nero.dummy`,
-          privyDid: `did:privy:scraped-${username}`,
-          isSeller: true,
-          username: username,
-          shop: { active: true, name: sName.toUpperCase() },
-        },
-        { upsert: true, new: true },
-      );
-      sellerMap[sName] = user._id;
-    }
+    // for (const sName of uniqueSellers) {
+    //   const username = sName.toLowerCase().trim().replace(/\s+/g, "-");
+    //   const user = await User.findOneAndUpdate(
+    //     { username },
+    //     {
+    //       name: sName,
+    //       email: `${username}@nero.dummy`,
+    //       privyDid: `did:privy:scraped-${username}`,
+    //       isSeller: true,
+    //       username: username,
+    //       shop: { active: true, name: sName.toUpperCase() },
+    //     },
+    //     { upsert: true, new: true },
+    //   );
+    //   sellerMap[sName] = user._id;
+    // }
 
     // 3. Formatear Productos (Sin saltarse nada)
     const formattedProducts = productsData
@@ -71,7 +71,8 @@ const seedDB = async () => {
           p.originalPrice && Number(p.price) < Number(p.originalPrice);
 
         // Si el seller name es null, usamos el ID del usuario genérico
-        const sellerId = sellerMap[p.seller?.name] || genericUser._id;
+        // const sellerId = sellerMap[p.seller?.name] || genericUser._id;
+        const sellerId = "69c16b2f1c77368f0ea49eff";
 
         // Función para convertir "5mil" o "500" en 5000 o 500
         const parseSold = (soldStr) => {
@@ -116,7 +117,7 @@ const seedDB = async () => {
           rating: parseRating(p.rating),
           sold: parseSold(p.sold),
           seller: sellerId, // <--- Aquí ya no va a fallar nunca
-          sellerName: p.seller?.name || "Unknown",
+          sellerName: "Mercado Nero" || "Unknown",
           sellerIsVerified: p.seller?.isVerified || true,
           images: (p.gallery || []).map((url) => ({
             url,
@@ -135,7 +136,7 @@ const seedDB = async () => {
       })
       .filter((p) => p !== null);
 
-    await Product.deleteMany({}); // Limpiamos
+    // await Product.deleteMany({}); // Limpiamos
     await Product.insertMany(formattedProducts);
     console.log(
       `✅ ¡Proceso terminado! ${formattedProducts.length} productos cargados.`,

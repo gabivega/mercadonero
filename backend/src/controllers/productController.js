@@ -264,51 +264,69 @@ export const getProducts = async (req, res) => {
   try {
     const { search, category, subCategory, brand, minPrice, maxPrice, sort } = req.query;
     let query = { status: "active" };
-    // console.log("search", search)
-    // console.log("category", category)
-    // console.log("subCategory", subCategory)
-    // 1. Construcción de la Query (Tu lógica de $or mejorada)
-   if (search) {
-      // 1. Limpiamos espacios extras y preparamos el término
+    console.log("req.query: ",req.query)
+    
+// Configuración de ordenamiento por defecto (Del más nuevo al más viejo)
+    let sortOptions = { createdAt: -1 }; 
+
+    // --- MANEJO DE CASOS ESPECIALES DE CAROUSELS GLOBALES ---
+    let isSpecialSection = false;
+    let isRandom = false; // 🔥 Flag para activar el mezclado aleatorio al final
+
+    if (category) {
+      const lowerCategory = category.toLowerCase().trim();
+
+      if (lowerCategory === 'recently-added' || lowerCategory === 'undefined') {
+        sortOptions = { createdAt: -1 };
+        isSpecialSection = true;
+
+      } else if (lowerCategory === 'offers') {
+        // Caso Ofertas: Filtramos usando la estructura real de tu modelo sale
+        query["sale.active"] = true; 
+        query["sale.price"] = { $gt: 0 }; 
+        
+        query.$or = [
+          { "sale.expiresAt": { $exists: false } },
+          { "sale.expiresAt": { $eq: null } },
+          { "sale.expiresAt": { $gt: new Date() } }
+        ];
+
+        // 🔥 En lugar de ordenar por fecha, anulamos sortOptions para que Mongo traiga los primeros 50 que encuentre rápido
+        sortOptions = {}; 
+        isRandom = true; // 🔥 Activamos la aleatoriedad
+        isSpecialSection = true;
+      }
+    }
+
+    // --- 1. Construcción de la Query de Búsqueda de Texto ---
+    if (search) {
       const term = search.trim().toLowerCase();
 
       query.$or = [
-        // Match exacto en subcategoría (máxima prioridad)
         { subCategory: { $regex: `^${term}$`, $options: 'i' } },
-        
-        // Coincidencia parcial en NAME (Cambiado de title a name)
         { name: { $regex: term, $options: 'i' } },
-        
-        // Coincidencia en Marca
         { brand: { $regex: term, $options: 'i' } },
-        
-        // Coincidencia en Categoría
         { category: { $regex: term, $options: 'i' } }
       ];
 
-      // OPCIONAL: Para el caso "televisor" vs "televisores"
-      // Si el término es largo, podemos buscar por la "raíz" de la palabra
       if (term.length > 5) {
-        const root = term.substring(0, term.length - 2); // Quita las últimas 2 letras
+        const root = term.substring(0, term.length - 2);
         query.$or.push({ name: { $regex: root, $options: 'i' } });
       }
     }
 
-    // Aplicar filtros si vienen en la URL
-  if (category) {
+    // --- 2. Aplicar filtros de Categorías Comunes (Solo si NO es sección especial) ---
+    if (category && !isSpecialSection) {
       const mapping = NERO_CATEGORY_MAP[category.toLowerCase()];
 
       if (mapping) {
-        // Si el mapping es un objeto (caso televisores)
         if (typeof mapping === 'object') {
           query.category = mapping.cat;
           query.subCategory = mapping.sub;
         } else {
-          // Si es un string simple (caso vehiculos)
           query.category = mapping;
         }
       } else {
-        // Si no hay mapeo, confiamos en lo que viene pero normalizamos
         query.category = category.toLowerCase();
       }
     }
@@ -319,17 +337,38 @@ export const getProducts = async (req, res) => {
     }
     if (brand) query.brand = brand;
 
+    // Filtros de precio tradicionales
     if (minPrice || maxPrice) {
-      query.price = {};
+      query.price = query.price || {};
       if (minPrice) query.price.$gte = Number(minPrice);
       if (maxPrice) query.price.$lte = Number(maxPrice);
     }
 
-    // 2. Ejecutar búsqueda de productos
-    const products = await Product.find(query).sort({ createdAt: -1 }).limit(50);
+    // Lógica de ordenamiento manual del front (si el usuario usa el select de ordenar)
+    if (sort) {
+      if (sort === 'price_asc') sortOptions = { price: 1 };
+      if (sort === 'price_desc') sortOptions = { price: -1 };
+    }
 
-    // 3. EXTRAER FILTROS DISPONIBLES (Facetas)
-    // Esto lo hacemos sobre los productos encontrados para que el sidebar sea dinámico
+   // --- 3. Ejecutar la Query con el orden dinámico ---
+    // Si sortOptions está vacío (caso ofertas), no le pasamos nada al sort para no gastar recursos
+    const productsQuery = Product.find(query);
+    if (Object.keys(sortOptions).length > 0) {
+      productsQuery.sort(sortOptions);
+    }
+    
+    // Traemos un lote de productos (ej: 50) para luego mezclarlos
+    let products = await productsQuery.limit(50);
+
+    // 🔥 SI ES SECCIÓN DE OFERTAS, BARAJAMOS EL ARRAY (Algoritmo Fisher-Yates)
+    if (isRandom && products.length > 0) {
+      for (let i = products.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [products[i], products[j]] = [products[j], products[i]];
+      }
+    }
+
+    // 4. EXTRAER FILTROS DISPONIBLES (Facetas) - Queda igual
     const availableFilters = {
       categories: [...new Set(products.map(p => p.category))].filter(Boolean),
       subCategories: [...new Set(products.map(p => p.subCategory))].filter(Boolean),
@@ -342,10 +381,9 @@ export const getProducts = async (req, res) => {
     });
 
   } catch (error) {
-    res.status(500).json({ message: "Error", error });
+    res.status(500).json({ message: "Error", error: error.message || error });
   }
 };
-
 
 // Obtener un producto por ID
 export const getProductById = async (req, res) => {

@@ -1,73 +1,79 @@
 import React, { useState, useEffect } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
 // Estructura de objetos para Desktop
 const desktopBanners = [
   {
-    image: '/assets/img/banner-desktop/D_NQ_613264-MLA105897706743_012026-OO.webp',
-    title: "Mercado Nero v3",
-    subtitle: "El marketplace Web3 definitivo. Transacciones blindadas con Smart Contracts.",
-    button: "Explorar Protocolo",
+    image: '/assets/img/banner-desktop/cash.jpg',
+    title: "Vendé y cobrá por adelantado",
+    subtitle: "Mercado Nero es el único Marketplace del mundo donde podés cobrar por adelantado mientras protegemos a compradores y vendedores, gracias al poder de los contratos inteligentes.",
+    button: "Empezar a vender",
+    url: "/vender",
     overlay: "bg-black/40" // Capa oscura intermedia
   },
   {
-    image: '/assets/img/banner-desktop/D_NQ_697706-MLA107603493611_022026-OO.webp',
-    title: "Garantía Colateralizada",
-    subtitle: "Comprá con fiat, respaldado por la blockchain. Sin intermediarios abusivos.",
-    button: "Ver Categorías",
+    image: '/assets/img/banner-desktop/seller.jpg',
+    title: "Comisiones mas bajas del Mercado",
+    subtitle: "Comision fija FINAL del 3%, sin sorpresas. Aumentá tu rentabilidad vendiendo en Mercado Nero",
+    button: "Empezar a vender",
+    url: "/vender",
     overlay: "bg-black/50" // Un poco más oscuro si la imagen brilla mucho
   },
   {
-    image: '/assets/img/banner-desktop/D_NQ_841442-MLA107603905375_022026-OO.webp',
-    title: "Liquidación en USDT",
-    subtitle: "Tu dinero a salvo de la inflación. Conversión automática al vuelo.",
-    button: "Empezar a Vender",
+    image: '/assets/img/banner-desktop/package-delivery.jpg',
+    title: "Envíos en el día",
+    subtitle: "Envios flexibles y rápidos, al mejor precio. Llegamos a todo el país",
+    button: "",
     overlay: "bg-gradient-to-r from-black/70 to-transparent" // Degradado estético de izquierda a derecha
   },
   {
-    image: '/assets/img/banner-desktop/D_NQ_910600-MLA107452239907_022026-OO.webp',
-    title: "Catálogo Sincronizado",
-    subtitle: "Miles de productos disponibles con stock real verificado.",
+    image: '/assets/img/banner-desktop/cellphone.jpg',
+    title: "Mejores Precios en celulares",
+    subtitle: "Encontrá los mejores precios del país en telefonía. Compra protegida y envíos a todo el pais.",
     button: "Ver Ofertas",
-    overlay: "none" // Sin capa extra
+    url: "/ofertas",
+    overlay: "bg-black/60" // Sin capa extra
   }
 ]
 
 // Estructura de objetos para Mobile (Mismos textos, adaptados a su imagen vertical/cuadrada)
 const mobileBanners = [
-  {
-    image: '/assets/img/banner-mobile/D_NQ_600438-MLA106780989562_022026-F.webp',
-    title: "Mercado Nero v3",
-    subtitle: "Marketplace Web3 blindado.",
-    button: "Explorar",
-    overlay: "bg-black/50"
+ {
+    image: '/assets/img/banner-desktop/cash.jpg',
+    title: "Vendé y cobrá por adelantado",
+    subtitle: "Mercado Nero es el único Marketplace del mundo donde podés cobrar por adelantado mientras protegemos a compradores y vendedores, gracias al poder de los contratos inteligentes.",
+    button: "Empezar a vender",
+    url: "/vender",
+    overlay: "bg-black/40" // Capa oscura intermedia
   },
   {
-    image: '/assets/img/banner-mobile/D_NQ_693973-MLA105897885041_012026-F.webp',
-    title: "Garantía P2P",
-    subtitle: "Respaldado por la blockchain.",
-    button: "Comprar",
-    overlay: "bg-black/50"
+    image: '/assets/img/banner-desktop/seller.jpg',
+    title: "Comisiones mas bajas del Mercado",
+    subtitle: "Comision fija FINAL del 3%, sin sorpresas. Aumentá tu rentabilidad vendiendo en Mercado Nero",
+    button: "Empezar a vender",
+    overlay: "bg-black/50" // Un poco más oscuro si la imagen brilla mucho
   },
   {
-    image: '/assets/img/banner-mobile/D_NQ_956371-MLA106921213930_022026-F.webp',
-    title: "Fondeo Seguro",
-    subtitle: "Liquidación directa en USDT.",
-    button: "Vender",
-    overlay: "bg-black/60"
+    image: '/assets/img/banner-desktop/package-delivery.jpg',
+    title: "Envíos en el día",
+    subtitle: "Envios flexibles y rápidos, al mejor precio. Llegamos a todo el país",
+    button: "",
+    overlay: "bg-gradient-to-r from-black/70 to-transparent" // Degradado estético de izquierda a derecha
   },
   {
-    image: '/assets/img/banner-mobile/D_NQ_966194-MLA106921390268_022026-F.webp',
-    title: "Comunidad Web3",
-    subtitle: "Cero comisiones abusivas.",
-    button: "Ver Más",
-    overlay: "none"
+    image: '/assets/img/banner-desktop/cellphone.jpg',
+    title: "Mejores Precios en celulares",
+    subtitle: "Encontrá los mejores precios del país en telefonía. Compra protegida y envíos a todo el pais.",
+    button: "Ver Ofertas",
+    overlay: "bg-black/60" // Sin capa extra
   }
 ]
 
 export default function BannerCarousel() {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [isMobile, setIsMobile] = useState(false)
+  const navigate = useNavigate()
 
   useEffect(() => {
     const checkMobile = () => {
@@ -115,7 +121,7 @@ export default function BannerCarousel() {
         <img
           src={currentBanner.image}
           alt={currentBanner.title || "Banner Nero"}
-          className="w-full h-full object-cover absolute inset-0 select-none"
+          className="w-full h-full object-cover absolute inset-0 select-none object-[center_20%] "
         />
         
         {/* CAPA DE OVERLAY DINÁMICA */}
@@ -139,7 +145,8 @@ export default function BannerCarousel() {
 
           {currentBanner.button && (
             <div className="pt-2">
-              <button className="bg-[#F26722] hover:bg-[#d5561a] text-white px-5 md:px-7 py-2 md:py-3 rounded-xl font-black italic uppercase text-xs md:text-sm tracking-wide shadow-lg hover:scale-[1.03] transition-all duration-200 active:scale-95">
+              <button className="bg-[#F26722] hover:bg-[#d5561a] text-white px-5 md:px-7 py-2 md:py-3 rounded-xl font-black italic uppercase text-xs md:text-sm tracking-wide shadow-lg hover:scale-[1.03] transition-all duration-200 active:scale-95"
+              onClick={() => navigate(currentBanner.url)}>
                 {currentBanner.button}
               </button>
             </div>

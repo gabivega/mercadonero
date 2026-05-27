@@ -443,7 +443,7 @@ if (!authenticated ||  !dbUser ) {
               <CreditCard className="text-[#3483fa]" size={22} />
               Método de pago
             </h3>
-            <div className="flex items-center justify-between p-4 border border-[#3483fa] bg-blue-50 dark:bg-blue-900/10 rounded-lg">
+            <div className="flex items-center justify-between p-4 border cursor-pointer border-[#3483fa] bg-blue-50 dark:bg-blue-900/10 rounded-lg">
               <div className="flex items-center gap-3">
                 <div className="w-4 h-4 rounded-full border-4 border-[#3483fa]"></div>
                 <div>
@@ -451,12 +451,44 @@ if (!authenticated ||  !dbUser ) {
                     Transferencia Bancaria Directa
                   </p>
                   <p className="text-xs text-gray-500">
-                    Acuerdas el pago directamente con el vendedor
+                    Transfieres directo al vendedor. Tu compra siempre está protegida.
                   </p>
                 </div>
               </div>
               <span className="text-[10px] bg-[#3483fa] text-white px-2 py-0.5 rounded font-bold">
-                RECOMENDADO
+                MEJOR PRECIO
+              </span>
+            </div>
+            <div className="flex items-center justify-between p-4 border mt-4 border-[#173768] bg-blue-50 dark:bg-blue-900/10 rounded-lg select-none">
+              <div className="flex items-center gap-3">
+                <div className="w-4 h-4 rounded-full border-4 border-[#133669]"></div>
+                <div>
+                  <p className="font-semibold text-sm dark:text-white">
+                    Pagar con Criptomonedas
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Paga con criptomonedas desde el saldo de tu wallet, con menor comisión.
+                  </p>
+                </div>
+              </div>
+              <span className="text-[10px] bg-[#3483fa] text-white px-2 py-0.5 rounded font-bold">
+                PROXIMAMENTE
+              </span>
+            </div>
+            <div className="flex items-center justify-between p-4 border mt-4 border-[#173768] bg-blue-50 dark:bg-blue-900/10 rounded-lg select-none">
+              <div className="flex items-center gap-3">
+                <div className="w-4 h-4 rounded-full border-4 border-[#133669]"></div>
+                <div>
+                  <p className="font-semibold text-sm dark:text-white">
+                    Tarjeta de Crédito
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Pagos con tarjeta Visa o Mastercard, con compra protegida.
+                  </p>
+                </div>
+              </div>
+              <span className="text-[10px] bg-[#3483fa] text-white px-2 py-0.5 rounded font-bold">
+                PROXIMAMENTE
               </span>
             </div>
           </section>
@@ -555,6 +587,11 @@ if (!authenticated ||  !dbUser ) {
                 </>
               )}
             </button>
+            {!selectedAddress && (
+              <div className="mt-2 text-red-500 text-sm">
+                Por favor selecciona una dirección de envío para poder avanzar
+              </div>
+            )}
 
             <div className="mt-6 flex items-start gap-2">
               <ShieldCheck className="w-4 h-4 text-gray-400 mt-1" />

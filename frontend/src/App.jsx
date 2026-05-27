@@ -30,9 +30,16 @@ import TermsAndConditions from "./pages/TermsAndConditions";
 import LoginPage from "./pages/LoginPage";
 import MyOrders from "./pages/dashboard/MyOrders";
 import AdminDashboard from "./pages/AdminDashboard";
+import Referrals from "./pages/dashboard/Referrals";
+import Offers from "./pages/Offers";
+import { usePrivySpanish } from "./Utils/privyTranslate";
+import HelpSeller from "./pages/HelpSeller";
+import HelpBuyer from "./pages/HelpBuyer";
+import DisclaimerBanner from "./components/DisclaimerBanner";
 
 export default function App() {
   const theme = useSelector((s) => s.theme.mode);
+  usePrivySpanish();
 
   useEffect(() => {
     const root = document.documentElement;
@@ -60,7 +67,10 @@ export default function App() {
             <Route path="/cart" element={<Cart />} />
             <Route path="/shop/:username" element={<ShopPage />} />
             <Route path="/checkout/:sellerId" element={<Checkout />} />
+            <Route path="/ofertas" element={<Offers />} />
             <Route path="/vender" element={<CreateProduct />} />
+            <Route path="/ayuda/vender" element={<HelpSeller />} />
+            <Route path="/ayuda/comprar" element={<HelpBuyer />} />
             <Route element={<DashboardLayout />}>
               <Route path="perfil" element={<Profile />} />
               <Route path="billetera" element={<WalletPage />} />
@@ -71,6 +81,7 @@ export default function App() {
               <Route path="historial" element={<History />} />
               <Route path="posts" element={<Posts />} />
               <Route path="mis-ordenes" element={<MyOrders />} />
+              <Route path="referidos" element={<Referrals />} />
               {/* Agrega historial y posts de la misma forma */}
             </Route>
             <Route path="/admin" element={<AdminDashboard />} />
@@ -78,6 +89,7 @@ export default function App() {
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
+        <DisclaimerBanner />
         <Footer />
       </div>
     </BrowserRouter>

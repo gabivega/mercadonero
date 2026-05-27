@@ -13,11 +13,11 @@ import logoLight from "./assets/img/mn-logo-light.png";
 const privyAppId = import.meta.env.VITE_PRIVY_APP_ID;
 
 const PrivyAppWrapper = () => {
+
   // 1. Obtenemos el modo directamente de tu Redux
   const themeMode = useSelector((state) => state.theme.mode);
 
   const neroLogo = themeMode === "dark" ? logoDark : logoLight;
-
   return (
     <PrivyProvider
       appId={privyAppId}

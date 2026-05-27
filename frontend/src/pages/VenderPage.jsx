@@ -1,10 +1,13 @@
 import { usePrivy } from '@privy-io/react-auth';
+import { useState } from 'react';
 import { useNavigate, useEffect } from 'react-router-dom';
 import { Package, ArrowRight } from 'lucide-react';
+import NeroLogin from '../components/NeroLogin';
 
 export default function VenderPage() {
   const { authenticated, ready, login } = usePrivy();
   const navigate = useNavigate();
+  const [isLoginOpen, setIsLoginOpen] = useState(false);
 
   // 1. Mientras Privy está verificando la sesión, mostramos un estado de carga
   if (!ready) {
@@ -49,7 +52,7 @@ export default function VenderPage() {
 
       <div className="space-y-4">
         <button
-          onClick={login}
+          onClick={() => setIsLoginOpen(true)}
           className="group flex items-center gap-3 px-8 py-4 bg-[#F26722] text-white rounded-2xl font-black uppercase tracking-[0.2em] text-sm hover:scale-105 active:scale-95 transition-all shadow-lg shadow-[#F26722]/20"
         >
           Iniciar Sesión
@@ -60,6 +63,15 @@ export default function VenderPage() {
           ¿No tienes cuenta? Se crea automáticamente al iniciar sesión
         </p>
       </div>
+      
+      <NeroLogin 
+        isOpen={isLoginOpen} 
+        onClose={() => setIsLoginOpen(false)}
+        onLoginSuccess={() => {
+          // Opcional: Aquí podrías navegar a otra página si quieres
+          // navigate('/dashboard');
+        }}
+      />
     </div>
   );
 }

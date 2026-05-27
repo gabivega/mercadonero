@@ -17,6 +17,7 @@ import {
 import ProductCarousel from "../components/ProductCarousel"; // Reutilizamos para relacionados
 import { useCartStore } from "../store/useCartStore";
 import LoadingSpinner from "../components/LoadingSpinner";
+import Swal from "sweetalert2";
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -88,7 +89,14 @@ export default function ProductDetail() {
     const isInCart = cart.some((item) => item._id === product._id);
 
     if (!isInCart) {
-      addToCart(product); // Agregamos con cantidad 1 (o la que tengas seleccionada)
+        const normalizedProduct = {
+      ...product,
+      sellerId: product.seller?._id || product.seller, // Siempre plano
+      seller: product.seller?._id || product.seller, // Lo sobreescribimos para unificar
+    };
+
+    addToCart(normalizedProduct);
+      console.log("desde handle buy now: ", product) // Agregamos con cantidad 1 (o la que tengas seleccionada)
     }
     if (quantity > 1) {
       updateQuantity(product._id, quantity);
@@ -109,6 +117,31 @@ export default function ProductDetail() {
     if (quantity > 1) {
       updateQuantity(product._id, quantity);
     }
+     const Toast = Swal.mixin({
+        toast: true,
+        position: 'top-end', // Se muestra arriba a la derecha (estilo notificación)
+        showConfirmButton: false,
+        timer: 2000, // Dura 2 segundos y se va
+        timerProgressBar: true, // Barra de tiempo visual abajo
+        didOpen: (toast) => {
+          toast.addEventListener('mouseenter', Swal.stopTimer);
+          toast.addEventListener('mouseleave', Swal.resumeTimer);
+        }
+      });
+    
+      Toast.fire({
+        icon: 'success',
+        title: '¡Agregado al carrito!',
+        text: product.title || product.name, // Muestra el nombre del producto abajo en chiquito
+        background: document.documentElement.classList.contains('dark') ? '#18181b' : '#ffffff', // Soporte Dark Mode automático (Zinc-900 o Blanco)
+        color: document.documentElement.classList.contains('dark') ? '#f4f4f5' : '#3f3f46',
+        iconColor: '#3483fa', // El azul característico que estamos usando
+        customClass: {
+          popup: 'border border-gray-100 dark:border-zinc-800 rounded-xl shadow-lg font-sans',
+          title: 'text-sm font-bold text-gray-800 dark:text-zinc-100',
+          htmlContainer: 'text-xs text-gray-500 dark:text-zinc-400'
+        }
+      });
   };
 
   return (
@@ -123,9 +156,9 @@ export default function ProductDetail() {
             Volver al listado
           </span>
           <span>|</span>
-          <span>{product.category}</span>
+          <span>{product.category.replace(/-/g, ' ')}</span>
           <span>&gt;</span>
-          <span className="font-semibold">{product.subCategory}</span>
+          <span className="font-semibold">{product.subCategory.replace(/-/g, ' ')}</span>
         </nav>
 
         {/* Contenedor Principal */}
@@ -206,7 +239,7 @@ export default function ProductDetail() {
                 {/* Solo mostramos Nuevo/Usado si NO es un clasificado */}
                 {product.listingType !== "classified" && (
                   <span className="text-xs font-medium text-gray-500">
-                    {product.condition === "new" ? "Nuevo" : "Usado"}
+                    {product.condition === "new" ? "Nuevo " : "Usado"}
                   </span>
                 )}
                 {product.listingType === "product"
@@ -344,7 +377,7 @@ export default function ProductDetail() {
                           value={i + 1}
                           className="dark:bg-[#121212]"
                         >
-                          {i + 1} unidad{i > 0 ? "s" : ""}
+                          {i + 1} unidad{i > 0 ? "es" : ""}
                         </option>
                       ))}
                     </select>

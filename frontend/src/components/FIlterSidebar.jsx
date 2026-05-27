@@ -64,7 +64,7 @@ export default function FilterSidebar({ filters, onFilterChange, totalResults, c
             <Badge label={filters.brand} onRemove={() => onFilterChange({...filters, brand: ''})} />
           )}
           {filters.subCategory && (
-            <Badge label={filters.subCategory} onRemove={() => onFilterChange({...filters, subCategory: ''})} />
+            <Badge label={filters.subCategory.replace(/-/g, ' ')} onRemove={() => onFilterChange({...filters, subCategory: ''})} />
           )}
           {filters.condition && (
             <Badge label={filters.condition === 'new' ? 'Nuevo' : 'Usado'} onRemove={() => onFilterChange({...filters, condition: ''})} />
@@ -206,7 +206,7 @@ export default function FilterSidebar({ filters, onFilterChange, totalResults, c
                 : 'text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800'
               }`}
             >
-              {subCategory}
+              {subCategory.replace(/-/g, ' ')}
             </button>
           ))}
         </div>

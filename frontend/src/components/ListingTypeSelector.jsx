@@ -1,5 +1,5 @@
 import { Package, Car, Home,  } from 'lucide-react';
-
+import HowToSell from './HowToSell';
 const options = [
   {
     id: 'product',
@@ -50,6 +50,7 @@ export const ListingTypeSelector = ({ onSelect }) => {
           </button>
         ))}
       </div>
+      <HowToSell />
     </div>
   );
 };

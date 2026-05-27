@@ -11,6 +11,7 @@ import VehicleForm from "../../components/VehicleForm.jsx";
 import PropertyForm from "../../components/PropertyForm.jsx";
 import ServiceForm from "../../components/ServiceForm.jsx";
 import DashboardLayout from "../../components/DashboardLayout.jsx";
+import NeroLogin from "../../components/NeroLogin.jsx";
 
 import {
   Package,
@@ -21,12 +22,14 @@ import {
   Truck,
   ArrowLeft,
 } from "lucide-react";
+import HowToSell from "../../components/HowToSell.jsx";
 
 export default function CreateProduct() {
   const [formType, setFormType] = useState(null);
   const { ready, getAccessToken, user, authenticated, login } = usePrivy();
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoginOpen, setIsLoginOpen] = useState(false);
   console.log("User:", user);
   console.log("isAuthenticated:", authenticated);
 
@@ -139,7 +142,7 @@ export default function CreateProduct() {
 
         <div className="space-y-4">
           <button
-            onClick={login}
+            onClick={()=> setIsLoginOpen(true)}
             className="group flex items-center gap-3 px-8 py-4 bg-[#F26722] text-white rounded-2xl font-black uppercase tracking-[0.2em] text-sm hover:scale-105 active:scale-95 transition-all shadow-lg shadow-[#F26722]/20"
           >
             Iniciar Sesión
@@ -150,6 +153,15 @@ export default function CreateProduct() {
             ¿No tienes cuenta? Se crea automáticamente al iniciar sesión
           </p>
         </div>
+        <NeroLogin 
+          isOpen={isLoginOpen} 
+          onClose={() => setIsLoginOpen(false)} 
+           onLoginSuccess={(user) => {
+        // Opcional: Aquí podrías navegar a otra página si quieres
+        // navigate('/dashboard');
+      }}
+        />
+        <HowToSell />
       </div>
     );
   }

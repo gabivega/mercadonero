@@ -17,6 +17,7 @@ import {
   ShoppingBag,
   FileText,
   LayoutDashboard,
+  Users,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSelector, useDispatch } from "react-redux";
@@ -316,11 +317,11 @@ if (isLoginOpen) {
                               </button>
                             )}
                             <button
-                              onClick={() => handleMenuClick("/historial")}
+                              onClick={() => handleMenuClick("/vender")}
                               className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
                             >
-                              <Clock className="w-4 h-4" />
-                              Historial
+                              <Plus className="w-4 h-4" />
+                              Vender
                             </button>
                             <button
                               onClick={() => handleMenuClick("/posts")}
@@ -330,18 +331,18 @@ if (isLoginOpen) {
                               Posts
                             </button>
                             <button
-                              onClick={() => handleMenuClick("/vender")}
-                              className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
-                            >
-                              <Plus className="w-4 h-4" />
-                              Vender
-                            </button>
-                            <button
                               onClick={() => handleMenuClick("/publicaciones")}
                               className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
                             >
                               <List className="w-4 h-4" />
                               Publicaciones
+                            </button>
+                            <button
+                              onClick={() => handleMenuClick("/referidos")}
+                              className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
+                            >
+                              <Users className="w-4 h-4" />
+                              Referidos
                             </button>
                             <hr className="my-2 border-gray-100 dark:border-zinc-800" />
                             <button

@@ -26,10 +26,10 @@ router.post("/sync-user", verifyPrivyToken, async (req, res) => {
     // Buscamos si ya existe
     let user = await User.findOne({ privyDid: did });
 
-    if (!user.walletAddress) {
-      user.walletAddress = walletAddress;
-      await user.save();
-    }
+    // if (!user.walletAddress) {
+    //   user.walletAddress = walletAddress;
+    //   await user.save();
+    // }
 
     if (!user) {
       console.log("creando usuario nuevo");
