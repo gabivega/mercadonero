@@ -34,7 +34,7 @@ export default function ProductCard({ product }) {
     color: document.documentElement.classList.contains('dark') ? '#f4f4f5' : '#3f3f46',
     iconColor: '#3483fa', // El azul característico que estamos usando
     customClass: {
-      popup: 'border border-gray-100 dark:border-zinc-800 rounded-xl shadow-lg font-sans',
+      popup: 'border border-gray-100 dark:border-zinc-800 rounded-xl shadow-lg font-sans mb-10',
       title: 'text-sm font-bold text-gray-800 dark:text-zinc-100',
       htmlContainer: 'text-xs text-gray-500 dark:text-zinc-400'
     }

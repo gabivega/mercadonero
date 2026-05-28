@@ -245,10 +245,10 @@ export default function AuthOnboarding({ onComplete }) {
           <NeroLogin
            isOpen={isNeroLogin} 
       onClose={() => setIsNeroLogin(false)}
-      onLoginSuccess={(user) => {
+      onLoginSuccess={() => onComplete()}
         // Opcional: Aquí podrías navegar a otra página si quieres
         // navigate('/dashboard');
-      }} />
+       />
         </div>
       )}
 

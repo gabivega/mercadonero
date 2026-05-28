@@ -2,8 +2,8 @@ import { useState } from "react";
 import { UserPlus, FileText, ShieldCheck, ArrowRight, ChevronDown } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
-export default function HowToSell() {
-const [isOpen, setIsOpen] = useState(false);
+export default function HowToSell({isExpanded = true}) {
+const [isOpen, setIsOpen] = useState(isExpanded);
   const navigate = useNavigate();
 
   // JSON de pasos para modificar fácilmente en el futuro

@@ -34,7 +34,15 @@ const desktopBanners = [
     button: "Ver Ofertas",
     url: "/ofertas",
     overlay: "bg-black/60" // Sin capa extra
-  }
+  },
+    {
+    image: '/assets/img/banner-desktop/supermarket.jpg',
+    title: "Al Super, sin salir de casa",
+    subtitle: "Miles de productos de supermercado disponibles con envío en el día. Comprá desde la comodidad de tu casa ahorrando tiempo y dinero.",
+    button: "Ver Productos",
+    overlay: "bg-black/60", // Sin capa extra
+    url: "/c/supermercado",
+  },
 ]
 
 // Estructura de objetos para Mobile (Mismos textos, adaptados a su imagen vertical/cuadrada)
@@ -50,7 +58,7 @@ const mobileBanners = [
   {
     image: '/assets/img/banner-desktop/seller.jpg',
     title: "Comisiones mas bajas del Mercado",
-    subtitle: "Comision fija FINAL del 3%, sin sorpresas. Aumentá tu rentabilidad vendiendo en Mercado Nero",
+    subtitle: "Comision fija FINAL del 3%, sin sorpresas. Aumentá tu rentabilidad vendiendo en Mercado Nero. Como comprador vas a encontrar los mejores precios del mercado.",
     button: "Empezar a vender",
     overlay: "bg-black/50" // Un poco más oscuro si la imagen brilla mucho
   },
@@ -67,7 +75,15 @@ const mobileBanners = [
     subtitle: "Encontrá los mejores precios del país en telefonía. Compra protegida y envíos a todo el pais.",
     button: "Ver Ofertas",
     overlay: "bg-black/60" // Sin capa extra
-  }
+  },
+  {
+    image: '/assets/img/banner-desktop/supermarket.jpg',
+    title: "Al Super, sin salir de casa",
+    subtitle: "Miles de productos de supermercado disponibles con envío en el día. Comprá desde la comodidad de tu casa ahorrando tiempo y dinero.",
+    button: "Ver Productos",
+    overlay: "bg-black/60", // Sin capa extra
+    url: "/c/supermercado",
+  },
 ]
 
 export default function BannerCarousel() {
