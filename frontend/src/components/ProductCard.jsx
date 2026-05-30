@@ -1,11 +1,13 @@
 import { useNavigate } from "react-router-dom";
 import { ShoppingCart, Heart, BadgeCheck } from "lucide-react";
 import { useCartStore } from "../store/useCartStore";
+import { useUserStore } from "../store/useUserStore";
 import noImage from "../assets/img/no-image.png";
 import Swal from "sweetalert2";
 
 export default function ProductCard({ product }) {
   const navigate = useNavigate();
+  const user = useUserStore((state) => state.user);
   const addToCart = useCartStore((state) => state.addToCart);
   const handleCardClick = () => {
     navigate(`/product/${product._id}`);
@@ -43,8 +45,35 @@ export default function ProductCard({ product }) {
 
   const handleFavorite = (e) => {
     e.stopPropagation();
-    // TODO: Implement favorite functionality
-    console.log("Added to favorites:", product.name);
+    if (!user) {
+      return;
+    }
+
+   const Toast = Swal.mixin({
+    toast: true,
+    position: 'bottom-end', // Se muestra arriba a la derecha (estilo notificación)
+    showConfirmButton: false,
+    timer: 2000, // Dura 2 segundos y se va
+    timerProgressBar: true, // Barra de tiempo visual abajo
+    didOpen: (toast) => {
+      toast.addEventListener('mouseenter', Swal.stopTimer);
+      toast.addEventListener('mouseleave', Swal.resumeTimer);
+    }
+  });
+
+  Toast.fire({
+    icon: 'success',
+    title: '¡Agregado a Favoritos!',
+    text: product.title || product.name, // Muestra el nombre del producto abajo en chiquito
+    background: document.documentElement.classList.contains('dark') ? '#18181b' : '#ffffff', // Soporte Dark Mode automático (Zinc-900 o Blanco)
+    color: document.documentElement.classList.contains('dark') ? '#f4f4f5' : '#3f3f46',
+    iconColor: '#3483fa', // El azul característico que estamos usando
+    customClass: {
+      popup: 'border border-gray-100 dark:border-zinc-800 rounded-xl shadow-lg font-sans mb-10',
+      title: 'text-sm font-bold text-gray-800 dark:text-zinc-100',
+      htmlContainer: 'text-xs text-gray-500 dark:text-zinc-400'
+    }
+  });
   };
 
   // funcion para especificaciones de producto

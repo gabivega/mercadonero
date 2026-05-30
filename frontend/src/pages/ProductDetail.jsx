@@ -89,14 +89,14 @@ export default function ProductDetail() {
     const isInCart = cart.some((item) => item._id === product._id);
 
     if (!isInCart) {
-        const normalizedProduct = {
-      ...product,
-      sellerId: product.seller?._id || product.seller, // Siempre plano
-      seller: product.seller?._id || product.seller, // Lo sobreescribimos para unificar
-    };
+      const normalizedProduct = {
+        ...product,
+        sellerId: product.seller?._id || product.seller, // Siempre plano
+        seller: product.seller?._id || product.seller, // Lo sobreescribimos para unificar
+      };
 
-    addToCart(normalizedProduct);
-      console.log("desde handle buy now: ", product) // Agregamos con cantidad 1 (o la que tengas seleccionada)
+      addToCart(normalizedProduct);
+      console.log("desde handle buy now: ", product); // Agregamos con cantidad 1 (o la que tengas seleccionada)
     }
     if (quantity > 1) {
       updateQuantity(product._id, quantity);
@@ -117,31 +117,36 @@ export default function ProductDetail() {
     if (quantity > 1) {
       updateQuantity(product._id, quantity);
     }
-     const Toast = Swal.mixin({
-        toast: true,
-        position: 'top-end', // Se muestra arriba a la derecha (estilo notificación)
-        showConfirmButton: false,
-        timer: 2000, // Dura 2 segundos y se va
-        timerProgressBar: true, // Barra de tiempo visual abajo
-        didOpen: (toast) => {
-          toast.addEventListener('mouseenter', Swal.stopTimer);
-          toast.addEventListener('mouseleave', Swal.resumeTimer);
-        }
-      });
-    
-      Toast.fire({
-        icon: 'success',
-        title: '¡Agregado al carrito!',
-        text: product.title || product.name, // Muestra el nombre del producto abajo en chiquito
-        background: document.documentElement.classList.contains('dark') ? '#18181b' : '#ffffff', // Soporte Dark Mode automático (Zinc-900 o Blanco)
-        color: document.documentElement.classList.contains('dark') ? '#f4f4f5' : '#3f3f46',
-        iconColor: '#3483fa', // El azul característico que estamos usando
-        customClass: {
-          popup: 'border border-gray-100 dark:border-zinc-800 rounded-xl shadow-lg font-sans',
-          title: 'text-sm font-bold text-gray-800 dark:text-zinc-100',
-          htmlContainer: 'text-xs text-gray-500 dark:text-zinc-400'
-        }
-      });
+    const Toast = Swal.mixin({
+      toast: true,
+      position: "top-end", // Se muestra arriba a la derecha (estilo notificación)
+      showConfirmButton: false,
+      timer: 2000, // Dura 2 segundos y se va
+      timerProgressBar: true, // Barra de tiempo visual abajo
+      didOpen: (toast) => {
+        toast.addEventListener("mouseenter", Swal.stopTimer);
+        toast.addEventListener("mouseleave", Swal.resumeTimer);
+      },
+    });
+
+    Toast.fire({
+      icon: "success",
+      title: "¡Agregado al carrito!",
+      text: product.title || product.name, // Muestra el nombre del producto abajo en chiquito
+      background: document.documentElement.classList.contains("dark")
+        ? "#18181b"
+        : "#ffffff", // Soporte Dark Mode automático (Zinc-900 o Blanco)
+      color: document.documentElement.classList.contains("dark")
+        ? "#f4f4f5"
+        : "#3f3f46",
+      iconColor: "#3483fa", // El azul característico que estamos usando
+      customClass: {
+        popup:
+          "border border-gray-100 dark:border-zinc-800 rounded-xl shadow-lg font-sans",
+        title: "text-sm font-bold text-gray-800 dark:text-zinc-100",
+        htmlContainer: "text-xs text-gray-500 dark:text-zinc-400",
+      },
+    });
   };
 
   return (
@@ -156,16 +161,18 @@ export default function ProductDetail() {
             Volver al listado
           </span>
           <span>|</span>
-          <span>{product.category.replace(/-/g, ' ')}</span>
+          <span className="capitalize">{product.category.replace(/-/g, " ")}</span>
           <span>&gt;</span>
-          <span className="font-semibold">{product.subCategory.replace(/-/g, ' ')}</span>
+          <span className="font-semibold capitalize">
+            {product.subCategory.replace(/-/g, " ")}
+          </span>
         </nav>
 
         {/* Contenedor Principal */}
-        <div className="bg-white dark:bg-[#121212] rounded-sm shadow-sm border border-gray-200 dark:border-gray-800 grid grid-cols-1 lg:grid-cols-3 overflow-hidden">
+        <div className="bg-white dark:bg-[#121212] rounded-sm shadow-sm border border-gray-200 dark:border-gray-800 grid grid-cols-1 md:grid-cols-3 overflow-hidden">
           {/* COLUMNA IZQUIERDA: Fotos y Detalles */}
-          <div className="lg:col-span-2 border-r border-gray-100 dark:border-gray-800 p-4 lg:p-6">
-            <div className="flex flex-col md:flex-row gap-6">
+          <div className="border-r border-gray-100 dark:border-gray-800 p-4 md:p-6 order-2 md:order-1 md:col-span-2">
+            <div className="hidden md:flex flex-col md:flex-row gap-6">
               {/* Selector de fotos lateral */}
               <div className="hidden md:flex flex-col gap-2">
                 {product.images?.map((img, idx) => (
@@ -188,7 +195,7 @@ export default function ProductDetail() {
               </div>
 
               {/* Imagen Principal */}
-              <div className="flex-1 flex items-center justify-center min-h-[350px] lg:min-h-[450px]">
+              <div className="flex-1 flex items-center justify-center min-h-[350px] md:min-h-[450px]">
                 <img
                   src={product.images?.[selectedImageIndex]?.url}
                   className="max-w-full max-h-[450px] object-contain"
@@ -233,18 +240,24 @@ export default function ProductDetail() {
           </div>
 
           {/* COLUMNA DERECHA: Compra (Compacta) */}
-          <div className="p-4 lg:p-5 bg-white dark:bg-[#121212]">
+          <div className="order-1 md:order-2 p-4 md:p-5 bg-white dark:bg-[#121212]">
             <div className="space-y-3 border border-gray-200 dark:border-gray-800 rounded-lg p-4 bg-white dark:bg-[#121212]">
               <div className="text-[12px] text-gray-500">
                 {/* Solo mostramos Nuevo/Usado si NO es un clasificado */}
-                {product.listingType !== "classified" && (
-                  <span className="text-xs font-medium text-gray-500">
-                    {product.condition === "new" ? "Nuevo " : "Usado"}
-                  </span>
+
+                {product.listingType === "product" ? (
+                  <div className="flex justify-between">
+                    <div className="flex flex-row w-full">
+                      <span className="text-xs font-medium text-gray-500">
+                        {product.condition === "new" ? "Nuevo " : "Usado"}
+                      </span>
+                      <span className="ml-1">| {product.sold} vendidos</span>
+                    </div>
+                    <span>⭐ {product.rating}</span>
+                  </div>
+                ) : (
+                  ""
                 )}
-                {product.listingType === "product"
-                  ? `| ${product.sold} vendidos`
-                  : ""}
                 {/* Badge de estado/kilometraje para Clasificados */}
                 {product.listingType === "classified" && (
                   <div className="flex items-center gap-2 mb-2">
@@ -278,7 +291,37 @@ export default function ProductDetail() {
               <h1 className="text-lg lg:text-xl font-bold dark:text-white leading-snug">
                 {product.name}
               </h1>
-
+              {/* 📱 1. GALERÍA PARA MOBILE (Visible solo en pantallas menores a md) */}
+              <div className="flex flex-col gap-4 md:hidden mb-6">
+              {/* Imagen Principal Mobile */}
+              <div className="w-full flex items-center justify-center min-h-[300px] bg-white dark:bg-[#121212] rounded-md p-2">
+                <img
+                  src={product.images?.[selectedImageIndex]?.url}
+                  className="max-w-full max-h-[300px] object-contain"
+                  alt={product.name}
+                />
+              </div>
+              {/* Miniaturas en carrusel horizontal debajo (Mobile) */}
+              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
+                {product.images?.map((img, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setSelectedImageIndex(idx)} // En mobile usamos onClick en vez de hover
+                    className={`w-14 h-14 border rounded-md overflow-hidden p-1 flex-shrink-0 transition-all ${
+                      selectedImageIndex === idx
+                        ? "border-[#F26722] border-2" // Usamos tu naranja de Mercado Nero
+                        : "border-gray-200 dark:border-gray-700 bg-white"
+                    }`}
+                  >
+                    <img
+                      src={img.url}
+                      className="w-full h-full object-contain bg-white"
+                      alt="thumb"
+                    />
+                  </button>
+                ))}
+              </div>
+              </div>
               {/* Precio Compacto */}
               <div className="pt-2">
                 {product.sale?.active && (
@@ -307,34 +350,35 @@ export default function ProductDetail() {
               {/* Envío y Ubicación */}
               <div className="space-y-3 py-2">
                 {/* Solo mostramos envío si NO es un clasificado */}
-                {product.listingType !== "classified" || product.category !== "autos-motos-y-otros" && (
-                  <div className="flex gap-2.5">
-                    <Truck
-                      className={`w-4 h-4 shrink-0 mt-1 ${product.shipping?.free ? "text-green-500" : "text-gray-400"}`}
-                    />
-                    <div>
-                      {product.shipping?.free ? (
-                        <>
-                          <p className="text-green-500 text-sm font-medium">
-                            Envío gratis a todo el país
-                          </p>
-                          <p className="text-gray-500 text-xs">
-                            A través de Mercado Nero Envíos
-                          </p>
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-gray-900 dark:text-gray-200 text-sm font-medium">
-                            Envío a cargo del comprador
-                          </p>
-                          <p className="text-[#3483fa] text-xs cursor-pointer hover:underline">
-                            Calcular costo de envío
-                          </p>
-                        </>
-                      )}
+                {product.listingType !== "classified" ||
+                  (product.category !== "autos-motos-y-otros" && (
+                    <div className="flex gap-2.5">
+                      <Truck
+                        className={`w-4 h-4 shrink-0 mt-1 ${product.shipping?.free ? "text-green-500" : "text-gray-400"}`}
+                      />
+                      <div>
+                        {product.shipping?.free ? (
+                          <>
+                            <p className="text-green-500 text-sm font-medium">
+                              Envío gratis a todo el país
+                            </p>
+                            <p className="text-gray-500 text-xs">
+                              A través de Mercado Nero Envíos
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-gray-900 dark:text-gray-200 text-sm font-medium">
+                              Envío a cargo del comprador
+                            </p>
+                            <p className="text-[#3483fa] text-xs cursor-pointer hover:underline">
+                              Calcular costo de envío
+                            </p>
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  ))}
 
                 {/* La ubicación siempre es relevante, pero en clasificados es CRUCIAL */}
                 <div className="flex gap-2.5">
@@ -392,7 +436,8 @@ export default function ProductDetail() {
 
               {/* Botones de Acción Principales */}
               <div className="space-y-2 pt-2">
-                {product.listingType === "product" && product.category !== "autos-motos-y-otros"? (
+                {product.listingType === "product" &&
+                product.category !== "autos-motos-y-otros" ? (
                   // FLUJO DE PRODUCTO: Carrito y Compra Directa
                   <>
                     <button

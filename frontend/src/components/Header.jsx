@@ -157,7 +157,7 @@ export default function Header() {
     setIsUserMenuOpen(false);
   };
 
-  const menuItems = ["Categorias", "Ofertas", "Comunidad", "Vender", "Ayuda"];
+  const menuItems = ["Categorias", "Ofertas", "Comunidad", "Vender", "Ayuda", "Referidos"];
 
 if (isLoginOpen) {
   return (    

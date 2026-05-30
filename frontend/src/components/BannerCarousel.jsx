@@ -43,6 +43,14 @@ const desktopBanners = [
     overlay: "bg-black/60", // Sin capa extra
     url: "/c/supermercado",
   },
+ {
+  image: '/assets/img/banner-desktop/referral.jpg', // Tu nueva imagen
+  title: "Compartí y Ganá en Comunidad",
+  subtitle: "Recomendá productos seleccionados de Mercado Nero. Si tu audiencia compra, vos te llevás una comisión instantánea en stablecoins y ellos reciben un reintegro directo en su wallet. 100% automatizado por Smart Contracts.",
+  button: "Unirse como Creador",
+  overlay: "bg-black/60", 
+  url: "/referidos", // O la ruta que le hayas asignado a la pestaña de creadores
+}
 ]
 
 // Estructura de objetos para Mobile (Mismos textos, adaptados a su imagen vertical/cuadrada)

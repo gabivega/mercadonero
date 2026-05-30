@@ -15,14 +15,14 @@ export default function NeroLogin({ isOpen, onClose, onLoginSuccess }) {
   const [isDone, setIsDone] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const inputRefs = React.useRef([]);
-const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [otp, setOtp] = useState(["", "", "", "", "", ""]);
 
-// Efecto para hacer focus en el primer casillero cuando aparece el formulario de OTP
-useEffect(() => {
-  if (isCodeSent && inputRefs.current[0]) {
-    inputRefs.current[0].focus();
-  }
-}, [isCodeSent]);
+  // Efecto para hacer focus en el primer casillero cuando aparece el formulario de OTP
+  useEffect(() => {
+    if (isCodeSent && inputRefs.current[0]) {
+      inputRefs.current[0].focus();
+    }
+  }, [isCodeSent]);
 
   const { createWallet } = useCreateWallet();
 
@@ -105,42 +105,42 @@ useEffect(() => {
   };
 
   const handleOtpChange = (element, index) => {
-  const value = element.value.replace(/\D/g, ''); // Solo números
-  if (!value && element.value !== "") return; // Evitar caracteres no numéricos
+    const value = element.value.replace(/\D/g, ""); // Solo números
+    if (!value && element.value !== "") return; // Evitar caracteres no numéricos
 
-  const newOtp = [...otp];
-  newOtp[index] = value.substring(value.length - 1); // Tomar solo el último dígito
-  setOtp(newOtp);
+    const newOtp = [...otp];
+    newOtp[index] = value.substring(value.length - 1); // Tomar solo el último dígito
+    setOtp(newOtp);
 
-  // Mover al siguiente input si hay valor
-  if (value && index < 5) {
-    inputRefs.current[index + 1].focus();
-  }
+    // Mover al siguiente input si hay valor
+    if (value && index < 5) {
+      inputRefs.current[index + 1].focus();
+    }
 
-  // Si es el último dígito y está completo, disparar el login
-  const finalCode = newOtp.join('');
-  if (finalCode.length === 6 && index === 5) {
-    setIsLoading(true);
-    loginWithCode({ code: finalCode });
-  }
-};
+    // Si es el último dígito y está completo, disparar el login
+    const finalCode = newOtp.join("");
+    if (finalCode.length === 6 && index === 5) {
+      setIsLoading(true);
+      loginWithCode({ code: finalCode });
+    }
+  };
 
-const handleKeyDown = (e, index) => {
-  // Manejar el Backspace para volver atrás
-  if (e.key === 'Backspace' && !otp[index] && index > 0) {
-    inputRefs.current[index - 1].focus();
-  }
-};
+  const handleKeyDown = (e, index) => {
+    // Manejar el Backspace para volver atrás
+    if (e.key === "Backspace" && !otp[index] && index > 0) {
+      inputRefs.current[index - 1].focus();
+    }
+  };
 
-// Función para manejar el pegado (Paste) de códigos completos
-const handlePaste = (e) => {
-  const data = e.clipboardData.getData('text').slice(0, 6).split('');
-  if (data.length === 6) {
-    setOtp(data);
-    setIsLoading(true);
-    loginWithCode({ code: data.join('') });
-  }
-};
+  // Función para manejar el pegado (Paste) de códigos completos
+  const handlePaste = (e) => {
+    const data = e.clipboardData.getData("text").slice(0, 6).split("");
+    if (data.length === 6) {
+      setOtp(data);
+      setIsLoading(true);
+      loginWithCode({ code: data.join("") });
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -238,13 +238,13 @@ const handlePaste = (e) => {
                 <button
                   onClick={() => loginWithCode({ code: otp.join("") })}
                   disabled={otp.some((v) => v === "") || isLoading}
-                  className="w-full py-4 bg-zinc-900 dark:bg-white dark:text-black text-white rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full h-14 bg-zinc-900 dark:bg-white dark:text-black text-white rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                 >
                   {isLoading ? (
-                    <>
+                    <div className="flex items-center justify-center gap-2">
                       <LoadingSpinner size="sm" />
-                      Verificando...
-                    </>
+                      <span>Verificando...</span>
+                    </div>
                   ) : (
                     "Verificar Ingreso"
                   )}
