@@ -1,0 +1,3 @@
+- Poner en misma linea la estrella y el rating en productDetail LISTO
+- Ingreso de OTP excede pantalla en mobile LISTO
+- Acomodar metodos de pago en mobile LISTO

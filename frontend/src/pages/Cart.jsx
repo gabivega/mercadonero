@@ -98,8 +98,8 @@ export default function Cart() {
                 {/* Lista de Items */}
                 <div className="divide-y divide-gray-100 dark:divide-zinc-800">
                   {group.products.map((item) => (
-                    <div key={item._id} className="p-5 flex gap-4">
-                      <div className="w-24 h-24 shrink-0 border border-gray-100 dark:border-zinc-800 rounded-md bg-white p-1">
+                    <div key={item._id} className="p-5 flex flex-col sm:flex-row gap-4">
+                      <div className="w-24 h-24 shrink-0 border border-gray-100 dark:border-zinc-800 rounded-md bg-white p-1 mx-auto">
                         <img
                           src={
                             item.images?.[0]?.url ||
@@ -107,7 +107,7 @@ export default function Cart() {
                             "/placeholder.jpg"
                           }
                           alt={item.name}
-                          className="w-full h-full object-contain"
+                          className="w-full h-full object-contain mx-auto"
                         />
                       </div>
 

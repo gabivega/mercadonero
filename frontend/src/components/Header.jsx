@@ -111,6 +111,9 @@ export default function Header() {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
+
+  const clearCart = useCartStore((state) => state.clearCart);
+  const clearUser = useUserStore((state) => state.clearUser);
   
   // Prevent hydration mismatch
   useEffect(() => {
@@ -140,7 +143,8 @@ export default function Header() {
   };
 
   const handleLogout = async () => {
-    useCartStore.getState().clearCart();
+    clearCart();
+    clearUser();
     try {
       await logout();
     } catch (error) {

@@ -443,9 +443,9 @@ if (!authenticated ||  !dbUser ) {
               <CreditCard className="text-[#3483fa]" size={22} />
               Método de pago
             </h3>
-            <div className="flex items-center justify-between p-4 border cursor-pointer border-[#3483fa] bg-blue-50 dark:bg-blue-900/10 rounded-lg">
+            <div className="flex flex-col sm:flex-row items-center justify-between p-4 border cursor-pointer border-[#3483fa] bg-blue-50 dark:bg-blue-900/10 rounded-lg">
               <div className="flex items-center gap-3">
-                <div className="w-4 h-4 rounded-full border-4 border-[#3483fa]"></div>
+                <div className="w-4 h-4 rounded-full border-4 border-[#3483fa] hidden md:flex"></div>
                 <div>
                   <p className="font-semibold text-sm dark:text-white">
                     Transferencia Bancaria Directa
@@ -455,13 +455,13 @@ if (!authenticated ||  !dbUser ) {
                   </p>
                 </div>
               </div>
-              <span className="text-[10px] bg-[#3483fa] text-white px-2 py-0.5 rounded font-bold">
+              <span className="text-[10px] bg-[#3483fa] text-white m-2 px-2 py-0.5 rounded font-bold">
                 MEJOR PRECIO
               </span>
             </div>
-            <div className="flex items-center justify-between p-4 border mt-4 border-[#173768] bg-blue-50 dark:bg-blue-900/10 rounded-lg select-none">
+            <div className="flex flex-col sm:flex-row items-center justify-between p-4 border mt-4 border-[#173768] bg-blue-50 dark:bg-blue-900/10 rounded-lg select-none">
               <div className="flex items-center gap-3">
-                <div className="w-4 h-4 rounded-full border-4 border-[#133669]"></div>
+                <div className="w-4 h-4 rounded-full border-4 border-[#133669] hidden md:flex"></div>
                 <div>
                   <p className="font-semibold text-sm dark:text-white">
                     Pagar con Criptomonedas
@@ -471,13 +471,13 @@ if (!authenticated ||  !dbUser ) {
                   </p>
                 </div>
               </div>
-              <span className="text-[10px] bg-[#3483fa] text-white px-2 py-0.5 rounded font-bold">
+              <span className="text-[10px] bg-[#3483fa] text-white px-2 m-2 py-0.5 rounded font-bold">
                 PROXIMAMENTE
               </span>
             </div>
-            <div className="flex items-center justify-between p-4 border mt-4 border-[#173768] bg-blue-50 dark:bg-blue-900/10 rounded-lg select-none">
+            <div className="flex flex-col sm:flex-row items-center justify-between p-4 border mt-4 border-[#173768] bg-blue-50 dark:bg-blue-900/10 rounded-lg select-none">
               <div className="flex items-center gap-3">
-                <div className="w-4 h-4 rounded-full border-4 border-[#133669]"></div>
+                <div className="w-4 h-4 rounded-full border-4 border-[#133669] hidden md:flex"></div>
                 <div>
                   <p className="font-semibold text-sm dark:text-white">
                     Tarjeta de Crédito
@@ -487,7 +487,7 @@ if (!authenticated ||  !dbUser ) {
                   </p>
                 </div>
               </div>
-              <span className="text-[10px] bg-[#3483fa] text-white px-2 py-0.5 rounded font-bold">
+              <span className="text-[10px] bg-[#3483fa] text-white m-2 px-2 py-0.5 rounded font-bold">
                 PROXIMAMENTE
               </span>
             </div>

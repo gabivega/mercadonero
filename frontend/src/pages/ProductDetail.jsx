@@ -161,9 +161,9 @@ export default function ProductDetail() {
             Volver al listado
           </span>
           <span>|</span>
-          <span className="capitalize">{product.category.replace(/-/g, " ")}</span>
+          <span className="capitalize whitespace-nowrap">{product.category.replace(/-/g, " ")}</span>
           <span>&gt;</span>
-          <span className="font-semibold capitalize">
+          <span className="font-semibold capitalize whitespace-nowrap">
             {product.subCategory.replace(/-/g, " ")}
           </span>
         </nav>
@@ -253,7 +253,7 @@ export default function ProductDetail() {
                       </span>
                       <span className="ml-1">| {product.sold} vendidos</span>
                     </div>
-                    <span>⭐ {product.rating}</span>
+                    <span className="whitespace-nowrap">⭐ {product.rating}</span>
                   </div>
                 ) : (
                   ""

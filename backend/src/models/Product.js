@@ -37,7 +37,7 @@ const ProductSchema = new Schema(
         isMain: { type: Boolean, default: false },
       },
     ],
-
+    views: { type: Number, default: 0 },
     // Relación con el Vendedor
     seller: { type: Schema.Types.ObjectId, ref: "User", required: true },
     sellerName: { type: String, required: true },

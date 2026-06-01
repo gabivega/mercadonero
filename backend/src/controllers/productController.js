@@ -402,6 +402,11 @@ export const getProductById = async (req, res) => {
         message: "Esta publicación ya no está disponible o ha sido pausada." 
       });
     }
+    await Product.updateOne({ _id: id }, { $inc: { views: 1 } });
+
+    // Opcional: Para que el frontend que hace la petición vea la visita actual reflejada de una,
+    // le sumamos 1 manualmente al objeto en memoria antes de mandarlo.
+    product.views = (product.views || 0) + 1;
 
     res.json(product);
   } catch (error) {

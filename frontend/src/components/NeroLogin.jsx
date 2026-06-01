@@ -33,14 +33,12 @@ export default function NeroLogin({ isOpen, onClose, onLoginSuccess }) {
       console.log("Metadata:", loginMethodMetaData);
 
       // 2. Lógica Infalible: Si NO hay wallet, intentamos crearla
-      // Eliminamos el 'isNewUser' porque no es confiable en este hook
       if (!user.wallet) {
         try {
           console.log("No se detectó wallet, intentando crear...");
           await createWallet();
           console.log("✅ Wallet de Nero generada con éxito");
         } catch (err) {
-          // Si el error es que ya se está creando, lo ignoramos silenciosamente
           console.warn("Aviso en creación de wallet:", err.message);
         }
       }
@@ -60,19 +58,37 @@ export default function NeroLogin({ isOpen, onClose, onLoginSuccess }) {
         if (onLoginSuccess) {
           onLoginSuccess(user);
         } else {
-          // Si no hay callback, refrescamos para asegurar que dbUser se sincronice
           window.location.reload();
         }
         onClose(); // Cerramos el modal
       });
     },
     onError: (error) => {
+      console.error("Error detectado en Login OTP:", error);
+
+      // 1. Destrabamos el botón apagando el spinner de carga
+      if (typeof setIsLoading === "function") {
+        setIsLoading(false);
+      }
+
+      // 2. Reiniciamos el array del OTP a vacío para que puedan re-intentar al toque
+      if (typeof setOtp === "function") {
+        setOtp(new Array(6).fill("")); // O la cantidad de dígitos que uses (ej: 6)
+      }
+
+      // 3. Forzamos el foco de vuelta al primer input del formulario
+      if (inputRefs.current && inputRefs.current[0]) {
+        inputRefs.current[0].focus();
+      }
+
+      // 4. Mostramos la alerta de error al usuario
       Swal.fire({
         title: "Error de Código",
-        text: "El código no es válido o ya expiró.",
+        text: "El código no es válido o ya expiró. Por favor, intentalo de nuevo.",
         icon: "error",
         background: "#1A1A1A",
         color: "#fff",
+        confirmButtonColor: "#F26722",
       });
     },
   });
@@ -216,27 +232,34 @@ export default function NeroLogin({ isOpen, onClose, onLoginSuccess }) {
                 </button>
               </form>
             ) : (
-              <form onSubmit={(e) => e.preventDefault()} className="space-y-6">
+              <form
+                onSubmit={(e) => e.preventDefault()}
+                className="space-y-6 w-full"
+              >
                 <div
-                  className="flex justify-between gap-2"
+                  className="flex justify-between gap-1.5 sm:gap-2 w-full max-w-md mx-auto"
                   onPaste={handlePaste}
                 >
                   {otp.map((data, index) => (
                     <input
                       key={index}
                       type="text"
+                      inputMode="numeric" // 📱 Fuerza el teclado numérico en Mobile sin romper el comportamiento
+                      pattern="[0-9]*" // 📱 Compatibilidad extra para iOS de Apple
                       maxLength={1}
                       ref={(el) => (inputRefs.current[index] = el)}
                       value={data}
                       onChange={(e) => handleOtpChange(e.target, index)}
                       onKeyDown={(e) => handleKeyDown(e, index)}
-                      className="w-12 h-14 text-center text-2xl font-black rounded-xl bg-zinc-100 dark:bg-zinc-800 border-2 border-transparent focus:border-[#F26722] focus:bg-white dark:focus:bg-zinc-700 dark:text-white outline-none transition-all"
+                      className="w-full aspect-[6/7] max-w-[48px] text-center text-xl sm:text-2xl font-black rounded-xl bg-zinc-100 dark:bg-zinc-800 border-2 border-transparent focus:border-[#F26722] focus:bg-white dark:focus:bg-zinc-700 dark:text-white outline-none transition-all px-0"
                     />
                   ))}
                 </div>
-
                 <button
-                  onClick={() => loginWithCode({ code: otp.join("") })}
+                  onClick={() => {
+                    setIsLoading(true); // 👈 Activamos el spinner antes de arrancar la verificación
+                    loginWithCode({ code: otp.join("") });
+                  }}
                   disabled={otp.some((v) => v === "") || isLoading}
                   className="w-full h-14 bg-zinc-900 dark:bg-white dark:text-black text-white rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                 >

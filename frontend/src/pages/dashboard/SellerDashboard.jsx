@@ -384,7 +384,7 @@ export default function SellerDashboard() {
                               {p.currency === "ARS" ? "$ " : "USD "}
                               {p.price}
                             </span>
-                            <p className="font-black text-green-600 dark:text-green-400 text-lg leading-tight">
+                            <p className="font-black text-green-600 dark:text-green-400 text-lg leading-tight whitespace-nowrap">
                               {p.currency === "ARS" ? "$ " : "USD "}
                               {p.sale.price.toLocaleString("es-AR")}
                             </p>
