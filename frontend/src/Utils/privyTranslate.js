@@ -13,7 +13,7 @@ export function usePrivySpanish() {
       "Token address": "Dirección del Token",
       "Network": "Red Blockchain",
       "Estimated fee": "Comisión Estimada",
-      "Approve": "Aprobar Depósito.",
+      "Approve": "Aprobar Depósito",
 
       // --- Pantalla de Confirmación (Nuevos!) ---
       "Transaction complete!": "¡Transacción completada!",

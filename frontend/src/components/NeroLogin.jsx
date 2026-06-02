@@ -200,7 +200,7 @@ export default function NeroLogin({ isOpen, onClose, onLoginSuccess }) {
               <p className="text-zinc-500 dark:text-zinc-400 mt-2 text-sm">
                 {isCodeSent
                   ? `Enviamos un código OTP a ${email}`
-                  : "Accedé para comprar, vender y gestionar $NERO."}
+                  : "Accedé para comprar, vender y participar de la comunidad"}
               </p>
             </div>
 
