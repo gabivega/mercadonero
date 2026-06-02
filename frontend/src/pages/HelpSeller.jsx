@@ -19,7 +19,7 @@ export default function HelpSeller() {
             El colateral es un depósito de respaldo que realizás en la blockchain para garantizar que vas a cumplir con el envío y las condiciones del producto publicado. 
           </p>
           <p>
-            Al no haber intermediarios centralizados que retengan el dinero, este colateral funciona como un seguro de confianza mutua. **Se congela temporalmente en el contrato inteligente** y se libera de forma automática en tu wallet una vez que el comprador confirma que recibió el producto en perfectas condiciones.
+            Al no haber intermediarios centralizados que retengan el dinero, este colateral funciona como un seguro de confianza mutua. Se congela temporalmente en el contrato inteligente y se libera de forma automática en tu wallet una vez que el comprador confirma que recibió el producto en perfectas condiciones.
           </p>
         </>
       ),
@@ -30,7 +30,7 @@ export default function HelpSeller() {
       content: (
         <>
           <p className="mb-2">
-            Un contrato inteligente (Smart Contract) es un programa autónomo que corre en la blockchain y ejecuta reglas inmutables. Cuando vendés, utilizás tu wallet (a través de Privy) para **firmar digitalmente** la transacción.
+            Un contrato inteligente (Smart Contract) es un programa autónomo que corre en la blockchain y ejecuta reglas inmutables. Cuando vendés, utilizás tu wallet para firmar digitalmente la transacción.
           </p>
           <p>
             Esta firma no es una clave de acceso, sino una autorización criptográfica obligatoria para que el contrato pueda resguardar tu colateral de manera transparente y segura, sin que dependas de la buena voluntad de nadie.
@@ -43,7 +43,7 @@ export default function HelpSeller() {
       icon: Wallet,
       content: (
         <p>
-          **No, nunca.** Mercado Nero es una plataforma descentralizada. Nosotros no tenemos acceso a tus claves, no abrimos cuentas bancarias a tu nombre ni guardamos tus criptomonedas en nuestros servidores. Vos sos el único custodio absoluto de tus fondos. Todo el proceso de garantía ocurre directamente entre tu wallet y el contrato inteligente en la red blockchain.
+          No, nunca. Mercado Nero es una plataforma descentralizada. Nosotros no tenemos acceso a tus claves, no abrimos cuentas bancarias a tu nombre ni guardamos tus criptomonedas en nuestros servidores. Vos sos el único custodio absoluto de tus fondos. Todo el proceso de garantía ocurre directamente entre tu wallet y el contrato inteligente en la red blockchain.
         </p>
       ),
     },
@@ -53,10 +53,10 @@ export default function HelpSeller() {
       content: (
         <>
           <p className="mb-2">
-            A diferencia de las plataformas tradicionales, **recibís el pago por adelantado mediante una transferencia directa por parte del comprador** (a tu CBU/CVU o alias bancario coordinado).
+            A diferencia de las plataformas tradicionales, recibís el pago por adelantado mediante una transferencia directa por parte del comprador (a tu CBU/CVU o alias bancario coordinado).
           </p>
           <p>
-            Una vez que verificás el ingreso del dinero en tu cuenta bancaria, tenés la obligación de **confirmar la recepción en la plataforma** para proceder con el despacho del producto. Tu colateral permanecerá congelado resguardando la operación hasta el final del flujo.
+            Una vez que verificás el ingreso del dinero en tu cuenta bancaria, tenés la obligación de confirmar la recepción en la plataforma para proceder con el despacho del producto. Tu colateral permanecerá congelado resguardando la operación hasta el final del flujo.
           </p>
         </>
       ),
@@ -66,7 +66,7 @@ export default function HelpSeller() {
       icon: Percent,
       content: (
         <p>
-          La comisión por venta de Mercado Nero no se te debita de tu cuenta bancaria. Al finalizar la transacción de manera exitosa, el contrato inteligente calcula el porcentaje correspondiente a la comisión, **la descuenta automáticamente de tu colateral devuelto** y te deposita el resto de forma inmediata en tu wallet.
+          La comisión por venta de Mercado Nero no se te debita de tu cuenta bancaria. Al finalizar la transacción de manera exitosa, el contrato inteligente calcula el porcentaje correspondiente a la comisión, la descuenta automáticamente de tu colateral devuelto y te deposita el resto de forma inmediata en tu wallet.
         </p>
       ),
     },
@@ -76,7 +76,7 @@ export default function HelpSeller() {
       content: (
         <>
           <p className="mb-2">
-            Si el comprador indica que el producto llegó dañado, tiene fallas o no coincide con lo publicado, se abre un periodo de disputa y **el colateral en garantía permanecerá congelado** en el contrato hasta que el conflicto se resuelva.
+            Si el comprador indica que el producto llegó dañado, tiene fallas o no coincide con lo publicado, se abre un periodo de disputa y el colateral en garantía permanecerá congelado en el contrato hasta que el conflicto se resuelva.
           </p>
           <p>
             Si se determina que el reclamo es justo, el comprador podrá requerir la devolución de su dinero. En ese caso, deberás reembolsarle la transferencia bancaria y, una vez acreditado el retorno, el sistema liberará tu colateral de vuelta a tu wallet. Cumplir con los estándares evita fricciones y bloqueos de fondos.
