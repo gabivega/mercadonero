@@ -77,16 +77,25 @@ export default function Home() {
   const recentlyAdded = useMemo(() => createCategoryProducts(30), []);
   const offersProducts = useMemo(() => createCategoryProducts(30), []);
   const fashionProducts = useMemo(() => createCategoryProducts(30), []);
-
+  
   return (
     <div className="space-y-8">
       {/* Banner Carousel */}
       <BannerCarousel />
+      {/* Recently Added Carousel */}
+      {validProducts.length > 0 && (
+        <ProductCarousel
+          title="Recientemente Agregado"
+          products={recentlyAdded}
+          sectionId="recently-added"
+          category="recently-added" // 🔥 Le pasamos un flag claro en lugar de dejarlo undefined
+        />
+      )}
       {/* Offers Products Carousel */}
       {validProducts.length > 0 && (
         <ProductCarousel
-          title="Ofertas Destacadas"
-          products={offersProducts}
+        title="Ofertas Destacadas"
+        products={offersProducts}
           sectionId="offers"
           category="offers" // 🔥 Flag para las ofertas
         />
@@ -105,15 +114,6 @@ export default function Home() {
         category="ropa-y-accesorios"
         sectionId="ropa-y-accesorios"
       />
-      {/* Recently Added Carousel */}
-      {validProducts.length > 0 && (
-        <ProductCarousel
-          title="Recientemente Agregado"
-          products={recentlyAdded}
-          sectionId="recently-added"
-          category="recently-added" // 🔥 Le pasamos un flag claro en lugar de dejarlo undefined
-        />
-      )}
 
 
       <ProductCarousel
