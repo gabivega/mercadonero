@@ -20,11 +20,11 @@ export default function SocialMedia() {
   const handleSearchSubmit = (e) => {
     e.preventDefault()
     // TODO: Implement search functionality
-    console.log('Searching for:', searchQuery)
+    // console.log('Searching for:', searchQuery)
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#1A1A1A]">
+    <div className="min-h-screen bg-gray-50 dark:bg-[#725c5c]">
       {/* Header with Search */}
       <div className="bg-white dark:bg-[#2a2a2a] border-b border-gray-200 dark:border-zinc-800 sticky top-0 z-40">
         <div className="container mx-auto px-4 py-4">

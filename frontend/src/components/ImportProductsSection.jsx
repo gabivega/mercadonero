@@ -48,7 +48,7 @@ export const ImportSection = () => {
 
             <div className="flex flex-wrap gap-3 w-full md:w-auto">
               <button 
-                onClick={() => console.log('Scraping modal')}
+                // onClick={() => console.log('Scraping modal')}
                 className="md:w-[200px] flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-4 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-2xl font-bold text-xs transition-all dark:text-white"
               >
                 <LinkIcon size={16} />
@@ -56,7 +56,7 @@ export const ImportSection = () => {
               </button>
 
               <button 
-                onClick={() => console.log('CSV modal')}
+                // onClick={() => console.log('CSV modal')}
                 className="md:w-[200px] flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-4 bg-blue-600 text-white rounded-2xl font-bold text-xs shadow-lg shadow-blue-500/20 hover:bg-blue-700 transition-all uppercase tracking-tighter"
               >
                 <FileSpreadsheet size={16} />

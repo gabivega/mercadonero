@@ -31,9 +31,9 @@ const ShippingForm = ({ orderId, onUpdate }) => {
     color: document.documentElement.classList.contains('dark') ? '#fff' : '#000',
     customClass: { popup: 'rounded-[2.5rem] border-2 border-[#F26722]/20' }
   });
-    console.log("orderId", orderId)
+    // console.log("orderId", orderId)
     const token = await getAccessToken();
-    console.log(token)
+    // console.log(token)
     try {
       // Llamamos al controlador que crearemos abajo
       const { data } = await axios.patch(`${import.meta.env.VITE_SERVER_URL}/api/order/${orderId}`, 

@@ -70,7 +70,7 @@ export default function NeroUploader({
           { method: 'POST', body: formData }
         );
         const data = await response.json();
-        console.log("data de cloudniary", data)
+        // console.log("data de cloudniary", data)
         uploadedResults.push({
           url: data.secure_url,
           isMain: img.isMain

@@ -38,7 +38,7 @@ export default function DepositCollateral() {
 
     setLoading(true);
     setStatus("Conectando con la blockchain...");
-    console.log("Amount:", amount);
+    // console.log("Amount:", amount);
     try {
       // 1. Obtener el proveedor de Ethereum de la wallet de Privy
       const ethereumProvider = await activeWallet.getEthereumProvider();

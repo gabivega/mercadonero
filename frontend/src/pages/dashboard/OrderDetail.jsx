@@ -46,7 +46,7 @@ export default function OrderDetail() {
         },
       );
       setOrder(res.data.order);
-      console.log(res.data.order);
+      // console.log(res.data.order);
     } catch (err) {
       console.error(err);
     } finally {

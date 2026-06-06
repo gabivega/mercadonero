@@ -9,10 +9,10 @@ export default function ShippingStatusCard({ order, role }) {
   const [loading, setLoading] = useState(false);
   const { getAccessToken } = usePrivy();
 
-  console.log("status", status)
-  console.log("shippingDetail", shippingDetails)
-  console.log("trackingNumber", shippingDetails?.trackingNumber)
-  console.log("provider", shippingDetails?.provider)
+  // console.log("status", status)
+  // console.log("shippingDetail", shippingDetails)
+  // console.log("trackingNumber", shippingDetails?.trackingNumber)
+  // console.log("provider", shippingDetails?.provider)
 
   // Diccionario de enlaces de seguimiento (Deep Linking)
   const trackingLinks = {

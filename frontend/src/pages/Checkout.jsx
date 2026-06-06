@@ -82,7 +82,7 @@ const canProceedToCheckout = (user) => {
   return hasIdentity && hasContact;
 };
 
-console.log(dbUser)
+// console.log(dbUser)
 
 const isProfileIncomplete = (user) => {
   if (!user) return true;
@@ -314,7 +314,7 @@ const finalTotal = useMemo(() => total + shippingTotal, [total, shippingTotal]);
         // didOpen: () => Swal.showLoading(),
       });
 
-      console.log(sellerProducts);
+      // console.log(sellerProducts);
 
       const token = await getAccessToken();
 

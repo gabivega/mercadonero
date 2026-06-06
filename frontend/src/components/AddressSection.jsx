@@ -99,7 +99,7 @@ export const AddressSection = ({ addresses, getAccessToken, profile, setProfile,
         },
       );
     if (response.data.success) {
-      console.log("response addresses :", response.data.addresses);
+      // console.log("response addresses :", response.data.addresses);
 Swal.fire({
     title: '¡Dirección Guardada!',
     text: 'Tu nueva ubicación se añadió correctamente.',

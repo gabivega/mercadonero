@@ -21,16 +21,16 @@ const AdminDashboard = () => {
   const ADMIN_ID = import.meta.env.VITE_ADMIN_PRIVY_ID;
 
   // LOGS DE DEPURACIÓN
-  console.log(
-    "PRIVY -> Ready:",
-    ready,
-    "Auth:",
-    authenticated,
-    "UserID:",
-    user?.id,
-  );
-  console.log("ZUSTAND -> isAdmin:", isAdmin, "dbUser:", !!dbUser);
-  console.log("isAdmin", isAdmin);
+  // console.log(
+  //   "PRIVY -> Ready:",
+  //   ready,
+  //   "Auth:",
+  //   authenticated,
+  //   "UserID:",
+  //   user?.id,
+  // );
+  // console.log("ZUSTAND -> isAdmin:", isAdmin, "dbUser:", !!dbUser);
+  // console.log("isAdmin", isAdmin);
 
   const menuItems = [
     { id: "stats", label: "Estadísticas", icon: LayoutDashboard },

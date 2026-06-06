@@ -39,10 +39,10 @@ export default function ProductDetail() {
         );
         if (!response.ok) throw new Error("Producto no encontrado");
         const data = await response.json();
-        console.log(data);
+        // console.log(data);
         setProduct(data);
       } catch (error) {
-        console.error("Error fetching product:", error);
+        // console.error("Error fetching product:", error);   
       } finally {
         setLoading(false);
       }
@@ -96,7 +96,7 @@ export default function ProductDetail() {
       };
 
       addToCart(normalizedProduct);
-      console.log("desde handle buy now: ", product); // Agregamos con cantidad 1 (o la que tengas seleccionada)
+      // console.log("desde handle buy now: ", product); // Agregamos con cantidad 1 (o la que tengas seleccionada)
     }
     if (quantity > 1) {
       updateQuantity(product._id, quantity);

@@ -58,7 +58,7 @@ useEffect(() => {
 
       const response = await fetch(url);
       const data = await response.json();
-      console.log(data.products)
+      // console.log(data.products)
       
       // Ajustamos según la estructura de tu respuesta del back
       setProducts(data.products || data); 

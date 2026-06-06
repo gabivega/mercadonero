@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 // Estructura de objetos para Desktop
 const desktopBanners = [
   {
-    image: '/assets/img/banner-desktop/cash.jpg',
+    image: '/assets/img/banner-desktop/cash.webp',
     title: "Vendé y cobrá por adelantado",
     subtitle: "Mercado Nero es el único Marketplace del mundo donde podés cobrar por adelantado mientras protegemos a compradores y vendedores, gracias al poder de los contratos inteligentes.",
     button: "Empezar a vender",
@@ -13,7 +13,7 @@ const desktopBanners = [
     overlay: "bg-black/40" // Capa oscura intermedia
   },
   {
-    image: '/assets/img/banner-desktop/seller.jpg',
+    image: '/assets/img/banner-desktop/seller.webp',
     title: "Comisiones mas bajas del Mercado",
     subtitle: "Comision fija FINAL del 3%, sin sorpresas. Aumentá tu rentabilidad vendiendo en Mercado Nero",
     button: "Empezar a vender",
@@ -21,14 +21,14 @@ const desktopBanners = [
     overlay: "bg-black/50" // Un poco más oscuro si la imagen brilla mucho
   },
   {
-    image: '/assets/img/banner-desktop/package-delivery.jpg',
+    image: '/assets/img/banner-desktop/package-delivery.webp',
     title: "Envíos en el día",
     subtitle: "Envios flexibles y rápidos, al mejor precio. Llegamos a todo el país",
     button: "",
     overlay: "bg-gradient-to-r from-black/70 to-transparent" // Degradado estético de izquierda a derecha
   },
   {
-    image: '/assets/img/banner-desktop/cellphone.jpg',
+    image: '/assets/img/banner-desktop/cellphone.webp',
     title: "Mejores Precios en celulares",
     subtitle: "Encontrá los mejores precios del país en telefonía. Compra protegida y envíos a todo el pais.",
     button: "Ver Ofertas",
@@ -36,7 +36,7 @@ const desktopBanners = [
     overlay: "bg-black/60" // Sin capa extra
   },
     {
-    image: '/assets/img/banner-desktop/supermarket.jpg',
+    image: '/assets/img/banner-desktop/supermarket.webp',
     title: "Al Super, sin salir de casa",
     subtitle: "Miles de productos de supermercado disponibles con envío en el día. Comprá desde la comodidad de tu casa ahorrando tiempo y dinero.",
     button: "Ver Productos",
@@ -44,7 +44,7 @@ const desktopBanners = [
     url: "/c/supermercado",
   },
  {
-  image: '/assets/img/banner-desktop/referral.jpg', // Tu nueva imagen
+  image: '/assets/img/banner-desktop/referral.webp', // Tu nueva imagen
   title: "Compartí y Ganá en Comunidad",
   subtitle: "Recomendá productos seleccionados de Mercado Nero. Si tu audiencia compra, vos te llevás una comisión instantánea en stablecoins y ellos reciben un reintegro directo en su wallet. 100% automatizado por Smart Contracts.",
   button: "Unirse como Creador",
@@ -56,7 +56,7 @@ const desktopBanners = [
 // Estructura de objetos para Mobile (Mismos textos, adaptados a su imagen vertical/cuadrada)
 const mobileBanners = [
  {
-    image: '/assets/img/banner-desktop/cash.jpg',
+    image: '/assets/img/banner-desktop/cash.webp',
     title: "Vendé y cobrá por adelantado",
     subtitle: "Mercado Nero es el único Marketplace del mundo donde podés cobrar por adelantado mientras protegemos a compradores y vendedores, gracias al poder de los contratos inteligentes.",
     button: "Empezar a vender",
@@ -64,28 +64,28 @@ const mobileBanners = [
     overlay: "bg-black/40" // Capa oscura intermedia
   },
   {
-    image: '/assets/img/banner-desktop/seller.jpg',
+    image: '/assets/img/banner-desktop/seller.webp',
     title: "Comisiones mas bajas del Mercado",
     subtitle: "Comision fija FINAL del 3%, sin sorpresas. Aumentá tu rentabilidad vendiendo en Mercado Nero. Como comprador vas a encontrar los mejores precios del mercado.",
     button: "Empezar a vender",
     overlay: "bg-black/50" // Un poco más oscuro si la imagen brilla mucho
   },
   {
-    image: '/assets/img/banner-desktop/package-delivery.jpg',
+    image: '/assets/img/banner-desktop/package-delivery.webp',
     title: "Envíos en el día",
     subtitle: "Envios flexibles y rápidos, al mejor precio. Llegamos a todo el país",
     button: "",
     overlay: "bg-gradient-to-r from-black/70 to-transparent" // Degradado estético de izquierda a derecha
   },
   {
-    image: '/assets/img/banner-desktop/cellphone.jpg',
+    image: '/assets/img/banner-desktop/cellphone.webp',
     title: "Mejores Precios en celulares",
     subtitle: "Encontrá los mejores precios del país en telefonía. Compra protegida y envíos a todo el pais.",
     button: "Ver Ofertas",
     overlay: "bg-black/60" // Sin capa extra
   },
   {
-    image: '/assets/img/banner-desktop/supermarket.jpg',
+    image: '/assets/img/banner-desktop/supermarket.webp',
     title: "Al Super, sin salir de casa",
     subtitle: "Miles de productos de supermercado disponibles con envío en el día. Comprá desde la comodidad de tu casa ahorrando tiempo y dinero.",
     button: "Ver Productos",
@@ -145,7 +145,7 @@ export default function BannerCarousel() {
         <img
           src={currentBanner.image}
           alt={currentBanner.title || "Banner Nero"}
-          className="w-full h-full object-cover absolute inset-0 select-none object-[center_20%] "
+          className="w-full h-full object-cover absolute inset-0 select-none object-[center_20%] object-[right_10%]"
         />
         
         {/* CAPA DE OVERLAY DINÁMICA */}
@@ -156,7 +156,7 @@ export default function BannerCarousel() {
         {/* CONTENIDO TEXTUAL (CENTRADO A LA IZQUIERDA CON ESTRETEGIA DE LECTURA) */}
         <div className="absolute inset-0 flex flex-col justify-center px-8 md:px-16 max-w-xl md:max-w-2xl z-10 text-white space-y-2 md:space-y-4 animate-in fade-in slide-in-from-left-4 duration-300">
           {currentBanner.title && (
-            <h2 className="text-2xl md:text-5xl font-black italic uppercase tracking-tighter drop-shadow-md">
+            <h2 className="text-1xl md:text-5xl font-black italic uppercase tracking-tighter drop-shadow-md">
               {currentBanner.title}
             </h2>
           )}
@@ -168,7 +168,7 @@ export default function BannerCarousel() {
           )}
 
           {currentBanner.button && (
-            <div className="pt-2">
+            <div className="pt-2 mb-8">
               <button className="bg-[#F26722] hover:bg-[#d5561a] text-white px-5 md:px-7 py-2 md:py-3 rounded-xl font-black italic uppercase text-xs md:text-sm tracking-wide shadow-lg hover:scale-[1.03] transition-all duration-200 active:scale-95"
               onClick={() => navigate(currentBanner.url)}>
                 {currentBanner.button}

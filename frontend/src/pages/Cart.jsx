@@ -15,7 +15,7 @@ import {
 export default function Cart() {
   const navigate = useNavigate();
   const { cart, removeFromCart, updateQuantity, clearCart } = useCartStore();
-  console.log(cart)
+  // console.log(cart)
 
   const formatPrice = (val) =>
     new Intl.NumberFormat("es-AR", {
@@ -39,7 +39,7 @@ export default function Cart() {
   }, {});
 
   const handleContinueToCheckout = (sellerId) => {
-    console.log("sellerID: ", sellerId);
+    // console.log("sellerID: ", sellerId);
     // Navegamos al checkout de ese vendedor específico
     navigate(`/checkout/${sellerId}`);
   };

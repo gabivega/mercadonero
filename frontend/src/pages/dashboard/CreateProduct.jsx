@@ -30,8 +30,8 @@ export default function CreateProduct() {
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
-  console.log("User:", user);
-  console.log("isAuthenticated:", authenticated);
+  // console.log("User:", user);
+  // console.log("isAuthenticated:", authenticated);
 
   // Función unificada para errores
   const showError = (msg) => {

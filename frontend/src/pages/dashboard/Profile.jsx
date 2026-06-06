@@ -43,7 +43,7 @@ export default function Profile() {
             headers: { Authorization: `Bearer ${token}` },
           },
         );
-        console.log(response.data);
+        // console.log(response.data);
         setProfile(response.data);
       } catch (error) {
         // 🚩 DISPARAMOS EL SWAL AQUÍ
@@ -99,7 +99,7 @@ export default function Profile() {
         bankAccounts: profile.bankAccounts,
         ...additionalData, // Sobrescribe con datos adicionales si se proporcionan
       };
-      console.log(dataToUpdate);
+      // console.log(dataToUpdate);
 
       const response = await axios.put(
         `${import.meta.env.VITE_SERVER_URL}/api/user/update-profile`,

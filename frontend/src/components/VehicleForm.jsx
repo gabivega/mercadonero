@@ -53,7 +53,7 @@ const VehicleForm = ({ handleSubmit, isSubmitting }) => {
 
   const internalSubmit = (e) => {
     e.preventDefault();
-    console.log(vehicle)
+    // console.log(vehicle)
 
     // Convertimos el objeto tempSpecs a tu array de [{ key, value }]
     const specifications = Object.entries(vehicle.tempSpecs).map(

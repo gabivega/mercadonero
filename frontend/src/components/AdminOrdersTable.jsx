@@ -28,7 +28,7 @@ const handleOpenModal = (order) => {
             Authorization: `Bearer ${token}`
           }
         });
-        console.log(res.data);
+        // console.log(res.data);
         setOrders(res.data);
       } catch (err) {
         console.error(err);

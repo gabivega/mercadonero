@@ -17,7 +17,7 @@ const OrderInfoAccordion = ({ order, role }) => {
 
   // Helper para formatear fechas
   const formatDate = (date) => date ? new Date(date).toLocaleString() : '---';
-  console.log("order desde accordion", order);
+  // console.log("order desde accordion", order);
 
 if (!order) {
   return null;

@@ -29,17 +29,17 @@ export default function NeroLogin({ isOpen, onClose, onLoginSuccess }) {
   const { loginWithCode, sendCode } = useLoginWithEmail({
     onComplete: async (user, loginMethodMetaData) => {
       // 1. Debug para ver qué nos manda Privy realmente
-      console.log("Privy User Data:", user);
-      console.log("Metadata:", loginMethodMetaData);
+      // console.log("Privy User Data:", user);
+      // console.log("Metadata:", loginMethodMetaData);
 
       // 2. Lógica Infalible: Si NO hay wallet, intentamos crearla
       if (!user.wallet) {
         try {
-          console.log("No se detectó wallet, intentando crear...");
+          // console.log("No se detectó wallet, intentando crear...");
           await createWallet();
-          console.log("✅ Wallet de Nero generada con éxito");
+          // console.log("✅ Wallet de Nero generada con éxito");
         } catch (err) {
-          console.warn("Aviso en creación de wallet:", err.message);
+          // console.warn("Aviso en creación de wallet:", err.message);
         }
       }
       setIsDone(true);
@@ -64,7 +64,7 @@ export default function NeroLogin({ isOpen, onClose, onLoginSuccess }) {
       });
     },
     onError: (error) => {
-      console.error("Error detectado en Login OTP:", error);
+      // console.error("Error detectado en Login OTP:", error);
 
       // 1. Destrabamos el botón apagando el spinner de carga
       if (typeof setIsLoading === "function") {

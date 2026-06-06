@@ -25,7 +25,7 @@ export default function PaymentAction({ orderId, onUpdate, sellerId }) {
         `${import.meta.env.VITE_SERVER_URL}/api/user/bank-accounts/${sellerId}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      console.log(response.data)
+      // console.log(response.data)
       setSellerBankingAccount(response.data.bankAccount);
       return response.data.bankAccount;
     } catch (error) {
