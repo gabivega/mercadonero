@@ -12,7 +12,7 @@ export default function HowToBuy() {
     {
       id: 1,
       title: "Crear tu cuenta con email",
-      detail: "Registrate en segundos para poder hacer el seguimiento de tus pedidos, guardar tus favoritos y chatear con vendedores.",
+      detail: "Registrate en segundos con tu correo electrónico para poder comprar o vender en Mercado Nero",
       icon: UserPlus,
       iconColor: "text-blue-500 bg-blue-50 dark:bg-blue-950/30",
     },
@@ -26,7 +26,7 @@ export default function HowToBuy() {
     {
       id: 3,
       title: "Pagar con Compra Protegida",
-      detail: "Transferís directamente al vendedor. La plataforma mantiene un depósito en garantia del vendedor custodiado por un contrato inteligente. Si tenés algun problema, se te reintegra el dinero.",
+      detail: "Transferís directamente al vendedor. Un contrato inteligente se encarga de proteger tu compra durante todo el proceso. Si tenés algun problema, se te reintegra el dinero.",
       icon: ShieldCheck,
       iconColor: "text-green-500 bg-green-50 dark:bg-green-950/30",
     },
@@ -50,7 +50,7 @@ export default function HowToBuy() {
             />
           </h2>
           <p className="text-xs md:text-sm text-gray-500 dark:text-zinc-400 font-medium max-w-2xl">
-            Cada transacción en el marketplace cuenta con nuestro sistema de custodia. Para publicaciones de vehículos, inmuebles o servicios, coordinás directo con el anunciante.
+            Cada transacción en el marketplace cuenta con nuestro sistema de custodia respaldado por contratos inteligentes. Para publicaciones de vehículos, inmuebles o servicios, coordinás directo con el anunciante.
           </p>
         </div>
 
