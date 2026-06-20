@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShoppingBag, ShieldCheck, Cpu, HelpCircle, BookOpen, Twitter, Github } from 'lucide-react';
+import { ShoppingBag, ShieldCheck, Cpu, HelpCircle, BookOpen, Twitter, Github, Instagram } from 'lucide-react';
 
 export default function Footer() {
   const currentYear = new Date().getFullYear();
@@ -23,7 +23,7 @@ export default function Footer() {
               </span>
             </div>
             <p className="text-xs text-gray-500 dark:text-zinc-400 leading-relaxed max-w-xs">
-              El primer marketplace multivendor Web3 de la región. Comercio descentralizado, transparente y asegurado por contratos inteligentes sin intermediarios.
+              El primer marketplace multivendor Web3 de la región. Conectamos compradores y vendedores de forma segura y transparente con las comisiones mas bajas del mercado.
             </p>
             {/* Status de Red Escencial para Web3 */}
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/30 text-[11px] font-medium font-mono">
@@ -51,6 +51,14 @@ export default function Footer() {
               <li>
                 <a href="/tokenomics" className="text-gray-600 dark:text-zinc-400 hover:text-[#F26722] dark:hover:text-[#F26722] transition-colors flex items-center gap-1.5">
                   Token $NERO <span className="text-[10px] bg-orange-100 dark:bg-orange-950/40 text-[#F26722] px-1 rounded font-bold">Utility</span>
+                </a>
+              </li>
+              <h4 className="text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500 mb-4">
+              Nosotros
+            </h4>
+            <li>
+                <a href="/equipo" className="text-gray-600 dark:text-zinc-400 hover:text-[#F26722] dark:hover:text-[#F26722] transition-colors">
+                  Nuestro Equipo
                 </a>
               </li>
             </ul>
@@ -83,11 +91,11 @@ export default function Footer() {
           {/* Columna 4: Comunidad y Redes */}
           <div>
             <h4 className="text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500 mb-4">
-              Comunidad
+              Redes Sociales
             </h4>
-            <p className="text-xs text-gray-500 dark:text-zinc-400 mb-3.5 leading-relaxed">
-              Sumate al desarrollo del proyecto y enterate de las simulaciones de gobernanza.
-            </p>
+            {/* <p className="text-xs text-gray-500 dark:text-zinc-400 mb-3.5 leading-relaxed">
+             Participá de la comunidad de Mercado Nero generando reels, posts y reviews de tus productos y experiencias.
+            </p> */}
             <div className="flex items-center gap-3">
               <a 
                 href="https://twitter.com" 
@@ -99,13 +107,13 @@ export default function Footer() {
                 <Twitter className="w-4 h-4" />
               </a>
               <a 
-                href="https://github.com" 
+                href="https://instagram.com" 
                 target="_blank" 
                 rel="noreferrer" 
                 className="p-2 bg-gray-50 dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800/60 rounded-xl text-gray-600 dark:text-zinc-400 hover:text-white hover:bg-[#F26722] dark:hover:bg-[#F26722] hover:border-[#F26722] transition-all"
-                aria-label="GitHub"
+                aria-label="Instagram"
               >
-                <Github className="w-4 h-4" />
+                <Instagram className="w-4 h-4" />
               </a>
             </div>
           </div>

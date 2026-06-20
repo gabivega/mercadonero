@@ -30,9 +30,10 @@ import { useUserStore } from "../store/useUserStore";
 import { useSyncUser } from "../Utils/userSync";
 
 // Asset Imports
-import darkLogo from "../assets/img/mercado-nero-logo-white.png";
-import mobileLogo from "../assets/img/monero-logo-mobile.png";
-import whiteLogo from "../assets/img/mercado-nero-logo-full-white-tr.png";
+import darkLogo from "../assets/img/logo-white.png";
+import mobileLogoWhite from "../assets/img/logo-white-mobile.png";
+import mobileLogoDark from "../assets/img/logo-dark-mobile.png";
+import whiteLogo from "../assets/img/logo-black.png";
 import whiteLogoGray from "../assets/img/mercado-nero-logo-full-white-gray.png";
 import blackLogo from "../assets/img/mn-logo-black.png";
 import { categories } from "../data/categories";
@@ -186,25 +187,31 @@ if (isLoginOpen) {
             to="/"
             className="flex-shrink-0 flex items-center cursor-pointer hover:opacity-80 transition-opacity"
           >
-            <img
-              src={mobileLogo}
-              alt="Mercado Nero"
-              className="h-10 w-auto lg:hidden"
-            />
+       <img
+  src={mobileLogoDark}
+  alt="Mercado Nero"
+  className="h-14 w-auto block dark:hidden lg:hidden"
+/>
 
+{/* Mobile Dark Theme Logo - Visible solo en mobile y en modo dark */}
+<img
+  src={mobileLogoWhite}
+  alt="Mercado Nero"
+  className="h-14 w-auto hidden dark:block lg:hidden dark:lg:hidden"
+/>
             {/* Desktop Logos */}
             {/* Light Theme Logo - Hidden on mobile, Hidden in dark mode */}
             <img
               src={whiteLogo}
               alt="Mercado Nero"
-              className="hidden lg:block dark:hidden h-8 w-auto object-contain"
+              className="hidden lg:block dark:hidden h-12 w-auto object-contain"
             />
 
             {/* Dark Theme Logo - Hidden on mobile, Visible only in dark mode */}
             <img
               src={darkLogo}
               alt="Mercado Nero"
-              className="hidden dark:lg:block h-8 w-auto object-contain"
+              className="hidden dark:lg:block h-12 w-auto object-contain"
             />
           </Link>
 

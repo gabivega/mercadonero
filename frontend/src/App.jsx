@@ -37,6 +37,7 @@ import HelpSeller from "./pages/HelpSeller";
 import HelpBuyer from "./pages/HelpBuyer";
 import DisclaimerBanner from "./components/DisclaimerBanner";
 import Ayuda from "./pages/Ayuda";
+import Team from "./pages/Team";
 
 export default function App() {
   const theme = useSelector((s) => s.theme.mode);
@@ -73,6 +74,7 @@ export default function App() {
             <Route path="/ayuda/vender" element={<HelpSeller />} />
             <Route path="/ayuda/comprar" element={<HelpBuyer />} />
             <Route path="/ayuda" element={<Ayuda />} />
+            <Route path="/equipo" element={<Team />} />
             <Route path="referidos" element={<Referrals />} />
             <Route element={<DashboardLayout />}>
               <Route path="perfil" element={<Profile />} />

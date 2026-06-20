@@ -23,8 +23,48 @@ export default function HelpSeller() {
           </p>
         </>
       ),
+    },   
+    {
+      question: "¿Cómo y cuándo recibo el pago de la venta?",
+      icon: CheckCircle,
+      content: (
+        <>
+          <p className="mb-2">
+            A diferencia de las plataformas tradicionales, recibís el pago por adelantado mediante una transferencia directa por parte del comprador (a tu CBU/CVU o alias bancario configurado).
+          </p>
+          <p className="mb-2">
+            La unica condicion es que previamente deposites saldo en tu wallet y "congeles" una cantidad equivalente al valor de la venta, esto funciona como una garantía para el comprador.
+          </p>
+          <p>
+            Una vez que verificás el ingreso del dinero en tu cuenta bancaria, tenés la obligación de confirmar la recepción en la plataforma para proceder con el despacho del producto. Tu colateral permanecerá congelado resguardando la operación hasta el final del flujo.
+          </p>
+        </>
+      ),
     },
     {
+      question: "¿De dónde se descuenta la comisión de la plataforma?",
+      icon: Percent,
+      content: (
+        <p>
+          La comisión por venta exitosa se descuenta del colateral congelado en garantía dentro del smart contract. Esto se realiza de forma automática una vez el comprador indica que reibió el producto correctamente.
+        </p>
+      ),
+    },
+    {
+      question: "¿Qué pasa si hay fallas, el producto es incorrecto o hay una disputa?",
+      icon: AlertTriangle,
+      content: (
+        <>
+          <p className="mb-2">
+            Si el comprador indica que el producto llegó dañado, tiene fallas o no coincide con lo publicado, se abre un periodo de disputa y el colateral en garantía permanecerá congelado en el contrato hasta que el conflicto se resuelva.
+          </p>
+          <p>
+            Si se determina que el reclamo es justo, el comprador podrá requerir la devolución de su dinero. En ese caso, deberás reembolsarle la transferencia bancaria y, una vez acreditado el retorno, el sistema liberará tu colateral de vuelta a tu wallet. Cumplir con los estándares evita fricciones y bloqueos de fondos.
+          </p>
+        </>
+      ),
+    },
+     {
       question: "¿Cómo funcionan los contratos inteligentes y la firma de mi wallet?",
       icon: Cpu,
       content: (
@@ -44,44 +84,8 @@ export default function HelpSeller() {
       content: (
         <p>
           No, nunca. Mercado Nero es una plataforma descentralizada. Nosotros no tenemos acceso a tus claves, no abrimos cuentas bancarias a tu nombre ni guardamos tus criptomonedas en nuestros servidores. Vos sos el único custodio absoluto de tus fondos. Todo el proceso de garantía ocurre directamente entre tu wallet y el contrato inteligente en la red blockchain.
+          La plataforma solamente facilita la conexión entre los participantes y el contrato inteligente.
         </p>
-      ),
-    },
-    {
-      question: "¿Cómo y cuándo recibo el pago de la venta?",
-      icon: CheckCircle,
-      content: (
-        <>
-          <p className="mb-2">
-            A diferencia de las plataformas tradicionales, recibís el pago por adelantado mediante una transferencia directa por parte del comprador (a tu CBU/CVU o alias bancario coordinado).
-          </p>
-          <p>
-            Una vez que verificás el ingreso del dinero en tu cuenta bancaria, tenés la obligación de confirmar la recepción en la plataforma para proceder con el despacho del producto. Tu colateral permanecerá congelado resguardando la operación hasta el final del flujo.
-          </p>
-        </>
-      ),
-    },
-    {
-      question: "¿De dónde se descuenta la comisión de la plataforma?",
-      icon: Percent,
-      content: (
-        <p>
-          La comisión por venta de Mercado Nero no se te debita de tu cuenta bancaria. Al finalizar la transacción de manera exitosa, el contrato inteligente calcula el porcentaje correspondiente a la comisión, la descuenta automáticamente de tu colateral devuelto y te deposita el resto de forma inmediata en tu wallet.
-        </p>
-      ),
-    },
-    {
-      question: "¿Qué pasa si hay fallas, el producto es incorrecto o hay una disputa?",
-      icon: AlertTriangle,
-      content: (
-        <>
-          <p className="mb-2">
-            Si el comprador indica que el producto llegó dañado, tiene fallas o no coincide con lo publicado, se abre un periodo de disputa y el colateral en garantía permanecerá congelado en el contrato hasta que el conflicto se resuelva.
-          </p>
-          <p>
-            Si se determina que el reclamo es justo, el comprador podrá requerir la devolución de su dinero. En ese caso, deberás reembolsarle la transferencia bancaria y, una vez acreditado el retorno, el sistema liberará tu colateral de vuelta a tu wallet. Cumplir con los estándares evita fricciones y bloqueos de fondos.
-          </p>
-        </>
       ),
     },
   ];
