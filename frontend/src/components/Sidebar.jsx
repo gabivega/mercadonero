@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { 
   User, Wallet, Bell, ShoppingBag, History, 
   FileText, Tag, LogOut, LayoutDashboard,
-  ChevronLeft, ChevronRight, Menu, X , Users
+  ChevronLeft, ChevronRight, Menu, X , Users , ShieldCogCorner
 } from 'lucide-react';
 import { useUserStore } from '../store/useUserStore';
 
