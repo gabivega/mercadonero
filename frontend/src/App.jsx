@@ -94,7 +94,7 @@ export default function App() {
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
-        <DisclaimerBanner />
+        {/* <DisclaimerBanner /> */}
         <Footer />
       </div>
     </BrowserRouter>
