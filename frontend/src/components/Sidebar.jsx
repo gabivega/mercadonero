@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { 
   User, Wallet, Bell, ShoppingBag, History, 
   FileText, Tag, LogOut, LayoutDashboard,
-  ChevronLeft, ChevronRight, Menu, X , Users , ShieldCogCorner
+  ChevronLeft, ChevronRight, Menu, X , Users , ShieldCheck
 } from 'lucide-react';
 import { useUserStore } from '../store/useUserStore';
 
@@ -91,7 +91,7 @@ const Sidebar = ({ handleLogout }) => {
                   }`
                 }
               >
-                <ShieldCogCorner size={20}/>
+                <ShieldCheck size={20}/>
                 <span className="font-medium">Admin</span>
               </NavLink>
             )}
