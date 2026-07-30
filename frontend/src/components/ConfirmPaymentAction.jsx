@@ -72,7 +72,7 @@ const ConfirmPaymentAction = ({ orderId, onUpdate }) => {
       </div>
       
       <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-6 font-medium leading-relaxed">
-        El comprador indica que ya realizó el pago. **Verifica tu cuenta** antes de confirmar para evitar inconvenientes.
+        El comprador indica que ya realizó el pago. Verifica tu cuenta antes de confirmar para evitar inconvenientes. 
       </p>
 
       <button

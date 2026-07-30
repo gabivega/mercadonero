@@ -23,6 +23,16 @@ if (!order) {
   return null;
 }
 
+  const STATUS_MAP = {
+  pending_payment: 'Pago Pendiente',
+  verifying_payment: 'Verificando Pago',
+  paid: 'Pagado',
+  shipped: 'Enviado',
+  completed: 'Completado',
+  cancelled: 'Cancelado',
+  expired: 'Expirado',
+};
+
   // Helper para las filas de datos
   const InfoRow = ({ icon: Icon, label, value }) => (
     <div className="flex items-start gap-3 py-3 border-b border-zinc-100 dark:border-zinc-800 last:border-0">
@@ -66,7 +76,7 @@ if (!order) {
             {/* COLUMNA 1: DATOS GENERALES */}
             <div className="flex flex-col">
               <InfoRow icon={Hash} label="ID de Orden" value={order._id} />
-              <InfoRow icon={Tag} label="Estado Actual" value={order.status.toUpperCase()} />
+              <InfoRow icon={Tag} label="Estado Actual" value={STATUS_MAP[order.status] || order.status} />
               <InfoRow 
                 icon={User} 
                 label={isSeller ? "Comprador" : "Vendedor"} 

@@ -163,7 +163,7 @@ export default function PaymentAction({ orderId, onUpdate, sellerId }) {
 
       <div className="mt-4 flex items-center justify-center gap-2 text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
         <ExternalLink size={12} />
-        Tu dinero está protegido por Nero
+        Tu dinero está protegido por Mercado Nero
       </div>
     </div>
   );
