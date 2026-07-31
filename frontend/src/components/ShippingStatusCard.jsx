@@ -97,7 +97,7 @@ export default function ShippingStatusCard({ order, role }) {
         if (data.success) {
           await Swal.fire({
             title: '¡ORDEN FINALIZADA!',
-            text: 'Gracias por confirmar. Nero ha procesado el cierre de la transacción.',
+            text: 'Gracias por confirmar. Mercado Nero ha procesado el cierre de la transacción.',
             icon: 'success',
             confirmButtonColor: '#F26722',
             customClass: { popup: 'rounded-[2.5rem]' }
@@ -105,7 +105,7 @@ export default function ShippingStatusCard({ order, role }) {
           onUpdate(); // Esto refresca el OrderDetail y dispara fetchOrder
         }
       } catch (error) {
-        Swal.fire('Error', 'No se pudo completar la orden.', 'error');
+        // Swal.fire('Error', 'No se pudo completar la orden.', 'error');
         console.error(error);
       } finally {
         setLoading(false);

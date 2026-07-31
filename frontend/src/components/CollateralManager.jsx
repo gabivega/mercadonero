@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useWallets } from "@privy-io/react-auth";
 import { ethers } from "ethers";
 import LoadingSpinner from "./LoadingSpinner";
+import {CreditCard} from 'lucide-react'
 
 // DIRECCIONES DE TU CONFIGURACIÓN (Asegurate de que sean las mismas)
 const CONTRACT_ADDRESS = import.meta.env.VITE_COLLATERAL_CONTRACT_ADDRESS;
@@ -145,12 +146,7 @@ export default function CollateralManager() {
       {/* SECCIÓN 1: CONTADORES DE BALANCE */}
       <div>
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Garantías de Vendedor</h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400">Gestioná tus activos en garantía para poder vender.</p>
-        <button              
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm py-2 px-4 rounded-lg shadow transition-colors disabled:bg-gray-400 flex items-center justify-center gap-2"
-          >
-            Cargar saldo en garantía mediante tarjeta
-          </button>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Gestioná tus activos en garantía para poder vender.</p> 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
           <div className="p-4 bg-blue-50 dark:bg-blue-950/40 rounded-xl border border-blue-100 dark:border-blue-900">
             <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Saldo Disponible</span>
@@ -248,7 +244,12 @@ export default function CollateralManager() {
           {status}
         </div>
       )}
-
+<button              
+            className="mx-auto bg-green-600 hover:bg-green-700 text-white font-medium text-sm py-2 px-4 rounded-lg shadow transition-colors disabled:bg-gray-400 flex items-center justify-center gap-2"
+          >
+            Cargar saldo en garantía mediante tarjeta
+            <CreditCard />
+          </button>
     </div>
   );
 }
