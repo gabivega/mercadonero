@@ -1,20 +1,13 @@
 import { useEffect, useState } from 'react';
-import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { usePrivy, useWallets, useCreateWallet } from '@privy-io/react-auth';
 import { createPublicClient, http, formatUnits, createWalletClient, custom, parseUnits } from 'viem';
-import { bsc, bscTestnet } from 'viem/chains';
-import { Wallet, RefreshCcw, ArrowUpRight, Copy } from 'lucide-react';
+import { bscTestnet } from 'viem/chains';
+import { Wallet, RefreshCcw, ArrowUpRight, Copy, PlusCircle, Sparkles } from 'lucide-react';
 import SendTokenModal from '../../components/SendTokenModal';
 import Swal from 'sweetalert2';
 import CollateralManager from '../../components/CollateralManager';
-import DepositCollateral from '../../components/DepositCollateral';
 import LoadingSpinner from '../../components/LoadingSpinner';
 
-const TOKENS = [
-  // { symbol: 'NERO', name: 'Nero Token', address: '0xd827582763bF4b562bb4e69C025f8AD26c51078b', decimals: 18 },
-  { symbol: 'USDT', name: 'Tether USD', address: '0x55d398326f99059fF775485246999027B3197955', decimals: 18 },
-  { symbol: 'USDC', name: 'USD Coin', address: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d', decimals: 18 },
-  { symbol: 'DAI', name: 'DAI Stablecoin', address: '0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3', decimals: 18 },
-];
 const TESTNET_TOKENS = [
   { 
     symbol: 'USDT', 
@@ -29,62 +22,60 @@ const TESTNET_TOKENS = [
     decimals: 18 
   },
   { symbol: 'BNB', name: 'Binance Coin', address: null, decimals: 18 },
-  // { 
-  //   symbol: 'DAI', 
-  //   name: 'DAI Stablecoin (Testnet)', 
-  //   address: '0xEC5dCb5D149142597E046033b47862295E010fA7', 
-  //   decimals: 18 
-  // },
-  // Agregué el NERO Token por si ya tienes el contrato desplegado en Testnet
-  // { 
-  //   symbol: 'NERO', 
-  //   name: 'Nero Token', 
-  //   address: 'TU_DIRECCION_DE_CONTRATO_EN_TESTNET', 
-  //   decimals: 18 
-  // },
 ];
-const minERC20Abi = [{ constant: true, inputs: [{ name: "_owner", type: "address" }], name: "balanceOf", outputs: [{ name: "balance", type: "uint256" }], type: "function" }, { constant: false, inputs: [{ name: "_to", type: "address" }, { name: "_value", type: "uint256" }], name: "transfer", outputs: [{ name: "success", type: "bool" }], type: "function" }];
+
+const minERC20Abi = [
+  { constant: true, inputs: [{ name: "_owner", type: "address" }], name: "balanceOf", outputs: [{ name: "balance", type: "uint256" }], type: "function" },
+  { constant: false, inputs: [{ name: "_to", type: "address" }, { name: "_value", type: "uint256" }], name: "transfer", outputs: [{ name: "success", type: "bool" }], type: "function" }
+];
 
 export default function WalletPage() {
   const { user, authenticated } = usePrivy();
   const { wallets } = useWallets();
+  const { createWallet } = useCreateWallet();
+
   const [balances, setBalances] = useState({});
   const [isLoading, setIsLoading] = useState(false);
-  
+  const [isCreatingWallet, setIsCreatingWallet] = useState(false);
+
   // Estados del Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedToken, setSelectedToken] = useState(null);
   const [sendForm, setSendForm] = useState({ to: '', amount: '' });
   const [isSending, setIsSending] = useState(false);
 
-  const [txStatus, setTxStatus] = useState('idle'); // 'idle' | 'success' | 'error'
+  // Verificación directa en el objeto user de Privy
+  const hasWallet = Boolean(user?.wallet?.address);
 
-const handleOpenModal = (token) => {
-  setTxStatus('idle'); // Reseteamos el estado al abrir
-  setSelectedToken(token);
-  setSendForm({ to: '', amount: '' });
-  setIsModalOpen(true);
-};
-
-const onConfirmSend = async () => {
-  try {
-    setIsSending(true);
-    setTxStatus('idle');
-    
-    // Llamamos a la lógica de envío (asegúrate que handleSend devuelva el hash o lance error)
-    await handleSend(); 
-    
-    setTxStatus('success'); // Esto mostrará la pantalla verde en el modal
-    fetchAllBalances(); // Recargamos saldos de fondo
-  } catch (error) {
-    setTxStatus('error');
-    console.error(error);
-  } finally {
-    setIsSending(false);
-  }
-};
+  const handleCreateWallet = async () => {
+    try {
+      setIsCreatingWallet(true);
+      await createWallet();
+      
+      const isDark = document.documentElement.classList.contains("dark");
+      Swal.fire({
+        title: "¡Billetera Creada!",
+        text: "Tu billetera Web3 ha sido generada exitosamente.",
+        icon: "success",
+        background: isDark ? "#1f2937" : "#ffffff",
+        color: isDark ? "#f3f4f6" : "#1f2937",
+        confirmButtonColor: "#F26722",
+      });
+    } catch (error) {
+      console.error("Error al crear la wallet:", error);
+      Swal.fire({
+        title: "Error",
+        text: "No se pudo generar la billetera. Inténtalo nuevamente.",
+        icon: "error",
+        confirmButtonColor: "#F26722",
+      });
+    } finally {
+      setIsCreatingWallet(false);
+    }
+  };
 
   const handleCopyAddress = async () => {
+    if (!user?.wallet?.address) return;
     try {
       await navigator.clipboard.writeText(user.wallet.address);
       const isDark = document.documentElement.classList.contains("dark");
@@ -97,10 +88,6 @@ const onConfirmSend = async () => {
         background: isDark ? "#1f2937" : "#ffffff",
         color: isDark ? "#f3f4f6" : "#1f2937",
         iconColor: "#3483fa",
-        didOpen: (toast) => {
-          toast.addEventListener("mouseenter", Swal.stopTimer);
-          toast.addEventListener("mouseleave", Swal.resumeTimer);
-        },
       });
       Toast.fire({
         icon: "success",
@@ -117,118 +104,160 @@ const onConfirmSend = async () => {
   });
 
   const fetchAllBalances = async () => {
-  if (!user?.wallet?.address) return;
-  setIsLoading(true);
-  
-  try {
-    const newBalances = {};
-    
-    await Promise.all(TESTNET_TOKENS.map(async (token) => {
-      try {
-        if (token.symbol === 'BNB') {
-          // Moneda Nativa (tBNB en Testnet): usamos getBalance
-          const balanceRaw = await publicClient.getBalance({
-            address: user.wallet.address,
-          });
-          newBalances[token.symbol] = formatUnits(balanceRaw, token.decimals);
-        } else {
-          // Tokens ERC20 (USDT, USDC, etc): usamos readContract
-          const data = await publicClient.readContract({
-            address: token.address,
-            abi: minERC20Abi,
-            functionName: 'balanceOf',
-            args: [user.wallet.address],
-          });
-          newBalances[token.symbol] = formatUnits(data, token.decimals);
+    if (!user?.wallet?.address) return;
+    setIsLoading(true);
+
+    try {
+      const newBalances = {};
+
+      await Promise.all(TESTNET_TOKENS.map(async (token) => {
+        try {
+          if (token.symbol === 'BNB') {
+            const balanceRaw = await publicClient.getBalance({
+              address: user.wallet.address,
+            });
+            newBalances[token.symbol] = formatUnits(balanceRaw, token.decimals);
+          } else {
+            const data = await publicClient.readContract({
+              address: token.address,
+              abi: minERC20Abi,
+              functionName: 'balanceOf',
+              args: [user.wallet.address],
+            });
+            newBalances[token.symbol] = formatUnits(data, token.decimals);
+          }
+        } catch (tokenError) {
+          console.error(`Error cargando balance de ${token.symbol}:`, tokenError);
+          newBalances[token.symbol] = "0.00";
         }
-      } catch (tokenError) {
-        // Si falla un token específico, le ponemos 0 y evitamos que rompa todo el Promise.all
-        console.error(`Error cargando balance de ${token.symbol}:`, tokenError);
-        newBalances[token.symbol] = "0.00";
-      }
-    }));
+      }));
 
-    setBalances(newBalances);
-  } catch (error) {
-    console.error("Error general en fetchAllBalances:", error);
-  } finally {
-    setIsLoading(false);
-  }
-};
-
-const handleSend = async () => {
-  try {
-    setIsSending(true);
-    const wallet = wallets[0];
-    if (!wallet) return;
-
-    // 1. Asegurar la red correcta
-    await wallet.switchChain(bscTestnet.id);
-    const provider = await wallet.getEthereumProvider();
-    const walletClient = createWalletClient({ 
-      chain: bscTestnet, 
-      transport: custom(provider) 
-    });
-
-    // 2. Calcular el monto en las unidades correctas (Wei)
-    const amountInWei = parseUnits(sendForm.amount, selectedToken.decimals);
-    
-    // 3. Obtener el nonce fresco para evitar el "nonce too low"
-    const nextNonce = await publicClient.getTransactionCount({
-      address: wallet.address,
-      blockTag: 'pending', // Trae el nonce considerando transacciones en cola
-    });
-
-    let hash;
-
-    // 4. Bifurcación: ¿Es BNB nativo o un Token ERC20?
-    if (selectedToken.symbol === 'BNB') {
-      // ENVÍO DE BNB NATIVO
-      hash = await walletClient.sendTransaction({
-        account: wallet.address,
-        to: sendForm.to,
-        value: amountInWei,
-        nonce: nextNonce, // Forzamos el nonce correcto
-      });
-    } else {
-      // ENVÍO DE TOKENS (USDT, USDC, ETC)
-      hash = await walletClient.writeContract({
-        address: selectedToken.address,
-        abi: minERC20Abi,
-        functionName: 'transfer',
-        args: [sendForm.to, amountInWei],
-        account: wallet.address,
-        nonce: nextNonce, // Forzamos el nonce correcto
-      });
+      setBalances(newBalances);
+    } catch (error) {
+      console.error("Error general en fetchAllBalances:", error);
+    } finally {
+      setIsLoading(false);
     }
+  };
 
-    alert(`¡Envío exitoso! Hash: ${hash}`);
-    setIsModalOpen(false);
-    
-    // Un pequeño delay para que la blockchain asiente el bloque antes de recargar
-    setTimeout(() => {
-      fetchAllBalances();
-    }, 2000);
+  const handleSend = async () => {
+    try {
+      setIsSending(true);
+      const wallet = wallets[0];
+      if (!wallet) return;
 
-  } catch (error) {
-    console.error("Error envío:", error);
-    alert("La transacción falló o fue rechazada.");
-  } finally {
-    setIsSending(false);
-  }
-};
+      await wallet.switchChain(bscTestnet.id);
+      const provider = await wallet.getEthereumProvider();
+      const walletClient = createWalletClient({ 
+        chain: bscTestnet, 
+        transport: custom(provider) 
+      });
+
+      const amountInWei = parseUnits(sendForm.amount, selectedToken.decimals);
+      
+      const nextNonce = await publicClient.getTransactionCount({
+        address: wallet.address,
+        blockTag: 'pending',
+      });
+
+      let hash;
+
+      if (selectedToken.symbol === 'BNB') {
+        hash = await walletClient.sendTransaction({
+          account: wallet.address,
+          to: sendForm.to,
+          value: amountInWei,
+          nonce: nextNonce,
+        });
+      } else {
+        hash = await walletClient.writeContract({
+          address: selectedToken.address,
+          abi: minERC20Abi,
+          functionName: 'transfer',
+          args: [sendForm.to, amountInWei],
+          account: wallet.address,
+          nonce: nextNonce,
+        });
+      }
+
+      alert(`¡Envío exitoso! Hash: ${hash}`);
+      setIsModalOpen(false);
+      
+      setTimeout(() => {
+        fetchAllBalances();
+      }, 2000);
+
+    } catch (error) {
+      console.error("Error envío:", error);
+      alert("La transacción falló o fue rechazada.");
+    } finally {
+      setIsSending(false);
+    }
+  };
 
   useEffect(() => {
-    if (authenticated) fetchAllBalances();
+    if (authenticated && hasWallet) {
+      fetchAllBalances();
+    }
   }, [authenticated, user?.wallet?.address]);
 
   if (!authenticated) return null;
 
+  // 🔴 VISTA CUANDO EL USUARIO NO TIENE WALLET
+  if (!hasWallet) {
+    return (
+      <div className="max-w-xl mx-auto my-12 p-8 bg-white dark:bg-[#252525] rounded-3xl border border-gray-200 dark:border-gray-800 shadow-xl text-center space-y-6">
+        <div className="w-20 h-20 bg-[#F26722]/10 rounded-full flex items-center justify-center mx-auto">
+          <Wallet className="text-[#F26722]" size={40} />
+        </div>
+
+        <div className="space-y-2">
+          <h2 className="text-2xl font-black uppercase tracking-tight dark:text-white">
+            Activa tu Billetera
+          </h2>
+          <p className="text-gray-500 dark:text-gray-400 text-sm max-w-md mx-auto">
+            Actualmente no posees una billetera Web3 vinculada. Generala en un solo clic para operar, recibir pagos y gestionar tus garantías en Mercado Nero.
+          </p>
+        </div>
+
+        <div className="p-4 bg-amber-50 dark:bg-amber-950/20 rounded-2xl border border-amber-200 dark:border-amber-900/30 text-left flex items-start gap-3">
+          <Sparkles className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" size={18} />
+          <p className="text-xs text-amber-800 dark:text-amber-300">
+            Sin frases de recuperación ni instalaciones extras. Tu billetera estará resguardada de forma segura mediante tu cuenta de acceso.
+          </p>
+        </div>
+
+        <button
+          onClick={handleCreateWallet}
+          disabled={isCreatingWallet}
+          className="w-full py-4 bg-[#F26722] hover:brightness-110 text-white rounded-2xl font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#F26722]/20 disabled:opacity-50"
+        >
+          {isCreatingWallet ? (
+            <>
+              <LoadingSpinner size="sm" />
+              <span>Generando billetera...</span>
+            </>
+          ) : (
+            <>
+              <PlusCircle size={20} />
+              <span>Crear mi Billetera</span>
+            </>
+          )}
+        </button>
+      </div>
+    );
+  }
+
+  // 🟢 VISTA NORMAL CUANDO SÍ TIENE WALLET
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold dark:text-white">Mi Billetera</h2>
-        <button onClick={fetchAllBalances} disabled={isLoading} className="flex items-center gap-2 text-sm text-blue-600 font-medium disabled:opacity-50">
+        <button 
+          onClick={fetchAllBalances} 
+          disabled={isLoading} 
+          className="flex items-center gap-2 text-sm text-blue-600 font-medium disabled:opacity-50 hover:underline"
+        >
           {isLoading ? (
             <>
               <LoadingSpinner size="sm" />
@@ -285,9 +314,8 @@ const handleSend = async () => {
           </div>
         </div>
       </div>
-      <CollateralManager />
-      {/* <DepositCollateral /> */}
 
+      <CollateralManager />
 
       <SendTokenModal 
         isOpen={isModalOpen} 

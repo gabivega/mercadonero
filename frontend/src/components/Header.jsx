@@ -135,7 +135,7 @@ export default function Header() {
   };
 
   const handleLogin = () => {
-    setIsLoginOpen(true);
+    // setIsLoginOpen(true);
     // try {
     //   await login();
     // } catch (error) {
@@ -382,7 +382,8 @@ if (isLoginOpen) {
                     badge={totalItems}
                   />
                   <button
-                    onClick={handleLogin}
+                    // onClick={handleLogin}
+                    onClick={login}
                     className="px-4 py-2 text-sm font-medium text-[#FB6002] dark:text-white bg-white dark:bg-[#FB6002] hover:bg-gray-100 rounded-lg transition-colors whitespace-nowrap"
                   >
                     Ingresar

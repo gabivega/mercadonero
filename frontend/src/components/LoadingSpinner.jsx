@@ -52,7 +52,7 @@ export default function LoadingSpinner({ size = "md", text = "Cargando...", full
   }
 
   return (
-    <div className="flex flex-col items-center justify-center gap-2 py-4">
+    <div className="flex flex-col items-center justify-center gap-2 ">
       {spinnerElement}
       {text && size !== "sm" && (
         <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{text}</p>

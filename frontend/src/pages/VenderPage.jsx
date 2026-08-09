@@ -52,7 +52,8 @@ export default function VenderPage() {
 
       <div className="space-y-4">
         <button
-          onClick={() => setIsLoginOpen(true)}
+          // onClick={() => setIsLoginOpen(true)}
+          onClick={login}
           className="group flex items-center gap-3 px-8 py-4 bg-[#F26722] text-white rounded-2xl font-black uppercase tracking-[0.2em] text-sm hover:scale-105 active:scale-95 transition-all shadow-lg shadow-[#F26722]/20"
         >
           Iniciar Sesión
@@ -64,14 +65,14 @@ export default function VenderPage() {
         </p>
       </div>
       
-      <NeroLogin 
+      {/* <NeroLogin 
         isOpen={isLoginOpen} 
         onClose={() => setIsLoginOpen(false)}
         onLoginSuccess={() => {
           // Opcional: Aquí podrías navegar a otra página si quieres
           // navigate('/dashboard');
         }}
-      />
+      /> */}
     </div>
   );
 }

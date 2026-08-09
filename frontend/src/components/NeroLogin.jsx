@@ -1,55 +1,32 @@
 import React, { useState, useEffect } from "react";
-import {
-  usePrivy,
-  useLoginWithEmail,
-  useCreateWallet,
-} from "@privy-io/react-auth";
+import { useLoginWithEmail } from "@privy-io/react-auth";
 import { Mail, KeyRound, ArrowRight, X, CheckCircle2 } from "lucide-react";
 import Swal from "sweetalert2";
 import LoadingSpinner from "./LoadingSpinner";
 
 export default function NeroLogin({ isOpen, onClose, onLoginSuccess }) {
   const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
   const [isCodeSent, setIsCodeSent] = useState(false);
   const [isDone, setIsDone] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const inputRefs = React.useRef([]);
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
 
-  // Efecto para hacer focus en el primer casillero cuando aparece el formulario de OTP
   useEffect(() => {
     if (isCodeSent && inputRefs.current[0]) {
       inputRefs.current[0].focus();
     }
   }, [isCodeSent]);
 
-  const { createWallet } = useCreateWallet();
-
   const { loginWithCode, sendCode } = useLoginWithEmail({
     onComplete: async (user, loginMethodMetaData) => {
-      // 1. Debug para ver qué nos manda Privy realmente
-      // console.log("Privy User Data:", user);
-      // console.log("Metadata:", loginMethodMetaData);
-
-      // 2. Lógica Infalible: Si NO hay wallet, intentamos crearla
-      if (!user.wallet) {
-        try {
-          // console.log("No se detectó wallet, intentando crear...");
-          await createWallet();
-          // console.log("✅ Wallet de Nero generada con éxito");
-        } catch (err) {
-          // console.warn("Aviso en creación de wallet:", err.message);
-        }
-      }
       setIsDone(true);
 
-      // SweetAlert de éxito y redirección
       Swal.fire({
         title: "¡SESIÓN INICIADA!",
         text: "Te estamos redirigiendo para que sigas operando en Mercado Nero.",
         icon: "success",
-        timer: 2000,
+        timer: 1500,
         showConfirmButton: false,
         background: "#1A1A1A",
         color: "#fff",
@@ -57,31 +34,16 @@ export default function NeroLogin({ isOpen, onClose, onLoginSuccess }) {
       }).then(() => {
         if (onLoginSuccess) {
           onLoginSuccess(user);
-        } else {
-          window.location.reload();
         }
-        onClose(); // Cerramos el modal
+        // Evitamos window.location.reload() directo para no romper la hidratación de Privy
+        onClose();
       });
     },
     onError: (error) => {
-      // console.error("Error detectado en Login OTP:", error);
+      setIsLoading(false);
+      setOtp(new Array(6).fill(""));
+      if (inputRefs.current && inputRefs.current[0]) inputRefs.current[0].focus();
 
-      // 1. Destrabamos el botón apagando el spinner de carga
-      if (typeof setIsLoading === "function") {
-        setIsLoading(false);
-      }
-
-      // 2. Reiniciamos el array del OTP a vacío para que puedan re-intentar al toque
-      if (typeof setOtp === "function") {
-        setOtp(new Array(6).fill("")); // O la cantidad de dígitos que uses (ej: 6)
-      }
-
-      // 3. Forzamos el foco de vuelta al primer input del formulario
-      if (inputRefs.current && inputRefs.current[0]) {
-        inputRefs.current[0].focus();
-      }
-
-      // 4. Mostramos la alerta de error al usuario
       Swal.fire({
         title: "Error de Código",
         text: "El código no es válido o ya expiró. Por favor, intentalo de nuevo.",
@@ -100,40 +62,24 @@ export default function NeroLogin({ isOpen, onClose, onLoginSuccess }) {
       await sendCode({ email });
       setIsCodeSent(true);
     } catch (error) {
-      Swal.fire(
-        "Error",
-        "No pudimos enviar el email. Verifica el formato.",
-        "error",
-      );
+      Swal.fire("Error", "No pudimos enviar el email. Verifica el formato.", "error");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleVerifyCode = async (e) => {
-    e.preventDefault();
-    setIsLoading(true);
-    try {
-      await loginWithCode({ code });
-    } catch (error) {
-      setIsLoading(false);
-    }
-  };
-
   const handleOtpChange = (element, index) => {
-    const value = element.value.replace(/\D/g, ""); // Solo números
-    if (!value && element.value !== "") return; // Evitar caracteres no numéricos
+    const value = element.value.replace(/\D/g, "");
+    if (!value && element.value !== "") return;
 
     const newOtp = [...otp];
-    newOtp[index] = value.substring(value.length - 1); // Tomar solo el último dígito
+    newOtp[index] = value.substring(value.length - 1);
     setOtp(newOtp);
 
-    // Mover al siguiente input si hay valor
     if (value && index < 5) {
       inputRefs.current[index + 1].focus();
     }
 
-    // Si es el último dígito y está completo, disparar el login
     const finalCode = newOtp.join("");
     if (finalCode.length === 6 && index === 5) {
       setIsLoading(true);
@@ -142,13 +88,11 @@ export default function NeroLogin({ isOpen, onClose, onLoginSuccess }) {
   };
 
   const handleKeyDown = (e, index) => {
-    // Manejar el Backspace para volver atrás
     if (e.key === "Backspace" && !otp[index] && index > 0) {
       inputRefs.current[index - 1].focus();
     }
   };
 
-  // Función para manejar el pegado (Paste) de códigos completos
   const handlePaste = (e) => {
     const data = e.clipboardData.getData("text").slice(0, 6).split("");
     if (data.length === 6) {
@@ -163,7 +107,6 @@ export default function NeroLogin({ isOpen, onClose, onLoginSuccess }) {
   return (
     <div className="fixed inset-0 z-[999] flex items-center justify-center p-4 bg-black/10 backdrop-blur-sm animate-in fade-in duration-300">
       <div className="relative w-full max-w-md bg-white dark:bg-zinc-900 rounded-[2.5rem] p-8 shadow-2xl border border-zinc-200 dark:border-zinc-800 scale-in-center">
-        {/* Botón de cierre */}
         <button
           onClick={onClose}
           className="absolute top-6 right-6 p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
@@ -172,7 +115,6 @@ export default function NeroLogin({ isOpen, onClose, onLoginSuccess }) {
         </button>
 
         {isDone ? (
-          /* PASO FINAL: CONFIRMACIÓN */
           <div className="text-center py-10 space-y-4 animate-in zoom-in">
             <div className="w-20 h-20 bg-green-100 dark:bg-green-900/20 rounded-full flex items-center justify-center mx-auto">
               <CheckCircle2 className="text-green-500 w-12 h-12" />
@@ -200,7 +142,7 @@ export default function NeroLogin({ isOpen, onClose, onLoginSuccess }) {
               <p className="text-zinc-500 dark:text-zinc-400 mt-2 text-sm">
                 {isCodeSent
                   ? `Enviamos un código OTP a ${email}`
-                  : "Accedé para comprar, vender y participar de la comunidad"}
+                  : "Accedé para comprar, vender y operar"}
               </p>
             </div>
 
@@ -214,28 +156,45 @@ export default function NeroLogin({ isOpen, onClose, onLoginSuccess }) {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                 />
+
                 <button
                   type="submit"
                   disabled={isLoading}
                   className="w-full py-4 bg-[#F26722] text-white rounded-2xl font-black uppercase tracking-widest hover:brightness-110 transition-all flex flex-row items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isLoading ? (
-                    <>
-                      <LoadingSpinner size="sm" />
-                      {/* Enviando... */}
-                    </>
+                    <LoadingSpinner size="sm" />
                   ) : (
                     <>
                       Continuar <ArrowRight size={18} />
                     </>
                   )}
                 </button>
+
+                <p className="text-[11px] text-center text-zinc-400 dark:text-zinc-500 leading-normal px-2 pt-1">
+                  Al hacer clic en <strong className="font-semibold text-zinc-500 dark:text-zinc-400">Continuar</strong>, aceptás los{" "}
+                  <a
+                    href="/terminos-y-condiciones"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline hover:text-[#F26722] transition-colors"
+                  >
+                    Términos y Condiciones
+                  </a>{" "}
+                  y la{" "}
+                  <a
+                    href="/politica-de-privacidad"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline hover:text-[#F26722] transition-colors"
+                  >
+                    Política de Privacidad
+                  </a>{" "}
+                  de Mercado Nero.
+                </p>
               </form>
             ) : (
-              <form
-                onSubmit={(e) => e.preventDefault()}
-                className="space-y-6 w-full"
-              >
+              <form onSubmit={(e) => e.preventDefault()} className="space-y-6 w-full">
                 <div
                   className="flex justify-between gap-1.5 sm:gap-2 w-full max-w-md mx-auto"
                   onPaste={handlePaste}
@@ -244,8 +203,8 @@ export default function NeroLogin({ isOpen, onClose, onLoginSuccess }) {
                     <input
                       key={index}
                       type="text"
-                      inputMode="numeric" // 📱 Fuerza el teclado numérico en Mobile sin romper el comportamiento
-                      pattern="[0-9]*" // 📱 Compatibilidad extra para iOS de Apple
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       maxLength={1}
                       ref={(el) => (inputRefs.current[index] = el)}
                       value={data}
@@ -257,7 +216,7 @@ export default function NeroLogin({ isOpen, onClose, onLoginSuccess }) {
                 </div>
                 <button
                   onClick={() => {
-                    setIsLoading(true); // 👈 Activamos el spinner antes de arrancar la verificación
+                    setIsLoading(true);
                     loginWithCode({ code: otp.join("") });
                   }}
                   disabled={otp.some((v) => v === "") || isLoading}

@@ -7,13 +7,12 @@ import "./index.css";
 import { PrivyProvider } from "@privy-io/react-auth";
 // Replace this with any of the networks listed at https://github.com/wevm/viem/blob/main/src/chains/index.ts
 import { bsc, bscTestnet } from "viem/chains";
-import logoDark from "./assets/img/mn-logo-dark.png";
-import logoLight from "./assets/img/mn-logo-light.png";
+import logoDark from "./assets/img/logo-white-mobile.png";
+import logoLight from "./assets/img/logo-orange-mobile.png";
 
 const privyAppId = import.meta.env.VITE_PRIVY_APP_ID;
 
 const PrivyAppWrapper = () => {
-
   // 1. Obtenemos el modo directamente de tu Redux
   const themeMode = useSelector((state) => state.theme.mode);
 
@@ -33,8 +32,9 @@ const PrivyAppWrapper = () => {
         session: {
           updateAfterTime: 0, // Mantiene la sesión activa
         },
-        language: "es",
+        // language: "es",
         intl: {
+          defaultLanguage: 'es-ES',
           messages: {
             "login-method-email-placeholder": "tu@email.com",
             "login-method-email-submit": "Continuar",
@@ -55,9 +55,14 @@ const PrivyAppWrapper = () => {
         },
         supportedChains: [bsc, bscTestnet],
         defaultChain: bscTestnet,
+        legal: {
+          termsAndConditionsUrl:
+            "https://mercadonero.com/terminos-y-condiciones",
+          privacyPolicyUrl: "https://mercadonero.com/politica-de-privacidad",
+        },
         embeddedWallets: {
           ethereum: {
-            createOnLogin: "users-without-wallets",
+            createOnLogin: "off",
           },
         },
       }}

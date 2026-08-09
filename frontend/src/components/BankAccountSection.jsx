@@ -101,7 +101,7 @@ const BankAccountsSection = ({ bankAccounts, getAccessToken, profile, setProfile
         {bankAccounts.length < 3 && !isAdding && (
           <button 
             onClick={() => setIsAdding(true)}
-            className="px-4 py-2 bg-[#F26722] text-white rounded-xl font-bold uppercase text-xs tracking-widest hover:bg-[#e55a1d] transition-colors"
+            className="px-4 py-2 bg-[#F26722] mt-4 text-white rounded-xl font-bold uppercase text-xs tracking-widest hover:bg-[#e55a1d] transition-colors"
           >
             + Agregar Cuenta
           </button>
