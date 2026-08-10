@@ -8,6 +8,7 @@ import userRoutes from './src/routes/userRoutes.js';
 import orderRoutes from './src/routes/orderRoutes.js';
 import cartRoutes from './src/routes/cartRoutes.js';
 import adminRoutes from './src/routes/adminRoutes.js';
+import transakRoutes from './src/routes/transakRoutes.js';
 import startOrderCleanup from './src/services/orderCleanup.js';
 
 const PORT = process.env.PORT || 3000;
@@ -43,6 +44,7 @@ try {
   app.use('/api/order', orderRoutes);
   app.use('/api/cart', cartRoutes);
   app.use('/api/admin', adminRoutes);
+  app.use('/api/transak', transakRoutes);
   app.get('/', (req, res) => res.json({ success: true, message: 'API running' }));
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 

@@ -40,6 +40,7 @@ export function usePrivySpanish() {
 "Resend code":"Reenviar código",
 "Code sent":"código enviado",
 "Recent": "Reciente",
+"Success": "Código Correcto!",
 "Request failed": "Solicitud fallida",
 "many attempts": "intentos",
 "issue verifying code": "problemas verificando el código",

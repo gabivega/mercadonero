@@ -17,6 +17,7 @@ import { usePrivy } from "@privy-io/react-auth";
 import AuthOnboarding from "../components/AuthOnboarding";
 import { useSyncUser } from "../Utils/userSync";
 import LoadingSpinner from "../components/LoadingSpinner";
+import {TransakCheckoutButton} from "../components/TransakCheckoutButton";
 
 export default function Checkout() {
   const { sellerId } = useParams();
@@ -485,6 +486,7 @@ if (!authenticated ||  !dbUser ) {
                   <p className="text-xs text-gray-500">
                     Pagos con tarjeta Visa o Mastercard, con compra protegida.
                   </p>
+                  {/* <TransakCheckoutButton /> */}
                 </div>
               </div>
               <span className="text-[10px] bg-[#3483fa] text-white m-2 px-2 py-0.5 rounded font-bold">

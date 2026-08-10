@@ -3,6 +3,7 @@ import axios from 'axios';
 import { usePrivy } from '@privy-io/react-auth';
 import { useNavigate } from 'react-router-dom';
 import { Package, Clock, CheckCircle, AlertCircle, Truck, Ban } from 'lucide-react';
+import LoadingSpinner from '../../components/LoadingSpinner';
 
 export default function Purchases() {
   const [orders, setOrders] = useState([]);
@@ -42,7 +43,7 @@ export default function Purchases() {
     return states[status] || { label: status, color: 'text-gray-500 bg-gray-50', icon: null };
   };
 
-  if (loading) return <div className="p-10 text-center">Cargando tus compras...</div>;
+  if (loading) return  <LoadingSpinner size="lg" text="Cargando Compras..." />;
 
   return (
     <div className="space-y-6 max-w-4xl">
