@@ -94,8 +94,11 @@ const ProductSchema = new Schema(
       enum: ['product', 'classified'], 
       default: 'product' 
     },
+    source: { type: String, enum: ['manual', 'mercado-libre'], default: 'manual' },
+    sourceUrl: { type: String, trim: true, default: "" },
   },
   { timestamps: true },
 );
 
 export default mongoose.model("Product", ProductSchema);
+

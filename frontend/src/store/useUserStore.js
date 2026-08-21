@@ -4,22 +4,21 @@ import { persist } from 'zustand/middleware';
 export const useUserStore = create(
   persist(
     (set) => ({
-      dbUser: null, // Aquí guardaremos la respuesta de tu backend (Mongo)
+      dbUser: null,
       
-      // Acción para guardar el usuario al loguearse/sincronizar
       setDbUser: (userData, privyId) => {
         if (!privyId) return;
         set({ dbUser: userData, isAdmin: privyId === import.meta.env.VITE_ADMIN_PRIVY_ID });
       },
-      
-      // Limpiar al hacer logout
+
+      // 💡 NUEVA ACCIÓN: Actualiza solo las direcciones dentro de dbUser
+      setAddresses: (newAddresses) =>
+        set((state) => ({
+          dbUser: state.dbUser ? { ...state.dbUser, addresses: newAddresses } : null,
+        })),
+
       clearUser: () => set({ dbUser: null, isAdmin: false }),
     }),
-    { name: 'user-storage',
-      onRehydrateStorage: () => (state) => {
-        console.log('🌀 Store hidratado');
-      }
-     }, // Se guarda en LocalStorage automáticamente
-    
+    { name: 'user-storage' }
   )
 );

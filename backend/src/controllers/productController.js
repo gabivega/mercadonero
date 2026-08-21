@@ -262,9 +262,16 @@ const NERO_CATEGORY_MAP = {
 // OBTENER PRODUCTOS POR CATEGORIA O GENERAL
 export const getProducts = async (req, res) => {
   try {
-    const { search, category, subCategory, brand, minPrice, maxPrice, sort } = req.query;
+        const { search, category, subCategory, brand, minPrice, maxPrice, sort, sellerId } = req.query;
     let query = { status: "active" };
     console.log("req.query: ",req.query)
+
+    // ── FILTRO POR VENDEDOR ──
+    // Usado por la página de perfil ("Ver todos sus productos"): devuelve
+    // solo las publicaciones activas de un vendedor determinado.
+    if (sellerId) {
+      query.seller = sellerId;
+    }
     
 // Configuración de ordenamiento por defecto (Del más nuevo al más viejo)
     let sortOptions = { createdAt: -1 }; 

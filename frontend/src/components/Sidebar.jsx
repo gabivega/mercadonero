@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { 
   User, Wallet, Bell, ShoppingBag, History, 
-  FileText, Tag, LogOut, LayoutDashboard,
-  ChevronLeft, ChevronRight, Menu, X , Users , ShieldCheck
+    FileText, Tag, LogOut, LayoutDashboard,
+  ChevronLeft, ChevronRight, Menu, X , Users , ShieldCheck, MessageSquare
 } from 'lucide-react';
 import { useUserStore } from '../store/useUserStore';
 
@@ -16,6 +16,7 @@ const Sidebar = ({ handleLogout }) => {
     { name: 'Perfil', icon: <User size={20}/>, path: '/perfil' },
     { name: 'Billetera', icon: <Wallet size={20}/>, path: '/billetera' },
     { name: 'Notificaciones', icon: <Bell size={20}/>, path: '/notificaciones' },
+    { name: 'Mensajes', icon: <MessageSquare size={20}/>, path: '/mensajes' },
     { name: 'Compras', icon: <ShoppingBag size={20}/>, path: '/compras' },
     { name: 'Vender', icon: <Tag size={20}/>, path: '/vender' },
     { name: 'Posts', icon: <FileText size={20}/>, path: '/posts' },
@@ -125,7 +126,7 @@ const Sidebar = ({ handleLogout }) => {
         </button>
 
         {/* Navegación Desktop */}
-        <nav className="flex-1 px-3 py-6 space-y-2 overflow-x-hidden overflow-hidden">
+        <nav className="flex-1 px-3 py-3 space-y-1 overflow-y-auto overflow-x-hidden custom-sidebar-scroll min-h-0">
           {menuItems.map((item) => (
             <NavLink
               key={item.name}
@@ -133,7 +134,7 @@ const Sidebar = ({ handleLogout }) => {
               title={isCollapsed ? item.name : ""} // Tooltip cuando está comprimido
               className={({ isActive }) =>
                 `flex items-center rounded-xl transition-all duration-200 ${
-                  isCollapsed ? 'justify-center px-0 py-3' : 'px-4 py-3 space-x-3'
+                  isCollapsed ? 'justify-center px-0 py-2.5' : 'px-4 py-2.5 space-x-3'
                 } ${
                   isActive 
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' 
@@ -159,7 +160,7 @@ const Sidebar = ({ handleLogout }) => {
         <button
           onClick={handleLogout}
           className={`flex items-center text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 transition-all border-t border-gray-200 dark:border-gray-800 ${
-            isCollapsed ? 'justify-center px-0 py-8' : 'px-8 py-6 space-x-3'
+            isCollapsed ? 'justify-center px-0 py-5' : 'px-8 py-4 space-x-3'
           }`}
         >
           <LogOut size={20} />

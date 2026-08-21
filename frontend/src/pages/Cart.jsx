@@ -91,7 +91,13 @@ export default function Cart() {
                   <Store className="w-4 h-4 text-gray-400" />
                   <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
                     Vendido por{" "}
-                    <span className="text-[#3483fa]">{group.name}</span>
+                    <button
+                      onClick={() => navigate(`/user/${sellerId}`)}
+                      className="text-[#3483fa] hover:text-[#2968c8] hover:underline"
+                      title="Ver perfil del vendedor"
+                    >
+                      {group.name}
+                    </button>
                   </p>
                 </div>
 
@@ -127,9 +133,11 @@ export default function Cart() {
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
-                          <p className="text-xs text-green-600 mt-1 font-medium">
-                            Envío gratis
-                          </p>
+                          {item.freeShipping ? (
+                            <p className="text-xs text-green-600 mt-1 font-medium">
+                              Envío gratis
+                            </p>
+                          ) : null}
                         </div>
 
                         <div className="flex items-center justify-between mt-4">

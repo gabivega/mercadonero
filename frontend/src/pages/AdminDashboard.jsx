@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import AdminOrdersTable from "../components/AdminOrdersTable";
+import AdminUsersTable from "../components/AdminUsersTable";
 import { usePrivy } from "@privy-io/react-auth";
 import { useUserStore } from "../store/useUserStore";
 
@@ -32,10 +33,10 @@ const AdminDashboard = () => {
   // console.log("ZUSTAND -> isAdmin:", isAdmin, "dbUser:", !!dbUser);
   // console.log("isAdmin", isAdmin);
 
-  const menuItems = [
+    const menuItems = [
     { id: "stats", label: "Estadísticas", icon: LayoutDashboard },
     { id: "orders", label: "Gestión de Órdenes", icon: Package },
-    { id: "sellers", label: "Vendedores", icon: Users },
+    { id: "users", label: "Usuarios", icon: Users },
     { id: "escrow", label: "Smart Contract", icon: ShieldCheck },
     { id: "settings", label: "Configuración", icon: Settings },
   ];
@@ -126,9 +127,10 @@ const AdminDashboard = () => {
           </button>
         </header>
 
-        <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
           {activeTab === "orders" && <AdminOrdersTable />}
-          {activeTab !== "orders" && (
+          {activeTab === "users" && <AdminUsersTable />}
+          {activeTab !== "orders" && activeTab !== "users" && (
             <div className="h-64 flex items-center justify-center border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-[2.5rem]">
               <p className="text-zinc-400 font-medium italic">
                 Sección en desarrollo...

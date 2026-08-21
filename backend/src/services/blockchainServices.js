@@ -23,12 +23,69 @@ const poolContract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, adminWal
 // console.log("poolContract", poolContract)
 
 /**
+ * HERRAMIENTA DE LECTURA: Consulta el monto congelado (lock) real de una orden
+ * en el contrato. Devuelve 0 si la orden NO tiene saldo bloqueado, es decir,
+ * si el colateral YA fue liberado/desbloqueado on-chain.
+ *
+ * Es CRÍTICO no confiar solo en que "una tx se minó sin revertir" para dar por
+ * liberado el colateral: una transacción puede confirmarse pero la lógica
+ * interna del contrato pudo no descongelar realmente el saldo (firma distinta,
+ * fee distinto, lock inexistente, etc.). Este fue exactamente el caso que dio
+ * origen a este diagnóstico.
+ */
+export async function getOrderLock(orderId) {
+  try {
+    const lockWei = await poolContract.orderLocks(orderId);
+    const lockUsd = parseFloat(ethers.formatUnits(lockWei, 18));
+    return { success: true, lockUsd, lockWei: lockWei.toString() };
+  } catch (error) {
+    console.error("[Blockchain Error] Fallo al leer el lock de la orden:", error.reason || error.message);
+    return { success: false, error: error.reason || error.message };
+  }
+}
+
+/**
+ * HERRAMIENTA DE LECTURA: Consulta el estado real de un vendedor en el contrato
+ * (total depositado y cuánto tiene congelado en garantía).
+ */
+export async function getVendorCollateral(vendorAddress) {
+  try {
+    const data = await poolContract.vendors(vendorAddress);
+    const totalCollateral = parseFloat(ethers.formatUnits(data.totalCollateral, 18));
+    const lockedCollateral = parseFloat(ethers.formatUnits(data.lockedCollateral, 18));
+    return {
+      success: true,
+      totalCollateral,
+      lockedCollateral,
+      available: totalCollateral - lockedCollateral,
+    };
+  } catch (error) {
+    console.error("[Blockchain Error] Fallo al leer el colateral del vendedor:", error.reason || error.message);
+    return { success: false, error: error.reason || error.message };
+  }
+}
+
+/**
+ * HERRAMIENTA DE VERIFICACIÓN: Confirma que una orden quedó realmente liberada
+ * on-chain, es decir que su lock fue eliminado del contrato. Úsala SIEMPRE
+ * después de firmar un release para NO marcar como liberado algo que sigue
+ * congelado en la blockchain.
+ */
+export async function verifyOrderReleased(orderId) {
+  const lock = await getOrderLock(orderId);
+  if (!lock.success) {
+    return { ...lock, released: false };
+  }
+  return { success: true, released: lock.lockUsd === 0, lockUsd: lock.lockUsd };
+}
+
+/**
  * ACCIÓN 1: BLOQUEAR COLATERAL (Se ejecuta al crearse la orden P2P)
  */
 export async function lockVendorCollateral(orderId, vendorAddress, amountInTokens) {
   try {
     console.log(`[Blockchain] Solicitando bloqueo de ${amountInTokens} USDT para Orden: ${orderId}...`);
-    
+
     // Convertimos a Wei (18 decimales para este USDT de testnet)
     const amountInWei = ethers.parseUnits(amountInTokens.toString(), 18);
 
@@ -38,7 +95,7 @@ export async function lockVendorCollateral(orderId, vendorAddress, amountInToken
 
     const receipt = await tx.wait();
     console.log(`[Blockchain] Bloqueo confirmado en bloque: ${receipt.blockNumber}`);
-    
+
     return { success: true, txHash: tx.hash };
   } catch (error) {
     console.error("[Blockchain Error] Fallo al bloquear colateral:", error.reason || error.message);
@@ -58,10 +115,26 @@ export async function releaseVendorCollateral(orderId, vendorAddress, montoOrden
     const tx = await poolContract.releaseOrderCollateral(orderId, vendorAddress, USDT_TESTNET_ADDRESS, feeAmountInWei);
     console.log(`[Blockchain] Tx de liberación enviada: ${tx.hash}`);
 
-    const receipt = await tx.wait();
+        const receipt = await tx.wait();
     console.log(`[Blockchain] Liberación confirmada en bloque: ${receipt.blockNumber}`);
 
-    return { success: true, txHash: tx.hash };
+    // ⚠️ NO confiamos solo en que la tx se minó: verificamos que el lock se
+    // eliminó realmente en el contrato. Si sigue congelado, es un falso positivo.
+    const verification = await verifyOrderReleased(orderId);
+    if (!verification.released) {
+      console.warn(
+        `[Blockchain] ⚠️ La tx ${tx.hash} se minó pero la orden ${orderId} SIGUE con saldo bloqueado (${verification.lockUsd} USDT).`,
+      );
+      return {
+        success: false,
+        txHash: tx.hash,
+        error:
+          "La transacción se minó pero el colateral sigue congelado en el contrato. No se registra la liberación; se requiere intervención manual y verificación del lock on-chain.",
+        verifiedReleased: false,
+      };
+    }
+
+    return { success: true, txHash: tx.hash, verifiedReleased: true };
   } catch (error) {
     console.error("[Blockchain Error] Fallo al liberar colateral:", error.reason || error.message);
     return { success: false, error: error.reason || error.message };
@@ -80,10 +153,25 @@ export async function cancelVendorCollateral(orderId, vendorAddress) {
     const tx = await poolContract.releaseOrderCollateral(orderId, vendorAddress, USDT_TESTNET_ADDRESS, 0);
     console.log(`[Blockchain] Tx de cancelación enviada: ${tx.hash}`);
 
-    const receipt = await tx.wait();
+        const receipt = await tx.wait();
     console.log(`[Blockchain] Colateral liberado (0% fee) en bloque: ${receipt.blockNumber}`);
 
-    return { success: true, txHash: tx.hash };
+    // ⚠️ Verificación real on-chain (ver comentario en releaseVendorCollateral).
+    const verification = await verifyOrderReleased(orderId);
+    if (!verification.released) {
+      console.warn(
+        `[Blockchain] ⚠️ La tx ${tx.hash} se minó pero la orden ${orderId} SIGUE con saldo bloqueado (${verification.lockUsd} USDT).`,
+      );
+      return {
+        success: false,
+        txHash: tx.hash,
+        error:
+          "La transacción se minó pero el colateral sigue congelado en el contrato. Se requiere intervención manual y verificación del lock on-chain.",
+        verifiedReleased: false,
+      };
+    }
+
+    return { success: true, txHash: tx.hash, verifiedReleased: true };
   } catch (error) {
     console.error("[Blockchain Error] Fallo al cancelar colateral de orden expirada:", error.reason || error.message);
     return { success: false, error: error.reason || error.message };

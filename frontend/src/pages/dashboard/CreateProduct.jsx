@@ -154,14 +154,14 @@ export default function CreateProduct() {
             ¿No tienes cuenta? Se crea automáticamente al iniciar sesión
           </p>
         </div>
-        <NeroLogin 
+        {/* <NeroLogin 
           isOpen={isLoginOpen} 
           onClose={() => setIsLoginOpen(false)} 
            onLoginSuccess={(user) => {
         // Opcional: Aquí podrías navegar a otra página si quieres
         // navigate('/dashboard');
       }}
-        />
+        /> */}
         <HowToSell />
       </div>
     );

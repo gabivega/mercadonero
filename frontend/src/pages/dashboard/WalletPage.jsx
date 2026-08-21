@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { usePrivy, useWallets, useCreateWallet } from '@privy-io/react-auth';
 import { createPublicClient, http, formatUnits, createWalletClient, custom, parseUnits } from 'viem';
 import { bscTestnet } from 'viem/chains';
-import { Wallet, RefreshCcw, ArrowUpRight, Copy, PlusCircle, Sparkles } from 'lucide-react';
+import { Wallet, RefreshCcw, ArrowUpRight, Copy, PlusCircle, Sparkles, BadgePercent } from 'lucide-react';
+import axios from 'axios';
 import SendTokenModal from '../../components/SendTokenModal';
 import Swal from 'sweetalert2';
 import CollateralManager from '../../components/CollateralManager';
@@ -30,7 +31,7 @@ const minERC20Abi = [
 ];
 
 export default function WalletPage() {
-  const { user, authenticated } = usePrivy();
+  const { user, authenticated, getAccessToken } = usePrivy();
   const { wallets } = useWallets();
   const { createWallet } = useCreateWallet();
 
@@ -38,11 +39,15 @@ export default function WalletPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isCreatingWallet, setIsCreatingWallet] = useState(false);
 
-  // Estados del Modal
+    // Estados del Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedToken, setSelectedToken] = useState(null);
   const [sendForm, setSendForm] = useState({ to: '', amount: '' });
   const [isSending, setIsSending] = useState(false);
+
+  // Estados de Cashback / Reintegros
+  const [cashback, setCashback] = useState(null);
+  const [cashbackLoading, setCashbackLoading] = useState(false);
 
   // Verificación directa en el objeto user de Privy
   const hasWallet = Boolean(user?.wallet?.address);
@@ -140,6 +145,24 @@ export default function WalletPage() {
     }
   };
 
+      // Carga el cashback (reintegros) del usuario autenticado.
+  const fetchCashback = async () => {
+    setCashbackLoading(true);
+    try {
+      const token = await getAccessToken();
+      const res = await axios.get(
+        `${import.meta.env.VITE_SERVER_URL}/api/cashback`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setCashback(res.data.cashback || null);
+    } catch (err) {
+      console.error("Error cargando cashback:", err);
+      setCashback(null);
+    } finally {
+      setCashbackLoading(false);
+    }
+  };
+
   const handleSend = async () => {
     try {
       setIsSending(true);
@@ -195,9 +218,14 @@ export default function WalletPage() {
     }
   };
 
-  useEffect(() => {
-    if (authenticated && hasWallet) {
-      fetchAllBalances();
+            useEffect(() => {
+    if (authenticated) {
+      // El cashback vive en la BD de la plataforma (no on-chain), por lo que
+      // lo cargamos siempre, incluso si todavía no tiene wallet web3 creada.
+      fetchCashback();
+      if (hasWallet) {
+        fetchAllBalances();
+      }
     }
   }, [authenticated, user?.wallet?.address]);
 
@@ -237,13 +265,13 @@ export default function WalletPage() {
               <LoadingSpinner size="sm" />
               <span>Generando billetera...</span>
             </>
-          ) : (
+                    ) : (
             <>
               <PlusCircle size={20} />
               <span>Crear mi Billetera</span>
             </>
           )}
-        </button>
+                </button>
       </div>
     );
   }
@@ -297,6 +325,111 @@ export default function WalletPage() {
           </div>
         ))}
       </div>
+
+            {/* ────────────────────────────────────────────────
+          CASHBACK / REINTEGROS
+          Muestra el total acumulado, el saldo disponible por canjear
+          y el historial de movimientos (reintegros por compras).
+      ──────────────────────────────────────────────── */}
+      <section className="p-6 bg-white dark:bg-[#252525] rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-lg flex items-center gap-2 dark:text-white">
+            <BadgePercent className="text-emerald-600" size={22} />
+            Reintegros (Cashback)
+          </h3>
+          <button
+            onClick={fetchCashback}
+            disabled={cashbackLoading}
+            className="flex items-center gap-1.5 text-xs text-emerald-600 font-medium hover:underline disabled:opacity-50"
+          >
+            {cashbackLoading ? (
+              <LoadingSpinner size="sm" />
+            ) : (
+              <RefreshCcw size={14} />
+            )}
+            Actualizar
+          </button>
+        </div>
+
+        {cashbackLoading && !cashback ? (
+          <div className="py-8 text-center">
+            <LoadingSpinner size="md" text="Cargando tus reintegros..." />
+          </div>
+        ) : (
+          <>
+            {/* Resumen de importes */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+              <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/30">
+                <p className="text-xs text-emerald-700 dark:text-emerald-300 font-medium uppercase tracking-wide">Saldo disponible</p>
+                <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                  US$ {(cashback?.balance ?? 0).toFixed(2)}
+                </p>
+              </div>
+              <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/30">
+                <p className="text-xs text-blue-700 dark:text-blue-300 font-medium uppercase tracking-wide">Total reintegrado</p>
+                <p className="text-2xl font-black text-blue-600 dark:text-blue-400 mt-1">
+                  US$ {(cashback?.earned ?? 0).toFixed(2)}
+                </p>
+              </div>
+              <div className="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800">
+                <p className="text-xs text-zinc-600 dark:text-zinc-400 font-medium uppercase tracking-wide">Usado / Retirado</p>
+                <p className="text-2xl font-black text-zinc-700 dark:text-zinc-300 mt-1">
+                  US$ {(((cashback?.spent ?? 0) + (cashback?.withdrawn ?? 0))).toFixed(2)}
+                </p>
+              </div>
+            </div>
+
+            {/* Actividad */}
+            <h4 className="text-sm font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-3">
+              Actividad
+            </h4>
+            {(cashback?.transactions && cashback.transactions.length > 0) ? (
+              <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {cashback.transactions.map((tx, idx) => {
+                  const isEarned = tx.type === "earned";
+                  const isSpent = tx.type === "spent" || tx.type === "withdrawn";
+                  return (
+                    <li key={idx} className="py-3 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
+                          isEarned
+                            ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600"
+                            : isSpent
+                              ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-500"
+                              : "bg-blue-100 dark:bg-blue-900/40 text-blue-600"
+                        }`}>
+                          <BadgePercent size={18} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate dark:text-white">
+                            {tx.description || (isEarned ? "Reintegro" : "Movimiento")}
+                          </p>
+                          <p className="text-xs text-zinc-400">
+                            {tx.createdAt ? new Date(tx.createdAt).toLocaleDateString('es-AR', {
+                              day: '2-digit', month: '2-digit', year: 'numeric',
+                            }) : ""}
+                          </p>
+                        </div>
+                      </div>
+                      <span className={`text-sm font-bold shrink-0 ${
+                        Number(tx.amount) >= 0
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-zinc-500 dark:text-zinc-400"
+                      }`}>
+                        {Number(tx.amount) >= 0 ? "+" : ""}US$ {Math.abs(Number(tx.amount)).toFixed(2)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="text-sm text-zinc-400 dark:text-zinc-500 py-4 text-center">
+                Todavía no tenés reintegros. Completá tus compras para acumular cashback.
+              </p>
+            )}
+          </>
+        )}
+      </section>
 
       <div className="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-100 dark:border-blue-900/30 flex items-start gap-3">
         <Wallet className="text-blue-600 mt-1" size={20} />

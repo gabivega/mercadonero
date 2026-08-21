@@ -24,6 +24,12 @@ const SearchResults = () => {
   });
 
   const query = searchParams.get('q');
+  const sellerId = searchParams.get('sellerId');
+  const sellerName = searchParams.get('sellerName');
+
+  // Título contextual: si venimos del perfil de un vendedor, mostramos
+  // "Publicaciones de @..." en vez de una búsqueda genérica.
+  const isSellerView = Boolean(sellerId);
 
   useEffect(() => {
     const fetchResults = async () => {
@@ -81,7 +87,13 @@ const SearchResults = () => {
           // Pasamos los filtros que vienen del backend para que el sidebar sepa qué mostrar
           availableBrands={data.filters?.brands || []}
           availableSubCategories={data.filters?.subCategories || []}
-          categoryName={query ? `Búsqueda: ${query}` : "Resultados"}
+          categoryName={
+            isSellerView
+              ? `Publicaciones de @${sellerName || "vendedor"}`
+              : query
+                ? `Búsqueda: ${query}`
+                : "Resultados"
+          }
         />
       </div>
 
@@ -89,7 +101,11 @@ const SearchResults = () => {
       <main className="flex-1">
         <div className="mb-6">
           <h1 className="text-2xl font-black dark:text-white uppercase tracking-tighter">
-            {query ? `"${query}"` : 'Explorar productos'}
+            {isSellerView
+              ? `Publicaciones de @${sellerName || "vendedor"}`
+              : query
+                ? `"${query}"`
+                : "Explorar productos"}
           </h1>
           <p className="text-gray-500 dark:text-zinc-500 text-sm font-medium">
             {data.products?.length || 0} artículos encontrados
@@ -120,7 +136,16 @@ const SearchResults = () => {
                   No hay coincidencias. Probá ajustando los filtros o cambiando la búsqueda.
                 </p>
                 <button 
-                  onClick={() => setSearchParams(query ? { q: query } : {})} 
+                  onClick={() => {
+                    if (isSellerView) {
+                      setSearchParams({
+                        sellerId,
+                        sellerName: sellerName || "",
+                      });
+                    } else {
+                      setSearchParams(query ? { q: query } : {});
+                    }
+                  }} 
                   className="mt-6 px-6 py-2 bg-zinc-900 dark:bg-white dark:text-black text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:scale-105 transition-transform"
                 >
                   Limpiar filtros

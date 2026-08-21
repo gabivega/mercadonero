@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { usePrivy } from "@privy-io/react-auth";
 import {
-  Clock,
+    Clock,
   CheckCircle,
   Package,
   Truck,
@@ -11,32 +11,54 @@ import {
   Copy,
   AlertCircle,
   UploadCloud,
+  MessageSquare,
+  Sparkles,
+  Star,
 } from "lucide-react";
 import Swal from "sweetalert2";
 import { useUserStore } from "../../store/useUserStore";
+import { useChat } from "../../Utils/useChat";
 import ShippingForm from "../../components/ShippingForm";
 import PaymentAction from "../../components/PaymentAction";
 import ConfirmPaymentAction from "../../components/ConfirmPaymentAction";
 import ShippingStatusCard from "../../components/ShippingStatusCard";
 import OrderInfoAccordion from "../../components/OrderInfoAccordion";
+import CancelOrderAction from "../../components/CancelOrderAction";
 import LoadingSpinner from "../../components/LoadingSpinner";
+import OrderRatings from "../../components/OrderRatings";
 
 export default function OrderDetail() {
-  const { id } = useParams();
+    const { id } = useParams();
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [fetching, setFetching] = useState(false);
   const { getAccessToken } = usePrivy();
   const user = useUserStore((state) => state.dbUser);
-  let role = "buyer"; // Default role
+    let role = "buyer"; // Default role
   const navigate = useNavigate();
+  const { startConversation } = useChat();
+  const [startingChat, setStartingChat] = useState(false);
 
-  const isDark = document.documentElement.classList.contains("dark");
+    const isDark = document.documentElement.classList.contains("dark");
+
+    // Referencia al bloque de calificaciones para hacer scroll cuando el
+  // comprador confirma la recepción y queremos incentivarlo a calificar.
+  const ratingsRef = useRef(null);
+  const [justConfirmed, setJustConfirmed] = useState(false);
+
+  const scrollToRatings = () => {
+    // Pequeño delay para dejar que el estado se actualice y Swal se cierre.
+    setTimeout(() => {
+      ratingsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 350);
+  };
 
   useEffect(() => {
     fetchOrder();
   }, [id]);
 
-  const fetchOrder = async () => {
+    const fetchOrder = async () => {
+    setFetching(true);
     try {
       const token = await getAccessToken();
       const res = await axios.get(
@@ -47,10 +69,11 @@ export default function OrderDetail() {
       );
       setOrder(res.data.order);
       // console.log(res.data.order);
-    } catch (err) {
+        } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
+      setFetching(false);
     }
   };
 
@@ -96,10 +119,7 @@ export default function OrderDetail() {
       }
     }
   };
-  if (order && user._id === order.seller._id) {
-    role = "seller";
-  }
-  if (loading)
+      if (loading)
     return (
       <div className="p-20 text-center">
         <LoadingSpinner size="lg" text="Cargando detalles de la orden..." />
@@ -107,6 +127,42 @@ export default function OrderDetail() {
     );
   if (!order)
     return <div className="p-20 text-center">Orden no encontrada.</div>;
+
+  // Determinar rol según si el usuario logueado es el vendedor de la orden
+  if (user && order.seller && user._id === order.seller._id) {
+    role = "seller";
+  }
+
+  // ID de la otra parte (vendedor o comprador) según tu rol
+  const otherUserId = role === "seller"
+    ? (order.buyer?._id || order.buyer)
+    : (order.seller?._id || order.seller);
+
+  const handleStartChat = async () => {
+    if (!otherUserId || startingChat) return;
+    setStartingChat(true);
+    try {
+      const conversation = await startConversation(otherUserId);
+      if (conversation?._id) {
+        navigate(`/mensajes?c=${conversation._id}`);
+      } else {
+        navigate("/mensajes");
+      }
+    } catch (err) {
+      Swal.fire({
+        icon: "info",
+        title: "Chat no disponible",
+        text:
+          err?.message ||
+          "Solo podés chatear mientras la compra/venta esté activa.",
+        background: isDark ? "#121212" : "#ffffff",
+        color: isDark ? "#f3f4f6" : "#1f2937",
+        confirmButtonColor: "#3483fa",
+      });
+    } finally {
+      setStartingChat(false);
+    }
+  };
 
   const steps = [
     {
@@ -124,10 +180,18 @@ export default function OrderDetail() {
     { id: "completed", label: "Completado", icon: <Package size={20} /> },
   ];
 
-  const currentStepIndex = steps.findIndex((s) => s.id === order.status);
+        const currentStepIndex = steps.findIndex((s) => s.id === order.status);
 
-  return (
+    return (
     <div className="max-w-5xl mx-auto p-4 md:p-8 space-y-8">
+      {/* Indicador global de actualización de la orden */}
+      {fetching && (
+        <div className="fixed top-16 right-4 z-50 flex items-center gap-2 bg-black/80 dark:bg-white/90 text-white dark:text-black px-4 py-2 rounded-full shadow-lg text-xs font-semibold">
+          <div className="w-3.5 h-3.5 border-2 border-white dark:border-black border-t-transparent rounded-full animate-spin" />
+          Actualizando orden...
+        </div>
+      )}
+
       {role === "seller" && (
         <h4
           onClick={() => navigate("/mis-ordenes")}
@@ -180,11 +244,51 @@ export default function OrderDetail() {
         </div>
       </div>
 
+            {/* Botón para comunicarse con la otra parte */}
+      <section className="bg-white dark:bg-[#121212] p-4 md:p-5 rounded-2xl border dark:border-zinc-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div>
+          <h3 className="font-bold text-base dark:text-white">
+            ¿Necesitás hablar con {role === "seller" ? "el comprador" : "el vendedor"}?
+          </h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Coordiná el envío o resolvé dudas sobre esta compra/venta.
+          </p>
+        </div>
+        <button
+          onClick={handleStartChat}
+          disabled={startingChat}
+          className="flex items-center gap-2 bg-[#3483fa] hover:bg-blue-600 text-white px-4 py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50 transition-colors flex-shrink-0"
+        >
+          <MessageSquare size={18} />
+          {startingChat
+            ? "Abriendo chat..."
+            : role === "seller"
+              ? "Enviar mensaje al comprador"
+              : "Enviar mensaje al vendedor"}
+        </button>
+      </section>
+
       <div className="grid grid-cols-1 lg:grid-cols-1 gap-8">
         {/* Columna Izquierda: Productos y Datos */}
         <div className="lg:col-span-1 space-y-6">
-          <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
-            <h3 className="font-bold text-lg mb-4">Productos en esta orden</h3>
+                    <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
+            
+            {/* Encabezado: título a la izquierda y, para el comprador, los
+                "3 puntitos" (menú de cancelar) a la derecha, ya que en esa
+                posición quedan integrados y no sueltos entre tarjetas. */}
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-lg">Productos en esta orden</h3>
+              {role === "buyer" &&
+                !order.pendingRequest?.exists &&
+                (order.status === "pending_payment" ||
+                  order.status === "verifying_payment") && (
+                  <CancelOrderAction
+                    order={order}
+                    role={role}
+                    onUpdate={() => fetchOrder()}
+                  />
+                )}
+            </div>
             {order.itemsSnapshot.map((item, idx) => (
               <div
                 key={idx}
@@ -220,7 +324,7 @@ export default function OrderDetail() {
               />
             </section>
           )}
-          {role === "seller" && order.status === "verifying_payment" && (
+                                        {role === "seller" && order.status === "verifying_payment" && (
             <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
               <ConfirmPaymentAction
                 orderId={order._id}
@@ -231,10 +335,34 @@ export default function OrderDetail() {
               />
             </section>
           )}
-          {role === "buyer" && order.status === "paid" || order.status === "shipped" && (
+                                        {/* Gestión de cancelación / garantía.
+              - Comprador: el menú de "3 puntitos" (cancelar compra) ya está
+                integrado en el encabezado de "Productos en esta orden". Acá solo
+                mostramos la tarjeta cuando hay un reembolso en curso (pendiente de
+                confirmación del reintegro).
+              - Vendedor: siempre la tarjeta para solicitar la cancelación. */}
+          {((order.status === "pending_payment" ||
+            order.status === "verifying_payment" ||
+            order.pendingRequest?.exists) &&
+            (role === "seller" || order.pendingRequest?.exists)) && (
+            <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
+              <CancelOrderAction
+                order={order}
+                role={role}
+                onUpdate={() => fetchOrder()}
+              />
+            </section>
+          )}
+                    {(role === "buyer" &&
+            (order.status === "paid" || order.status === "shipped")) && (
             <ShippingStatusCard
               order={order}
               role={role}
+              onUpdate={() => {
+                fetchOrder();
+                setJustConfirmed(true);
+                scrollToRatings();
+              }}
             />
           )}
 
@@ -249,9 +377,80 @@ export default function OrderDetail() {
               />
             </section>
           )}
-          <OrderInfoAccordion 
-          order={order} 
-          role={role === 'seller' ? 'seller' : 'buyer'}/>
+                    <OrderInfoAccordion 
+            order={order} 
+            role={role === 'seller' ? 'seller' : 'buyer'}/>
+
+          {/* CASHBACK: el comprador aquí ve cuánto reintegro le generó esta compra al completarse */}
+          {role === "buyer" && order.status === "completed" && (
+            <section className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 p-6 rounded-2xl border border-emerald-200 dark:border-emerald-900/40">
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-white dark:bg-zinc-900 rounded-xl shrink-0">
+                  <Sparkles className="text-emerald-600" size={24} />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-black uppercase italic dark:text-white text-sm flex items-center gap-2">
+                    ¡Recibiste Cashback!
+                  </h4>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-300 mt-1">
+                    Por completar esta compra, te acreditamos{" "}
+                    <b className="text-emerald-600 dark:text-emerald-400">
+                    US$ {(order.cashback?.earnedUsd || 0).toFixed(2)}
+                    </b>{" "}
+                    de reintegro. El importe ya está disponible en tu billetera
+                    de la plataforma y podés consultarlo en{" "}
+                                        <button
+                    onClick={() => navigate("/billetera")}
+                    className="text-[#3483fa] hover:underline font-semibold"
+                    >
+                    Mi Billetera
+                    </button>
+                    .
+                  </p>
+                  {order.cashback?.feePercentUsed ? (
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">
+                    Reintegro calculado sobre la comisión de la plataforma
+                    ({(order.cashback.feePercentUsed * 100).toFixed(0)}% de
+                    la comisión aplicada).
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </section>
+          )}
+
+                    {/* Sistema de calificaciones (ratings) */}
+            <div ref={ratingsRef} className="scroll-mt-6">
+            {justConfirmed && (
+              <div className="mb-4 p-5 rounded-2xl border-2 border-emerald-500/30 bg-emerald-500/10 flex items-start gap-4">
+                <div className="p-3 bg-white dark:bg-zinc-900 rounded-xl shrink-0">
+                  <Sparkles className="text-emerald-500" size={22} />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-black uppercase italic dark:text-white text-sm">
+                    ¡Gracias por confirmar tu compra!
+                  </h4>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-300 mt-1">
+                    Tu pedido quedó <b className="text-emerald-600 dark:text-emerald-400">finalizado</b>.
+                    Ahora podés calificar el producto y al vendedor para ayudar a
+                    la comunidad a comprar con confianza.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setJustConfirmed(false);
+                      window.scrollBy({ top: 120, behavior: "smooth" });
+                    }}
+                    className="mt-3 text-xs flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-bold uppercase tracking-wide transition-colors"
+                  >
+                    <Star size={14} /> Empezar a calificar
+                  </button>
+                </div>
+              </div>
+            )}
+            <OrderRatings order={order} role={role} />
+          </div>
+
+
 
           {/* {order.shippingDetails?.trackingNumber && (
             <section className="bg-blue-50 dark:bg-blue-900/10 p-6 rounded-2xl border border-blue-200 dark:border-blue-800">

@@ -13,9 +13,17 @@ export default function ProductCard({ product }) {
     navigate(`/product/${product._id}`);
   };
 
-  const handleAddToCart = (e) => {
+    const handleAddToCart = (e) => {
     e.stopPropagation();
-    addToCart(product);
+    // Normalizamos el producto antes de guardarlo en el carrito para unificar
+    // el formato con ProductDetail: seller y sellerId siempre como string plano.
+    const normalizedProduct = {
+      ...product,
+      sellerId: product.seller?._id || product.seller,
+      seller: product.seller?._id || product.seller, // Siempre plano
+    };
+    addToCart(normalizedProduct);
+
     const Toast = Swal.mixin({
     toast: true,
     position: 'bottom-end', // Se muestra arriba a la derecha (estilo notificación)
@@ -144,10 +152,32 @@ export default function ProductCard({ product }) {
         <div className="poly-component__title text-sm font-medium text-gray-900 dark:text-white line-clamp-2 h-[2.5rem] hover:text-[#F26722] transition-colors">
           {product.name}
         </div>
-        <div className="flex items-center gap-2 mt-1">
-          <span className="text-xs text-gray-500 dark:text-gray-400 capitalize line-clamp-1">
-            {product.sellerName ? `${product.sellerName}` : <br />}
-          </span>
+                <div className="flex items-center gap-2 mt-1">
+          {(() => {
+            const sellerId = product.seller?._id || product.seller;
+            const sellerName = product.sellerName || product.seller?.username;
+            if (sellerName && sellerId) {
+              return (
+                <a
+                  href={`/user/${sellerId}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/user/${sellerId}`);
+                  }}
+                  className="text-xs text-gray-500 dark:text-gray-400 capitalize line-clamp-1 hover:text-[#3483fa] hover:underline transition-colors"
+                >
+                  {sellerName}
+                </a>
+              );
+            }
+            return sellerName ? (
+              <span className="text-xs text-gray-500 dark:text-gray-400 capitalize line-clamp-1">
+                {sellerName}
+              </span>
+            ) : (
+              <br />
+            );
+          })()}
           {product.sellerIsVerified && (
             <span>
               <BadgeCheck color="#3483FA" size={16} />
@@ -191,9 +221,9 @@ export default function ProductCard({ product }) {
         )}
 
         {/* Free Shipping Badge */}
-        {product.listingType == "product" ? (
+                {product.listingType == "product" ? (
           <div className="h-5">
-            {product.shipping.free === true && (
+            {product.shipping?.free === true && (
               <div className="text-xs text-green-600 dark:text-green-400 font-semibold">
                 Envío gratis
               </div>
@@ -208,6 +238,7 @@ export default function ProductCard({ product }) {
             )}
             <span className="text-xs font-medium text-gray-600 dark:text-gray-400 inline-block py-[2px] rounded mb-4">
               {product.listingType === "classified" &&
+                product.location &&
                 `${product.location.city} - ${product.location.province}`}
             </span>
           </div>

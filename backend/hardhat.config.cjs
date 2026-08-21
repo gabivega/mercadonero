@@ -15,8 +15,10 @@ module.exports = {
   networks: {
     bscTestnet: {
       url: "https://bsc-testnet-rpc.publicnode.com",
-      chainId: 97,
-      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+            chainId: 97,
+      accounts: (process.env.WALLET_PK || process.env.PRIVATE_KEY)
+        ? [(process.env.WALLET_PK || process.env.PRIVATE_KEY)]
+        : [],
     },
   },
   etherscan: {

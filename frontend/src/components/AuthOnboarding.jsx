@@ -237,18 +237,19 @@ export default function AuthOnboarding({ onComplete }) {
             vez, el registro se realiza de una forma muy simple y rápida.
           </p>
           <button
-            onClick={() => setIsNeroLogin(true)}
+            // onClick={() => setIsNeroLogin(true)}
+            onClick={login}
             className="w-full py-4 bg-[#F26722] text-white rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] transition-transform"
           >
             Continuar con Email
           </button>
-          <NeroLogin
+          {/* <NeroLogin
            isOpen={isNeroLogin} 
       onClose={() => setIsNeroLogin(false)}
       onLoginSuccess={() => onComplete()}
         // Opcional: Aquí podrías navegar a otra página si quieres
         // navigate('/dashboard');
-       />
+       /> */}
         </div>
       )}
 

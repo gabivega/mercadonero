@@ -87,16 +87,20 @@ if (!order) {
                 label={"DNI del comprador"} 
                 value={order.buyer?.dni} 
               />}
-              <InfoRow icon={CreditCard} label="Precio Total" value={`$ ${order.totalAmount}`} />
+              <InfoRow icon={CreditCard} label="Precio de Productos" value={`$ ${(order.productsAmount ?? 0).toLocaleString('es-AR')}`} />
+              {order.shippingAmount > 0 && (
+                <InfoRow icon={Truck} label="Costo de Envío" value={`$ ${(order.shippingAmount ?? 0).toLocaleString('es-AR')}`} />
+              )}
+              <InfoRow icon={Tag} label="Precio Total" value={`$ ${(order.totalAmount ?? 0).toLocaleString('es-AR')}`} />
               <InfoRow icon={Calendar} label="Fecha de Compra" value={formatDate(order.createdAt)} />
               {isSeller && (
                 <>
               <h4 className="text-[11px] font-black text-[#F26722] uppercase tracking-[0.2em] mb-2 mt-4">
                 Información Financiera
               </h4>
-                  <InfoRow icon={CreditCard} label="Precio total en USD (con envio)" value={`$ ${order.financials?.totalUsd + order.financials?.shippingCostUsd}`} />
-                  <InfoRow icon={CreditCard} label="Tipo de cambio" value={`$ ${order.financials?.usdRate}`} />
-                  <InfoRow icon={CreditCard} label="Comision descontada" value={`$ ${order.financials?.platformFeeUsd}`} />
+                                    <InfoRow icon={CreditCard} label="Precio total en USD (con envio)" value={`$ ${(Number(order.financials?.totalUsd || 0) + Number(order.financials?.shippingCostUsd || 0)).toFixed(2)}`} />
+                  <InfoRow icon={CreditCard} label="Tipo de cambio" value={`$ ${Number(order.financials?.usdRate || 0).toFixed(2)}`} />
+                                    <InfoRow icon={CreditCard} label="Comision descontada" value={`$ ${Number(order.financials?.platformFeeUsd || 0).toFixed(2)}`} />
                 </>
               )}
             </div>

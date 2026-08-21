@@ -96,11 +96,18 @@ const userSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    // Indica si el usuario completó sus datos básicos obligatorios de compra
+    // (nombre, apellido, DNI y teléfono). Se usa para bloquear el checkout
+    // hasta que complete el onboarding.
+    profileCompleted: {
+      type: Boolean,
+      default: false,
+    },
     rating: {
       type: Number,
       default: 0,
     },
-    // DATPS BANCARIOS
+    // DATOS BANCARIOS
     // models/User.js (o Profile.js)
     bankAccounts: [
       {
@@ -200,11 +207,75 @@ const userSchema = new Schema(
     // Wallet Integrada
     // wallet: walletSchema,
     walletAddress: { type: String, unique: true, sparse: true },
+
+    // ────────────────────────────────────────────────
+    // CASHBACK (acumulado en BD, sin tocar blockchain)
+    // ────────────────────────────────────────────────
+    cashback: {
+      balance: { type: Number, default: 0 },   // Saldo acumulado disponible (USD)
+      earned: { type: Number, default: 0 },     // Total acumulado histórico (USD)
+      spent: { type: Number, default: 0 },      // Total usado en compras (USD)
+      withdrawn: { type: Number, default: 0 },  // Total retirado fuera de la plataforma (USD)
+
+      // Override por usuario: si se setea, anula la config global para ESTE user.
+      // Puede servir para fidelizar usuarios de pago, dar un % distinto, etc.
+      overrideEnabled: { type: Boolean, default: false },
+      overrideFeePercent: { type: Number },     // % de comisión a reintegrar (si override)
+      overrideMinWithdrawalUsd: { type: Number },
+
+      // Historial opcional de movimientos de cashback (para auditoría/UI).
+      // Se puede alimentar desde el cashbackService.
+      transactions: [
+        {
+          type: {
+            type: String,
+            enum: ["earned", "spent", "withdrawn", "adjustment"],
+            required: true,
+          },
+          amount: { type: Number, required: true },
+          description: { type: String, default: "" },
+          refType: { type: String, enum: ["order", "withdrawal", "admin", "checkout"], default: "order" },
+          refId: { type: mongoose.Schema.Types.ObjectId },
+          status: {
+            type: String,
+            enum: ["pending", "completed", "failed"],
+            default: "completed",
+          },
+          createdAt: { type: Date, default: Date.now },
+        },
+      ],
+    },
+
     // Relaciones con otros modelos del Marketplace
     favorites: [{ type: Schema.Types.ObjectId, ref: "Product" }],
     purchases: [{ type: Schema.Types.ObjectId, ref: "Order" }],
     posts: [{ type: Schema.Types.ObjectId, ref: "Post" }],
     reviews: [{ type: Schema.Types.ObjectId, ref: "Review" }],
+
+    // ────────────────────────────────────────────────
+    // CONTADORES ANTI-ABUSO
+    // Registran cuántas cancelaciones / reembolsos /
+    // reclamos inició el usuario, para poder limitar y
+    // penalizar usos abusivos del sistema.
+    // ────────────────────────────────────────────────
+    accounting: {
+      // Como comprador
+      cancellationsAsBuyer: { type: Number, default: 0 },
+      refundsRequested: { type: Number, default: 0 },
+      claimsOpened: { type: Number, default: 0 },
+      returnsRequested: { type: Number, default: 0 },
+      // Órdenes generadas por el comprador que expiraron sin pagar
+      expiredOrdersAsBuyer: { type: Number, default: 0 },
+      // Como vendedor
+      cancellationsAsSeller: { type: Number, default: 0 },
+      refundsPending: { type: Number, default: 0 }, // Reembolsos que el vendedor debe procesar
+      // Totales de órdenes (para cálculo de % de abuso)
+      completedPurchases: { type: Number, default: 0 },
+      completedSales: { type: Number, default: 0 },
+      // Flags de restricción (se activan si se supera el umbral de abuso)
+      restricted: { type: Boolean, default: false },
+      restrictionReason: { type: String, default: "" },
+    },
   },
   {
     // Crea automáticamente los campos createdAt y updatedAt

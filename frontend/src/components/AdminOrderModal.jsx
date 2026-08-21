@@ -44,9 +44,38 @@ const AdminOrderModal = ({ order, isOpen, onClose, onAction }) => {
           </button>
         </div>
 
-        {/* SCROLLABLE CONTENT */}
+                {/* SCROLLABLE CONTENT */}
         <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-8 custom-scrollbar">
           
+          {/* ALERTA: SOLICITUD DE CANCELACIÓN PENDIENTE */}
+          {(() => {
+            const pendingRelease =
+              order.releaseRequest?.exists && order.releaseRequest.status === 'pending';
+            const pendingRefund =
+              order.pendingRequest?.exists && order.pendingRequest.status === 'pending';
+            if (pendingRelease || pendingRefund) {
+              return (
+                <div className="p-5 bg-rose-50 dark:bg-rose-950/30 border-2 border-rose-300 dark:border-rose-800/60 rounded-3xl flex items-start gap-3">
+                  <AlertCircle className="text-rose-500 mt-0.5 flex-shrink-0" size={20} />
+                  <div>
+                    <p className="font-black uppercase tracking-wide text-sm text-rose-700 dark:text-rose-300">
+                      {pendingRelease ? 'Solicitud de cancelación del vendedor' : 'Reembolso en proceso'}
+                    </p>
+                    <p className="text-sm text-rose-600 dark:text-rose-400 mt-1">
+                      {pendingRelease
+                        ? 'El vendedor pidió cancelar la orden y liberar la garantía. Resolución manual: primero cancelá la orden y, tras verificar con el comprador que no abonó (o que recibió su reintegro), liberá la garantía.'
+                        : 'El comprador pidió cancelar habiendo pagado. El vendedor debe reembolsarle; cuando confirme, liberá la garantía manualmente.'}
+                      {order.releaseRequest?.reason && (
+                        <span className="block mt-1 font-medium">Motivo: {order.releaseRequest.reason}</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
+
           {/* METADATA & CRYPTO TRACKING */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="p-4 bg-zinc-50 dark:bg-zinc-800/40 rounded-3xl border border-zinc-100 dark:border-zinc-800">
@@ -264,13 +293,54 @@ const AdminOrderModal = ({ order, isOpen, onClose, onAction }) => {
             </button>
           )}
 
-          {/* ACCIÓN COMPARTIDA: CANCELAR SIEMPRE QUE NO ESTÉ COMPLETADO */}
+                    {/* LIBERACIÓN MANUAL DE GARANTÍA SOLICITADA POR EL VENDEDOR */}
+                    {!['completed', 'cancelled', 'expired'].includes(order.status) &&
+                      order.releaseRequest?.exists && (
+                        <button
+                          onClick={() => onAction(order._id, 'release_guarantee')}
+                          className="flex-1 bg-amber-500 text-white py-3 rounded-2xl font-black italic uppercase text-xs hover:bg-amber-600 transition-colors"
+                        >
+                          Liberar Garantía Solicitada por Vendedor
+                        </button>
+                      )}
+
+                                        {/* LIBERACIÓN MANUAL DE GARANTÍA (Admin).
+                                            Se muestra siempre que la orden no esté completada/expirada ni
+                                            pendiente de pago. Ya NO se oculta cuando existe releaseTxHash:
+                                            un releaseTxHash puede ser un FALSO POSITIVO (la tx se minó
+                                            pero el colateral quedó congelado), así que el admin necesita
+                                            poder re-liberar/verificar. La verificación on-chain previa se
+                                            hace con el botón "Verificar estado de colateral". */}
+                                        {![ 'completed', 'expired' ].includes(order.status) &&
+                                          order.status !== 'pending_payment' && (
+                                          <button 
+                                            onClick={() => onAction(order._id, 'release_guarantee')}
+                                            className="px-5 py-3 border border-amber-300 dark:border-amber-700/60 text-amber-700 dark:text-amber-400 rounded-2xl font-bold text-xs hover:bg-amber-50 dark:hover:bg-amber-950/20 transition-colors"
+                                          >
+                                            Liberar Garantía (Admin)
+                                          </button>
+                                        )}
+
+                                        {/* VERIFICAR ESTADO REAL DEL COLATERAL ON-CHAIN (Admin).
+                                            PRIMER paso recomendado ante una orden cancelada con garantía
+                                            presuntamente congelada: consulta el lock real en el contrato. */}
+                                        {![ 'expired' ].includes(order.status) && (
+                                          <button 
+                                            onClick={() => onAction(order._id, 'check_collateral')}
+                                            className="px-5 py-3 border border-blue-300 dark:border-blue-700/60 text-blue-700 dark:text-blue-400 rounded-2xl font-bold text-xs hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors"
+                                          >
+                                            Verificar colateral (on-chain)
+                                          </button>
+                                        )}
+
+                    {/* ACCIÓN COMPARTIDA: CANCELAR SIEMPRE QUE NO ESTÉ COMPLETADO.
+              Solo marca la orden como cancelada; NO libera la garantía. */}
           {!['completed', 'cancelled', 'expired'].includes(order.status) && (
             <button 
               onClick={() => onAction(order._id, 'cancel_order')}
               className="px-5 py-3 border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 rounded-2xl font-bold text-xs hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-colors"
             >
-              Cancelar Orden
+              Cancelar Orden (sin liberar garantía)
             </button>
           )}
 

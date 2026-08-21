@@ -4,7 +4,7 @@ import Swal from 'sweetalert2';
 import axios from 'axios';
 import { usePrivy } from '@privy-io/react-auth';
 
-export default function ShippingStatusCard({ order, role }) {
+export default function ShippingStatusCard({ order, role, onUpdate }) {
   const { status, shippingDetails } = order;
   const [loading, setLoading] = useState(false);
   const { getAccessToken } = usePrivy();
@@ -28,7 +28,7 @@ export default function ShippingStatusCard({ order, role }) {
     if (status === 'shipped' || status === 'completed') {
       return {
         title: "Producto en camino",
-        description: `El producto ya fue despachado a través de ${shippingDetails.provider || 'el correo seleccionado'}.`,
+        description: `El producto ya fue despachado a través de ${shippingDetails?.provider || 'el correo seleccionado'}.`,
         icon: <Truck className="text-emerald-500" />,
         bgColor: "bg-emerald-500/10",
         borderColor: "border-emerald-500/20"
@@ -94,7 +94,7 @@ export default function ShippingStatusCard({ order, role }) {
           }
         );
         
-        if (data.success) {
+                if (data.success) {
           await Swal.fire({
             title: '¡ORDEN FINALIZADA!',
             text: 'Gracias por confirmar. Mercado Nero ha procesado el cierre de la transacción.',
@@ -102,7 +102,9 @@ export default function ShippingStatusCard({ order, role }) {
             confirmButtonColor: '#F26722',
             customClass: { popup: 'rounded-[2.5rem]' }
           });
-          onUpdate(); // Esto refresca el OrderDetail y dispara fetchOrder
+                    // Refresca la orden en el OrderDetail (oculta este botón) y
+          // dispara el incentivo + scroll a las calificaciones.
+          onUpdate?.();
         }
       } catch (error) {
         // Swal.fire('Error', 'No se pudo completar la orden.', 'error');
@@ -128,12 +130,12 @@ export default function ShippingStatusCard({ order, role }) {
             {content.description}
           </p>
 
-          {shippingDetails.trackingNumber && (
+          {shippingDetails?.trackingNumber && (
             <div className="mt-4 pt-4 border-t border-black/5 dark:border-white/5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <span className="text-[10px] font-bold uppercase text-zinc-400 block">Enviado mediante:</span>
-                  <code className="text-sm font-mono font-bold dark:text-zinc-200">{shippingDetails.provider}</code>
+                  <code className="text-sm font-mono font-bold dark:text-zinc-200">{shippingDetails?.provider}</code>
                 </div>
                 <div>
                   <span className="text-[10px] font-bold uppercase text-zinc-400 block">Número de seguimiento</span>

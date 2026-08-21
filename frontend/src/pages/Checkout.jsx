@@ -5,9 +5,10 @@ import {
   MapPin,
   CreditCard,
   ChevronRight,
-  ArrowLeft,
+    ArrowLeft,
   ShieldCheck,
-  ShoppingBag,
+  User,
+  Save,
 } from "lucide-react";
 import axios from "axios";
 import Swal from "sweetalert2";
@@ -17,19 +18,34 @@ import { usePrivy } from "@privy-io/react-auth";
 import AuthOnboarding from "../components/AuthOnboarding";
 import { useSyncUser } from "../Utils/userSync";
 import LoadingSpinner from "../components/LoadingSpinner";
-import {TransakCheckoutButton} from "../components/TransakCheckoutButton";
 
 export default function Checkout() {
   const { sellerId } = useParams();
   const navigate = useNavigate();
   const { cart, removeFromCart } = useCartStore();
-  const { dbUser, setDbUser } = useUserStore();
+  const { dbUser, setDbUser, setAddresses } = useUserStore();
   const { getAccessToken, ready, user, authenticated } = usePrivy(); // Asumiendo que viene de Privy
-  const [selectedAddress, setSelectedAddress] = useState(
-    dbUser?.addresses?.[0] || null,
-  );
+const addresses = dbUser?.addresses || [];
+
+const [selectedAddress, setSelectedAddress] = useState(null);
   const { syncUser } = useSyncUser(setDbUser);
   const [isLoading, setIsLoading] = useState(false);
+
+    // ── ESTADO DEL MODAL DE DATOS OBLIGATORIOS (ONBOARDING PRE-CHECKOUT) ──
+  const [dataModalOpen, setDataModalOpen] = useState(false);
+  const [isSavingBasic, setIsSavingBasic] = useState(false);
+  // Separado en 2 pasos para que guardar la dirección (que actualiza el store
+  // global) no borre los datos básicos que el usuario aún no guardó:
+  //   step 1 = datos personales obligatorios (nombre, apellido, DNI, teléfono)
+  //   step 2 = dirección de envío (AddressSection)
+  const [step, setStep] = useState(1);
+  const [basicForm, setBasicForm] = useState({
+    firstName: "",
+    lastName: "",
+    dni: "",
+    phone: "",
+  });
+  const [basicErrors, setBasicErrors] = useState({});
 
   const getEffectivePrice = (item) => {
     if (item.salePrice && item.salePrice > 0) {
@@ -38,15 +54,19 @@ export default function Checkout() {
     return item.price;
   };
 
-  useEffect(() => {
-    if (dbUser?.addresses?.[0]) {
-      setSelectedAddress(dbUser.addresses[0]);
-    }
-  }, [dbUser]);
+// Seleccionar la dirección principal automáticamente cuando se cargan/modifican las direcciones
+useEffect(() => {
+  if (addresses.length > 0 && !selectedAddress) {
+    const defaultAddr = addresses.find(a => a.isDefault) || addresses[0];
+    setSelectedAddress(defaultAddr);
+  }
+}, [addresses]);
 
-  const handleSelectAddress = (addr) => {
+    const handleSelectAddress = (addr) => {
     // 1. Primero actualizamos el estado local
     setSelectedAddress(addr);
+    // Si se limpió la selección (se eliminó la dirección), no mostramos el Toast
+    if (!addr) return;
     //checkeo de theme
     const isDark = document.documentElement.classList.contains("dark");
     // 2. Disparamos una notificación sutil (Toast) o un Swal de confirmación
@@ -87,15 +107,135 @@ const canProceedToCheckout = (user) => {
 
 const isProfileIncomplete = (user) => {
   if (!user) return true;
-  
-  const hasBasicData = user.firstName && user.dni && user.phone;
-  // const hasAddress = user.addresses && user.addresses.length > 0;
-  
-  // return !hasBasicData || !hasAddress;
+
+  const hasBasicData =
+    user.firstName && user.lastName && user.dni && user.phone;
   return !hasBasicData;
 };
 
-  const handleFinalConfirm = async () => {
+// Valida los datos básicos del formulario del modal
+const validateBasicStep = () => {
+  const errs = {};
+  const nameRe = /^[A-Za-zÁáÉéÍíÓóÚúÑñ\s]{2,}$/;
+  const dniRe = /^\d{7,8}$/;
+
+  if (!basicForm.firstName.trim() || !nameRe.test(basicForm.firstName.trim())) {
+    errs.firstName = "Ingresá un nombre válido (solo letras, mínimo 2 caracteres)";
+  }
+  if (!basicForm.lastName.trim() || !nameRe.test(basicForm.lastName.trim())) {
+    errs.lastName = "Ingresá un apellido válido (solo letras, mínimo 2 caracteres)";
+  }
+    if (!dniRe.test(basicForm.dni.trim())) {
+    errs.dni = "El DNI debe tener entre 7 y 8 números";
+  }
+    const phoneDigits = cleanPhone(basicForm.phone);
+  if (phoneDigits.length < 10 || phoneDigits.length > 12) {
+    errs.phone =
+      "Ingresá el teléfono completo (código de área + número, entre 10 y 12 dígitos, sin el 0)";
+  }
+
+  setBasicErrors(errs);
+  return Object.keys(errs).length === 0;
+};
+
+// Cada vez que se ABRE el modal, precargamos en el formulario los datos ya
+// guardados (por si el usuario completó alguno) para no obligarlo a
+// reescribirlos. Depende de dataModalOpen (no de dbUser) para que al guardar
+// una dirección —lo que actualiza dbUser en el store— NO se pise lo que el
+// usuario está escribiendo en el paso 1.
+useEffect(() => {
+  if (dataModalOpen && dbUser) {
+        setBasicForm({
+      firstName: dbUser.firstName || "",
+      lastName: dbUser.lastName || "",
+      dni: dbUser.dni || "",
+      phone: cleanPhone(dbUser.phone || ""),
+    });
+    setStep(1);
+  }
+}, [dataModalOpen]);
+
+// Abre el modal automáticamente si el perfil está incompleto (checkout
+// bloqueado hasta completar los datos obligatorios).
+useEffect(() => {
+  if (dbUser && isProfileIncomplete(dbUser)) {
+    setDataModalOpen(true);
+  }
+}, [dbUser]);
+
+// DNI: solo números, máx. 8 dígitos.
+const cleanDigitsOnly = (value) => value.replace(/\D/g, "").slice(0, 8);
+
+// Teléfono argentino: solo la parte local (sin +54). Quita prefijos sueltos
+// (54/0/15) que el usuario pueda pegar y permite entre 10 y 12 dígitos
+// (los fijos con código de área de 4 cifras, ej: 03492 sin el 0 = 3492, más
+// 7-8 cifras del número, llegan a 11-12 dígitos).
+const cleanPhone = (value) => {
+  let digits = value.replace(/\D/g, "");
+  digits = digits.replace(/^(549|54)/, "");
+  digits = digits.replace(/^0/, "");
+  digits = digits.slice(0, 12);
+  return digits;
+};
+
+// Formatea la parte local del teléfono para su visualización:
+// 123456789 -> 12 3456-7899 (espacio entre código de área y número)
+// 3492 456789 -> 3492 4567-89 (código de área de 4 cifras + número)
+const formatPhoneDisplay = (digits) => {
+  if (digits.length <= 4) return digits;
+  return `${digits.slice(0, 4)} ${digits.slice(4)}`;
+};
+
+// Guarda los datos básicos en el backend (mismo endpoint que el onboarding).
+const handleSaveBasicData = async () => {
+  if (!validateBasicStep()) return;
+  setIsSavingBasic(true);
+  try {
+    const token = await getAccessToken();
+    const { data } = await axios.put(
+      `${import.meta.env.VITE_SERVER_URL}/api/user/update-profile`,
+            {
+        firstName: basicForm.firstName.trim(),
+        lastName: basicForm.lastName.trim(),
+        dni: basicForm.dni.trim(),
+        // Guardamos el teléfono ya normalizado con prefijo internacional.
+        phone: `+54${basicForm.phone.trim()}`,
+        // Preservamos las direcciones ya existentes para no borrarlas.
+        addresses: dbUser?.addresses || [],
+      },
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+
+        if (data?.success && data.user) {
+      // Actualizamos el store global con el perfil completo y pasamos al
+      // paso 2 (dirección de envío).
+      setDbUser(data.user, user?.id);
+      setBasicErrors({});
+      setStep(2);
+    }
+  } catch (error) {
+    Swal.fire({
+      icon: "error",
+      title: "Error",
+      text:
+        error?.response?.data?.message ||
+        "No se pudieron guardar tus datos. Intentalo de nuevo.",
+    });
+  } finally {
+    setIsSavingBasic(false);
+  }
+};
+
+    const handleFinalConfirm = async () => {
+    if (isProfileIncomplete(dbUser)) {
+      setDataModalOpen(true);
+      return Swal.fire({
+        icon: "warning",
+        title: "Faltan datos obligatorios",
+        text: "Completá tu nombre, apellido, DNI y teléfono para poder continuar con la compra.",
+      });
+    }
+
     if (!selectedAddress) {
       return Swal.fire({ icon: "warning", title: "Falta la dirección" });
     }
@@ -217,6 +357,7 @@ const step1 = await Swal.fire({
         </p>
       </div>
       <p>Transferí y presioná el botón de abajo para avisarle al vendedor.</p>
+      <p>Tenés 60 minutos o la orden expira automáticamente.</p>
     </div>
   `,
           icon: "info",
@@ -301,77 +442,13 @@ const finalTotal = useMemo(() => total + shippingTotal, [total, shippingTotal]);
 
   const sellerName = sellerProducts[0]?.sellerName || "Vendedor";
 
-  // 2. Función para crear la orden real
-  const handleCreateOrder = async () => {
-    const isDark = document.documentElement.classList.contains("dark");
-    setIsLoading(true);
-    try {
-      Swal.fire({
-        title: "Procesando tu orden...",
-        confirmButtonColor: "#3483fa",
-        cancelButtonColor: isDark ? "#27272a" : "#d33",
-        background: isDark ? "#121212" : "#ffffff",
-        color: isDark ? "#f3f4f6" : "#1f2937",
-        // didOpen: () => Swal.showLoading(),
-      });
+  // Ahora puedes pasarle la función al Onboarding sin problemas
 
-      // console.log(sellerProducts);
-
-      const token = await getAccessToken();
-
-      // Enviamos el lote al backend
-      const response = await axios.post(
-        `${import.meta.env.VITE_SERVER_URL}/api/order/create`,
-        {
-          sellerId,
-          items: sellerProducts.map((p) => ({
-            productId: p._id,
-            title: p.name,
-            price: p.price,
-            quantity: p.quantity,
-            image: p.images?.[0]?.url || p.image,
-          })),
-          shippingAddress: selectedAddress,
-          totalAmount: total,
-          productsAmount: productsAmount,
-          shippingAmount: shippingTotal,
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
-
-      if (response.data.success) {
-        // Limpiamos solo los productos de este vendedor del carrito
-        sellerProducts.forEach((p) => removeFromCart(p._id));
-
-        Swal.fire({
-          icon: "success",
-          title: "¡Orden Generada!",
-          text: "Redirigiendo a los detalles de pago...",
-          timer: 2000,
-          showConfirmButton: false,
-        });
-
-        // Navegamos al detalle de la orden donde estará el contador y el CBU
-        navigate(`/compras`);
-      }
-    } catch (error) {
-      console.error(error);
-      Swal.fire(
-        "Error",
-        "No pudimos crear la orden. Reintenta en unos momentos.",
-        "error",
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-// Ahora puedes pasarle la función al Onboarding sin problemas
 // if (!authenticated || isProfileIncomplete(dbUser) || !dbUser || !canProceedToCheckout(dbUser)) {
 if (!authenticated ||  !dbUser ) {
-  return <AuthOnboarding onComplete={syncUser} initialStep={authenticated ? 2 : 1} />;
+    
+  return (<AuthOnboarding onComplete={syncUser} initialStep={authenticated ? 2 : 1} />);
+  // <LoadingSpinner message="Verificando tu perfil..." size="sm" className="flex justify-center my-auto absolute" />;
 }
 
   if (sellerProducts.length === 0) {
@@ -419,14 +496,13 @@ if (!authenticated ||  !dbUser ) {
               ¿Dónde quieres recibir tu compra?
             </h3>
 
-            <AddressSection
-              addresses={dbUser?.addresses || []}
-              getAccessToken={getAccessToken}
-              profile={dbUser}
-              setProfile={setDbUser}
-              handleSelectAddress={handleSelectAddress}
-              selectedAddress={selectedAddress}
-            />
+           <AddressSection
+  addresses={addresses}
+  getAccessToken={getAccessToken}
+  setAddresses={setAddresses}
+  handleSelectAddress={handleSelectAddress}
+  selectedAddress={selectedAddress}
+/>
 
             {selectedAddress && (
               <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg">
@@ -449,10 +525,10 @@ if (!authenticated ||  !dbUser ) {
                 <div className="w-4 h-4 rounded-full border-4 border-[#3483fa] hidden md:flex"></div>
                 <div>
                   <p className="font-semibold text-sm dark:text-white">
-                    Transferencia Bancaria Directa
+                    Transferencia o tarjeta de crédito
                   </p>
                   <p className="text-xs text-gray-500">
-                    Transfieres directo al vendedor. Tu compra siempre está protegida.
+                    Directo al vendedor y tu compra siempre está protegida.
                   </p>
                 </div>
               </div>
@@ -476,7 +552,7 @@ if (!authenticated ||  !dbUser ) {
                 PROXIMAMENTE
               </span>
             </div>
-            <div className="flex flex-col sm:flex-row items-center justify-between p-4 border mt-4 border-[#173768] bg-blue-50 dark:bg-blue-900/10 rounded-lg select-none">
+            {/* <div className="flex flex-col sm:flex-row items-center justify-between p-4 border mt-4 border-[#173768] bg-blue-50 dark:bg-blue-900/10 rounded-lg select-none">
               <div className="flex items-center gap-3">
                 <div className="w-4 h-4 rounded-full border-4 border-[#133669] hidden md:flex"></div>
                 <div>
@@ -486,13 +562,12 @@ if (!authenticated ||  !dbUser ) {
                   <p className="text-xs text-gray-500">
                     Pagos con tarjeta Visa o Mastercard, con compra protegida.
                   </p>
-                  {/* <TransakCheckoutButton /> */}
                 </div>
               </div>
               <span className="text-[10px] bg-[#3483fa] text-white m-2 px-2 py-0.5 rounded font-bold">
                 PROXIMAMENTE
               </span>
-            </div>
+            </div> */}
           </section>
 
           {/* RESUMEN DE PRODUCTOS */}
@@ -569,11 +644,11 @@ if (!authenticated ||  !dbUser ) {
               </div>
             </div>
 
-            <button
+                        <button
               onClick={handleFinalConfirm}
-              disabled={isLoading || !selectedAddress}
+              disabled={isLoading || !selectedAddress || isProfileIncomplete(dbUser)}
               className={`w-full py-4 rounded-md font-bold text-white transition-all flex items-center justify-center gap-2 ${
-                selectedAddress
+                selectedAddress && !isProfileIncomplete(dbUser)
                   ? "bg-[#3483fa] hover:bg-[#2968c8]"
                   : "bg-gray-300 cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-500"
               } disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -602,9 +677,205 @@ if (!authenticated ||  !dbUser ) {
                 limitado para realizar la transferencia y subir el comprobante.
               </p>
             </div>
-          </div>
+                    </div>
         </div>
       </main>
+
+      {/* ──────────────────────────────────────────────────────────
+          MODAL DE DATOS OBLIGATORIOS (ONBOARDING PRE-CHECKOUT)
+          Overlay difuminado sobre el checkout. Obliga al usuario a
+          completar su nombre, apellido, DNI y teléfono para poder
+          confirmar la compra. Incluye el AddressSection por si necesita
+          cargar una dirección de envío. Se mantiene abierto hasta tener
+          todos los datos. El envío (AddressSection) del checkout sigue
+          siempre disponible abajo.
+      ────────────────────────────────────────────────────────── */}
+      {dataModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center overflow-y-auto bg-black/60 backdrop-blur-sm p-4">
+          <div className="relative w-full max-w-lg bg-white dark:bg-[#121212] rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-2xl my-8">
+            {/* HEADER */}
+            <div className="flex items-start justify-between p-6 pb-4 border-b border-zinc-100 dark:border-zinc-800">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-[#F26722]/10 rounded-2xl text-[#F26722]">
+                  <User size={22} />
+                </div>
+                                <div>
+                  <h3 className="text-lg font-black uppercase tracking-tight dark:text-white">
+                    {step === 1 ? "Completa tus datos" : "Dirección de envío"}
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    {step === 1
+                      ? "Necesitamos estos datos para poder procesar tu compra."
+                      : "Cargá o elegí dónde querés recibir tu compra."}
+                  </p>
+                  {/* Indicador de pasos */}
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <span
+                      className={`h-1.5 w-6 rounded-full ${
+                        step >= 1 ? "bg-[#F26722]" : "bg-zinc-200 dark:bg-zinc-700"
+                      }`}
+                    />
+                    <span
+                      className={`h-1.5 w-6 rounded-full ${
+                        step >= 2 ? "bg-[#F26722]" : "bg-zinc-200 dark:bg-zinc-700"
+                      }`}
+                    />
+                  </div>
+                </div>
+              </div>
+                            <button
+                onClick={() => navigate("/cart")}
+                className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-zinc-400 hover:text-[#F26722] transition-colors"
+              >
+                <ArrowLeft size={15} /> Volver al carrito
+              </button>
+            </div>
+
+                        {step === 1 ? (
+              /* ── PASO 1: DATOS PERSONALES OBLIGATORIOS ── */
+              <div className="p-6 space-y-5">
+                {/* NOMBRE Y APELLIDO */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <input
+                      placeholder="Nombre *"
+                      className={`w-full p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-800 border ${basicErrors.firstName ? "border-red-500" : "border-zinc-200 dark:border-zinc-700"} outline-none focus:border-[#F26722] dark:text-white`}
+                      value={basicForm.firstName}
+                      onChange={(e) =>
+                        setBasicForm({
+                          ...basicForm,
+                          firstName: e.target.value.replace(
+                            /[^A-Za-zÁáÉéÍíÓóÚúÑñ\s]/g,
+                            "",
+                          ),
+                        })
+                      }
+                    />
+                    {basicErrors.firstName && (
+                      <p className="text-xs text-red-500 mt-1">{basicErrors.firstName}</p>
+                    )}
+                  </div>
+                  <div>
+                    <input
+                      placeholder="Apellido *"
+                      className={`w-full p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-800 border ${basicErrors.lastName ? "border-red-500" : "border-zinc-200 dark:border-zinc-700"} outline-none focus:border-[#F26722] dark:text-white`}
+                      value={basicForm.lastName}
+                      onChange={(e) =>
+                        setBasicForm({
+                          ...basicForm,
+                          lastName: e.target.value.replace(
+                            /[^A-Za-zÁáÉéÍíÓóÚúÑñ\s]/g,
+                            "",
+                          ),
+                        })
+                      }
+                    />
+                    {basicErrors.lastName && (
+                      <p className="text-xs text-red-500 mt-1">{basicErrors.lastName}</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* DNI */}
+                <div>
+                  <input
+                    placeholder="DNI (Sin puntos) *"
+                    inputMode="numeric"
+                    maxLength={8}
+                    className={`w-full p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-800 border ${basicErrors.dni ? "border-red-500" : "border-zinc-200 dark:border-zinc-700"} outline-none focus:border-[#F26722] dark:text-white`}
+                    value={basicForm.dni}
+                    onChange={(e) =>
+                      setBasicForm({ ...basicForm, dni: cleanDigitsOnly(e.target.value) })
+                    }
+                  />
+                  {basicErrors.dni && (
+                    <p className="text-xs text-red-500 mt-1">{basicErrors.dni}</p>
+                  )}
+                </div>
+
+                                {/* TELÉFONO (formato argentino, +54 fijo, 10-12 dígitos) */}
+                <div>
+                  <div className="flex items-stretch">
+                    <span className="flex items-center px-4 rounded-l-2xl bg-zinc-100 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-300 border border-r-0 border-zinc-200 dark:border-zinc-700 font-bold text-sm">
+                      +54
+                    </span>
+                    <input
+                      placeholder="11 2345-6789"
+                      inputMode="tel"
+                      maxLength={14}
+                      className={`flex-1 w-full p-4 rounded-r-2xl bg-zinc-50 dark:bg-zinc-800 border ${basicErrors.phone ? "border-red-500" : "border-zinc-200 dark:border-zinc-700"} outline-none focus:border-[#F26722] dark:text-white`}
+                      value={formatPhoneDisplay(basicForm.phone)}
+                      onChange={(e) =>
+                        setBasicForm({ ...basicForm, phone: cleanPhone(e.target.value) })
+                      }
+                    />
+                  </div>
+                  {basicErrors.phone ? (
+                    <p className="text-xs text-red-500 mt-1">{basicErrors.phone}</p>
+                  ) : (
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Ej: +54 11 2345-6789 o +54 3492 4567-89 (código de área
+                      + número, sin el 0)
+                    </p>
+                  )}
+                </div>
+
+                {/* BOTÓN CONTINUAR */}
+                <button
+                  onClick={handleSaveBasicData}
+                  disabled={isSavingBasic}
+                  className="w-full py-4 bg-[#F26722] hover:bg-[#d95514] text-white rounded-2xl font-black uppercase tracking-widest transition-all hover:scale-[1.01] active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isSavingBasic ? (
+                    <LoadingSpinner size="sm" />
+                  ) : (
+                    <>
+                      <Save size={18} /> Continuar
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : (
+              /* ── PASO 2: DIRECCIÓN DE ENVÍO ── */
+              <div className="p-6 space-y-5">
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                  Tus datos personales se guardaron correctamente. Ahora cargá
+                  o elegí una dirección de envío (opcional ahora, podés hacerlo
+                  en el checkout).
+                </p>
+
+                <div className="max-h-72 overflow-y-auto pr-1">
+                  <AddressSection
+                    addresses={addresses}
+                    getAccessToken={getAccessToken}
+                    setAddresses={setAddresses}
+                    handleSelectAddress={handleSelectAddress}
+                    selectedAddress={selectedAddress}
+                  />
+                </div>
+
+                {/* BOTÓN FINALIZAR */}
+                <button
+                  onClick={() => {
+                    if ((addresses?.length || 0) === 0 && !selectedAddress) {
+                      return Swal.fire({
+                        icon: "info",
+                        title: "Recomendamos cargar una dirección",
+                        text: "Para confirmar la compra necesitás una dirección de envío. Podés cargarla ahora o hacerlo en el checkout.",
+                        confirmButtonColor: "#3483fa",
+                      });
+                    }
+                    setDataModalOpen(false);
+                  }}
+                  className="w-full py-4 bg-[#F26722] hover:bg-[#d95514] text-white rounded-2xl font-black uppercase tracking-widest transition-all hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <ChevronRight size={18} /> Finalizar e ir al checkout
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -14,13 +14,18 @@
   "license": "ISC",
   "dependencies": {
     "@privy-io/server-auth": "^1.32.5",
+    "axios": "^1.19.0",
     "bcryptjs": "^3.0.3",
+    "cheerio": "^1.2.0",
+    "cloudinary": "^2.10.0",
     "cors": "^2.8.6",
     "express": "^5.2.1",
+    "got-scraping": "^4.2.1",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.2.1",
     "node-cron": "^4.2.1",
-    "nodemon": "^3.1.11"
+    "nodemon": "^3.1.11",
+    "resend": "^6.19.0"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-chai-matchers": "^2.1.2",
@@ -31,6 +36,7 @@
     "chai": "^6.2.2",
     "dotenv": "^17.4.2",
     "ethers": "^6.16.0",
-    "hardhat": "^3.4.5"
+    "hardhat": "^3.4.5",
+    "solc": "^0.8.20"
   }
 }

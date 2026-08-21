@@ -1,37 +1,42 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import {
-  User,
-  MapPin,
-  Camera,
-  Save,
   Shield,
-  Plus,
-  Trash2,
   Check,
   Phone,
   Star,
   Edit,
 } from "lucide-react";
+import { useUserStore } from "../../store/useUserStore";
 import NeroUploader from "../../components/NeroUploader";
 import { AddressSection } from "../../components/AddressSection";
 import { usePrivy } from "@privy-io/react-auth";
 import Swal from "sweetalert2";
 import genericProfile from "../../assets/img/generic-profile.png";
 import BankAccountSection from "../../components/BankAccountSection";
+import { InlineLoadingSpinner } from "../../components/LoadingSpinner";
 
 export default function Profile() {
-  const [profile, setProfile] = useState({
-    username: "",
-    firstName: "",
-    lastName: "",
-    shippingAddresses: [],
-    dni: "",
-  }); // Empezamos en null
+  const { dbUser, setDbUser, setAddresses } = useUserStore();
+  const [profile, setProfile] = useState(
+    dbUser || {
+      username: "",
+      firstName: "",
+      lastName: "",
+      addresses: [],
+      dni: "",
+    },
+  );
   const [loading, setLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
-  const { getAccessToken } = usePrivy();
+  // Mantenemos sincronizado el estado local del perfil cuando cambia el usuario global
+  useEffect(() => {
+    if (dbUser) setProfile(dbUser);
+  }, [dbUser]);
+
+    const { getAccessToken, user } = usePrivy();
   useEffect(() => {
     const fetchUserData = async () => {
       const token = await getAccessToken();
@@ -85,64 +90,109 @@ export default function Profile() {
   const handleSelectAddress = () => {
     return;
   };
-  const handleSaveProfile = async (additionalData = {}) => {
+        // Al guardar los datos personales (Teléfono, DNI, etc.)
+    const handleSaveProfile = async (additionalData = {}) => {
     try {
-      setLoading(true);
-      const token = await getAccessToken();
-      const dataToUpdate = {
-        firstName: profile.firstName,
-        lastName: profile.lastName,
-        username: profile.username,
-        avatar: profile.avatar,
-        dni: profile.dni,
-        phone: profile.phone,
-        bankAccounts: profile.bankAccounts,
-        ...additionalData, // Sobrescribe con datos adicionales si se proporcionan
-      };
-      // console.log(dataToUpdate);
+      setIsSaving(true);
 
+            // 🛡️ Defensa: si `additionalData` es un evento de React (por si alguien
+      // lo usa como onClick={handleSaveProfile}), lo descartamos ya que solo
+      // esperamos datos de AddressSection/BankAccount. Evita el error
+      // "Converting circular structure to JSON".
+      if (
+        additionalData &&
+        (typeof additionalData.nativeEvent !== "undefined" ||
+          typeof additionalData.preventDefault === "function")
+      ) {
+        additionalData = {};
+      }
+
+      // 1. Validación de campos obligatorios SÓLO cuando se guardan datos
+      //    personales (botón GUARDAR). Si viene de AddressSection/BankAccount
+      //    (additionalData con addresses/bankAccounts), no la forzamos para no
+      //    bloquear ese flujo a usuarios que aún no completaron el onboarding.
+      const isSavingBanksOrAddresses =
+        additionalData.bankAccounts !== undefined ||
+        additionalData.addresses !== undefined;
+
+      if (!isSavingBanksOrAddresses) {
+        const required = ["firstName", "lastName", "dni", "phone"];
+        const empty = required.find(
+          (field) => !profile[field] || String(profile[field]).trim() === "",
+        );
+        if (empty) {
+          Swal.fire({
+            title: "Faltan datos",
+            text: `Completá tu ${empty === "dni" ? "DNI" : empty === "firstName" ? "nombre" : empty === "lastName" ? "apellido" : "teléfono"} para poder guardar.`,
+            icon: "warning",
+            background: "#1A1A1A",
+            color: "#fff",
+            confirmButtonColor: "#2563eb",
+            borderRadius: "24px",
+          });
+          return;
+        }
+      }
+
+            // 2. Armamos el payload con datos personales únicamente.
+      //    NO enviamos addresses/bankAccounts desde `profile` porque se
+      //    gestionan de forma separada. Solo llegan vía `additionalData`
+      //    cuando AddressSection/BankAccountSection lo requiera.
+      const { addresses, bankAccounts, ...personalData } = profile;
+
+      const token = await getAccessToken();
       const response = await axios.put(
         `${import.meta.env.VITE_SERVER_URL}/api/user/update-profile`,
-        dataToUpdate,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
+        { ...personalData, ...additionalData },
+        { headers: { Authorization: `Bearer ${token}` } },
       );
+
       if (response.data.success) {
-        setProfile(response.data.user);
-        // Acá podrías disparar un Toast de éxito tipo "Nero: Perfil Actualizado"
+        const updatedUser = response.data.user;
+
+        // 💡 Actualizamos Zustand pasando el privyId (user.id de Privy),
+        //    NO response.data.user.privyId que es undefined.
+        if (user?.id) {
+          setDbUser(updatedUser, user.id);
+        }
+
+                // Sincronizamos el estado local con la respuesta. Como el backend ya
+        // NO pisa addresses/bankAccounts cuando no vienen en el payload, el
+        // updatedUser conserva los valores reales de la DB (fuente de verdad).
+        setProfile((prev) => ({
+          ...prev,
+          ...updatedUser,
+          addresses: updatedUser.addresses ?? prev.addresses,
+          bankAccounts: updatedUser.bankAccounts ?? prev.bankAccounts,
+        }));
+
         Swal.fire({
           title: "¡Perfil Actualizado!",
-          text: "Tus cambios se guardaron correctamente.",
+          text: "Tus datos se guardaron correctamente.",
           icon: "success",
-          background: "#1A1A1A", // Fondo oscuro
-          color: "#fff", // Texto blanco
-          confirmButtonColor: "#2563eb", // Azul Nero
-          confirmButtonText: "Genial",
+          background: "#1A1A1A",
+          color: "#fff",
+          confirmButtonColor: "#2563eb",
           borderRadius: "24px",
-          timer: 3000, // Se cierra solo en 2 segundos
-          timerProgressBar: true,
         });
+        setIsEditing(false);
       }
     } catch (error) {
-      console.error("Error al guardar:", error);
-      const errorMsg =
-        error.response?.data?.message || "Error al actualizar el perfil";
+      console.error(error);
+      const message =
+        error.response?.data?.message ||
+        "Hubo un problema al guardar tu perfil. Intentá de nuevo.";
       Swal.fire({
         title: "Error al guardar",
-        text: `${errorMsg}`,
+        text: message,
         icon: "error",
-        background: "#1A1A1A", // Fondo oscuro
-        color: "#fff", // Texto blanco
-        confirmButtonColor: "#2563eb", // Azul Nero
-        confirmButtonText: "Aceptar",
+        background: "#1A1A1A",
+        color: "#fff",
+        confirmButtonColor: "#2563eb",
         borderRadius: "24px",
-        timer: 3000,
-        timerProgressBar: true,
       });
     } finally {
-      setIsEditing(false);
-      setLoading(false);
+      setIsSaving(false);
     }
   };
   if (loading)
@@ -318,7 +368,7 @@ export default function Profile() {
                   type="email"
                 />
               </div>
-              <div className="space-y-2">
+                            <div className="space-y-2">
                 <label className="text-[10px] font-black text-gray-400 uppercase ml-1">
                   Numero de Documento
                 </label>
@@ -331,13 +381,44 @@ export default function Profile() {
                   disabled={!isEditing}
                 />
               </div>
+              <div className="space-y-2 sm:col-span-2">
+                <label className="text-[10px] font-black text-gray-400 uppercase ml-1">
+                  Bio / Presentación (opcional)
+                </label>
+                <textarea
+                  name="bio"
+                  value={profile?.bio || ""}
+                  onChange={handleChange}
+                  maxLength={300}
+                  rows={3}
+                  placeholder="Contá un poco sobre vos (máx. 300 caracteres)"
+                  className="input-nero w-full resize-none text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={!isEditing}
+                />
+                <p
+                  className={`text-right text-[10px] font-medium ${
+                    (profile?.bio?.length || 0) >= 300
+                      ? "text-red-500"
+                      : "text-gray-400"
+                  }`}
+                >
+                  {(profile?.bio?.length || 0)}/300
+                </p>
+              </div>
             </div>
-            <button
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3 sm:py-4 mt-4 sm:mt-6 rounded-xl sm:rounded-2xl shadow-xl shadow-blue-500/20 transition-all active:scale-[0.98] text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={handleSaveProfile}
-              disabled={!isEditing}
+                        <button
+                            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3 sm:py-4 mt-4 sm:mt-6 rounded-xl sm:rounded-2xl shadow-xl shadow-blue-500/20 transition-all active:scale-[0.98] text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              onClick={() => handleSaveProfile()}
+              disabled={!isEditing || isSaving}
             >
-              GUARDAR
+              {isSaving ? (
+                <>
+                  <InlineLoadingSpinner size="sm" />
+                  GUARDANDO...
+                </>
+              ) : (
+                "GUARDAR"
+              )}
             </button>
           </section>
 
@@ -347,11 +428,9 @@ export default function Profile() {
               Administrar direcciones
             </h2>
             <AddressSection
-              addresses={profile?.addresses || []}
+              addresses={dbUser?.addresses || []}
               getAccessToken={getAccessToken}
-              profile={profile}
-              setProfile={setProfile}
-              handleSelectAddress={handleSelectAddress}
+              setAddresses={setAddresses} // 👈 Pasas la función del Store, NO setProfile
             />
             <BankAccountSection
               bankAccounts={profile?.bankAccounts || []}

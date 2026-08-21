@@ -1,60 +1,69 @@
-import { Transak } from '@transak/ui-js-sdk';
+import { useState } from "react";
 
 export const TransakCheckoutButton = () => {
-    
- const openTransak = async () => {
+  const [widgetUrl, setWidgetUrl] = useState(null);
+  const [loading, setLoading] = useState(false);
 
- 
-    const widgetUrl= await fetch('http://localhost:3000/api/transak/create-session', {
-          method: 'POST',
+  const openTransak = async () => {
+    setLoading(true);
+
+    try {
+      const response = await fetch(
+        "http://localhost:3000/api/transak/create-session",
+        {
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json',
-          },            
-        })      
-    const data = await widgetUrl.json();
-    console.log('Session ID from backend:', data.sessionId);
-    // 1. Definir los parámetros de configuración del widget
-    // const apiKey = '5bf81dff-ea44-409d-8a93-406387690b9e'; // Reemplazar por tu API Key de Staging
-    const baseUrl = 'https://global-stg.transak.com';
+            "Content-Type": "application/json",
+          },
+        }
+      );
 
-    const queryParams = new URLSearchParams({
-      apiKey: apiKey,
-      productsAvailed: 'BUY',              // Solo permite compra (oculta Sell)
-      fiatCurrency: 'USD',                 // Moneda de pago
-      fiatAmount: '100',                   // Monto deseado
-      cryptoCurrencyCode: 'USDT',          // Cripto elegida
-      defaultPaymentMethod: 'credit_debit_card',
-      language: 'es',                      // Idioma en español
-      referrerDomain: window.location.origin
-    });
+      const data = await response.json();
 
-    // 2. Construir la widgetUrl completa con los parámetros
-    // const widgetUrl = `${baseUrl}?${queryParams.toString()}`;
+      if (!response.ok || !data.widgetUrl) {
+        throw new Error(data.error || "No se pudo obtener widgetUrl");
+      }
 
-    // 3. Inicializar el SDK
-    const transak = new Transak({
-      widgetUrl: widgetUrl,
-      widgetHeight: '625px',
-      widgetWidth: '500px',
-    });
+      console.log("========== TRANSAK IFRAME ==========");
+      console.log("widgetUrl:", data.widgetUrl);
 
-    transak.init();
-
-    // Event listeners del SDK
-    Transak.on(Transak.EVENTS.TRANSAK_WIDGET_CLOSE, () => {
-      console.log('Widget cerrado');
-    });
-
-    Transak.on(Transak.EVENTS.TRANSAK_ORDER_SUCCESSFUL, (orderData) => {
-      console.log('Orden completada con éxito:', orderData);
-      transak.close();
-    });
+      setWidgetUrl(data.widgetUrl);
+    } catch (error) {
+      console.error("Error creando sesión Transak:", error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <button onClick={openTransak}>
-      Pagar con Tarjeta (Transak)
-    </button>
+    <div>
+      <button onClick={openTransak} disabled={loading}>
+        {loading ? "Cargando..." : "Pagar con tarjeta"}
+      </button>
+
+      {widgetUrl && (
+        <div
+          style={{
+            width: "500px",
+            height: "625px",
+            marginTop: "20px",
+          }}
+        >
+          <iframe
+            title="Transak"
+            src={widgetUrl}
+            width="100%"
+            height="100%"
+            style={{
+              border: "none",
+              borderRadius: "12px",
+            }}
+            allow="camera; microphone; payment"
+            referrerPolicy="strict-origin-when-cross-origin"
+          />
+        </div>
+      )}
+    </div>
   );
 };
 

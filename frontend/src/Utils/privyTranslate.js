@@ -50,13 +50,18 @@ export function usePrivySpanish() {
 "View Terms": "Ver Términos",
 "View Privacy Policy": "Ver Política de Privacidad",
 "Accept": "Aceptar",
-"No thanks": "No gracias",
+"No thanks": "No, gracias",
 "Incorrect code": "Código incorrecto",
 "Incorrect code": "Código incorrecto",
 "Incorrect code": "Código incorrecto",
 "Incorrect code": "Código incorrecto",
 // "":"",
-      "Mercado Nero wants your permission to approve the following transaction.": "Mercado Nero solicita tu permiso para aprobar la siguiente transacción."
+            "Mercado Nero wants your permission to approve the following transaction.": "Mercado Nero solicita tu permiso para aprobar la siguiente transacción."
+    };
+
+    // Mapa de placeholders (atributos, no nodos de texto)
+    const placeholderMap = {
+      "your@email.com": "tu@email.com",
     };
 
     const translateAndStyleModal = () => {
@@ -87,7 +92,17 @@ export function usePrivySpanish() {
         currentNode = walker.nextNode();
       }
 
-      // 3. ESTILOS DE BOTONES (Aplica a "Approve" y a "All Done")
+            // 3. REEMPLAZO DE PLACEHOLDERS Y ATRIBUTOS (no son nodos de texto,
+      //    por eso el TreeWalker de arriba no los toca)
+      const inputs = modalContent.querySelectorAll("input, textarea");
+      inputs.forEach((input) => {
+        const actPlaceholder = input.getAttribute("placeholder");
+        if (actPlaceholder && placeholderMap[actPlaceholder]) {
+          input.setAttribute("placeholder", placeholderMap[actPlaceholder]);
+        }
+      });
+
+      // 4. ESTILOS DE BOTONES (Aplica a "Approve" y a "All Done")
       const buttons = modalContent.querySelectorAll("button");
       buttons.forEach((btn) => {
         const txt = btn.textContent.trim();

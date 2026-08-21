@@ -1,4 +1,101 @@
 import User from "../models/User.js";
+import Product from "../models/Product.js";
+
+/**
+ * Formatea un contador al estilo "+10", "+50", "+100", etc.
+ * Evita exponer números exactos en perfiles públicos.
+ */
+const approximateCount = (n = 0) => {
+  const value = Number(n) || 0;
+  if (value >= 1000) return `${Math.floor(value / 1000)}k+`;
+  if (value >= 100) return `${Math.floor(value / 100) * 100}+`;
+  if (value >= 10) return `${Math.floor(value / 10) * 10}+`;
+  if (value > 0) return `${value}+`;
+  return "0";
+};
+
+/**
+ * PERFIL PÚBLICO DE USUARIO (comprador o vendedor).
+ * Expone únicamente datos NO sensibles: avatar, username, nombre de
+ * presentación, verificado, antigüedad, ubicación aproximada (provincia)
+ * y métricas agregadas (ventas, compras, cancelaciones, expiradas).
+ * Nunca devuelve DNI, teléfono, email, direcciones completas ni datos
+ * bancarios.
+ */
+export const getPublicUserProfile = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId)
+      .select(
+        "username name avatar isVerified shop rating createdAt addresses accounting",
+      )
+      .lean();
+
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Usuario no encontrado." });
+    }
+
+    // Primera dirección (la default si existe) para inferir la provincia.
+    const defaultAddr =
+      user.addresses?.find((a) => a.isDefault) || user.addresses?.[0];
+    const province = defaultAddr?.province || user.shop?.location?.province || null;
+
+        const products = await Product.find({
+      seller: user._id,
+      status: "active",
+    })
+      .sort({ createdAt: -1 })
+      .limit(8)
+      .select(
+        "_id name price currency sale images listingType condition category rating sold sellerName seller shipping location specifications createdAt",
+      )
+      .lean();
+
+    // Métricas agregadas (redondeadas para el perfil público).
+    const metrics = {
+      salesCompleted: approximateCount(
+        user.shop?.totalSalesCount ?? user.accounting?.completedSales,
+      ),
+      purchasesCompleted: approximateCount(
+        user.accounting?.completedPurchases,
+      ),
+      cancelledOrders: approximateCount(
+        user.accounting?.cancellationsAsBuyer,
+      ),
+      expiredOrders: approximateCount(user.accounting?.expiredOrdersAsBuyer),
+      rating: user.shop?.rating || user.rating || 0,
+    };
+
+    res.status(200).json({
+      success: true,
+      user: {
+        _id: user._id,
+        username: user.username,
+        name: user.name,
+        avatar: user.avatar,
+        isVerified: user.isVerified || false,
+        memberSince: user.createdAt,
+        province,
+        shop: {
+          name: user.shop?.name,
+          rating: user.shop?.rating || 0,
+        },
+      },
+      metrics,
+      products,
+      totalProducts: await Product.countDocuments({
+        seller: user._id,
+        status: "active",
+      }),
+    });
+  } catch (error) {
+    console.error("Error en getPublicUserProfile:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
 
 export const getBankAccounts = async (req, res) => {
   try {
@@ -38,7 +135,7 @@ export const getBankAccounts = async (req, res) => {
 
 export const updateProfile = async (req, res) => {
   try {
-    const { username, firstName, lastName, avatar, dni, phone, addresses, bankAccounts } = req.body;
+        const { username, firstName, lastName, avatar, dni, phone, addresses, bankAccounts, bio } = req.body;
     console.log("updateProfile: ", req.body);
     const userId = req.user._id;
 
@@ -57,21 +154,40 @@ export const updateProfile = async (req, res) => {
       }
     }
 
-    // 2. Actualización atómica
+                // 2. Si completó los datos básicos obligatorios de compra, marcamos el
+    // onboarding de perfil como completado (desbloquea el checkout).
+    const profileCompleted =
+      Boolean(firstName && lastName && dni && phone);
+
+    // 3. Construimos el $set de forma dinámica para NO pisar campos que el
+    //    cliente no envió (direcciones / cuentas bancarias se gestionan aparte,
+    //    entonces si vienen undefined no debemos borrarlas de la DB).
+        const updates = {
+      firstName,
+      lastName,
+      dni,
+      phone,
+      avatar,
+      profileCompleted,
+    };
+
+    // Bio: solo actualizar si viene definida (evita pisar por undefined)
+    if (bio !== undefined) updates.bio = bio;
+
+    // Solo si vienen explícitamente definidos actualizamos username
+    if (typeof username === "string" && username.trim() !== "") {
+      updates.username = username.toLowerCase();
+    }
+
+    // Direcciones y cuentas bancarias: se actualizan SOLO si se envían,
+    // para no pisar los flujos separados de AddressSection/BankAccountSection.
+    if (addresses !== undefined) updates.addresses = addresses;
+    if (bankAccounts !== undefined) updates.bankAccounts = bankAccounts;
+
+    // 4. Actualización atómica
     const updatedUser = await User.findByIdAndUpdate(
       userId,
-      {
-        $set: {
-          firstName,
-          lastName,
-          dni,
-          phone,
-          username: username?.toLowerCase(),
-          avatar,
-          addresses: addresses,
-          bankAccounts: bankAccounts
-        },
-      },
+      { $set: updates },
       { new: true, runValidators: true },
     );
 
@@ -89,9 +205,9 @@ export const updateProfile = async (req, res) => {
 
 export const getUserProfile = async (req, res) => {
   try {
-    const userId = req.user._id;
+        const userId = req.user._id;
     const user = await User.findById(userId).select(
-      "username email phone firstName lastName isVerified avatar dni rating reviews addresses bankAccounts",
+      "username email phone firstName lastName isVerified avatar dni rating reviews addresses bankAccounts bio",
     );
     if (!user)
       return res.status(404).json({ message: "Usuario no encontrado" });
@@ -139,7 +255,7 @@ export const newAddress = async (req, res) => {
     const userId = req.user._id;
     const newAddress = req.body; // El objeto que manda el form
     const user = await User.findById(userId);
-
+console.log("endpoint newAddress called with:", newAddress);
     if (!user) {
       return res
         .status(404)

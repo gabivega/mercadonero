@@ -15,6 +15,8 @@ import {
   MessageCircle,
 } from "lucide-react";
 import ProductCarousel from "../components/ProductCarousel"; // Reutilizamos para relacionados
+import ProductQuestions from "../components/ProductQuestions"; // Preguntas y respuestas
+import ProductReviews from "../components/ProductReviews"; // Opiniones del producto
 import { useCartStore } from "../store/useCartStore";
 import LoadingSpinner from "../components/LoadingSpinner";
 import Swal from "sweetalert2";
@@ -237,6 +239,12 @@ export default function ProductDetail() {
                 {product.description}
               </p>
             </div>
+
+            {/* Preguntas y Respuestas */}
+            <ProductQuestions
+              productId={product._id}
+              sellerId={product.seller?._id || product.seller}
+            />
           </div>
 
           {/* COLUMNA DERECHA: Compra (Compacta) */}
@@ -288,7 +296,20 @@ export default function ProductDetail() {
                 )}
               </div>
 
-              <h1 className="text-lg lg:text-xl font-bold dark:text-white leading-snug">
+              {/* Vendido por → perfil público del vendedor */}
+              {product.seller?._id && (
+                <button
+                  onClick={() => navigate(`/user/${product.seller._id}`)}
+                  className="text-xs font-semibold text-gray-500 dark:text-gray-400 flex items-center gap-1 hover:text-[#3483fa] transition-colors"
+                >
+                  Vendido por{" "}
+                  <span className="underline">
+                    @{product.seller.username || "vendedor"}
+                  </span>
+                </button>
+              )}
+
+              <h1 className="text-lg lg:text-xl font-bold dark:text-white leading-snug mt-1">
                 {product.name}
               </h1>
               {/* 📱 1. GALERÍA PARA MOBILE (Visible solo en pantallas menores a md) */}

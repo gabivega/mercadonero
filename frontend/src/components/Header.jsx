@@ -28,6 +28,8 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useCartStore } from "../store/useCartStore";
 import { useUserStore } from "../store/useUserStore";
 import { useSyncUser } from "../Utils/userSync";
+import { useNotificationStore } from "../store/useNotificationStore";
+import { useNotifications } from "../Utils/useNotifications";
 
 // Asset Imports
 import darkLogo from "../assets/img/logo-white.png";
@@ -113,8 +115,12 @@ export default function Header() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
 
-  const clearCart = useCartStore((state) => state.clearCart);
+    const clearCart = useCartStore((state) => state.clearCart);
   const clearUser = useUserStore((state) => state.clearUser);
+
+  // Notificaciones: badge de la campanita + polling
+  const unreadNotifications = useNotificationStore((s) => s.unreadCount);
+  useNotifications();
   
   // Prevent hydration mismatch
   useEffect(() => {
@@ -148,6 +154,7 @@ export default function Header() {
     clearUser();
     try {
       await logout();
+      navigate("/", { replace: true });
     } catch (error) {
       console.error("Error al cerrar sesión:", error);
     }
@@ -164,18 +171,18 @@ export default function Header() {
 
   const menuItems = ["Categorias", "Ofertas", "Comunidad", "Vender", "Ayuda", "Referidos"];
 
-if (isLoginOpen) {
-  return (    
-    <NeroLogin 
-      isOpen={isLoginOpen} 
-      onClose={() => setIsLoginOpen(false)}
-      onLoginSuccess={(user) => {
-        // Opcional: Aquí podrías navegar a otra página si quieres
-        // navigate('/dashboard');
-      }}
-    />
-  );
-}
+// if (isLoginOpen) {
+//   return (    
+//     <NeroLogin 
+//       isOpen={isLoginOpen} 
+//       onClose={() => setIsLoginOpen(false)}
+//       onLoginSuccess={(user) => {
+//         // Opcional: Aquí podrías navegar a otra página si quieres
+//         // navigate('/dashboard');
+//       }}
+//     />
+//   );
+// }
 
   return (
     <header className="sticky top-0 z-50 w-full bg-[#FB6002] dark:bg-[#1a1a1a] shadow-sm transition-colors duration-300 dark:border-b border-gray-200 dark:border-zinc-800">
@@ -368,6 +375,11 @@ if (isLoginOpen) {
                       )}
                     </AnimatePresence>
                   </div>
+                                    <IconButton
+                    icon={Bell}
+                    onClick={() => navigate("/notificaciones")}
+                    badge={unreadNotifications}
+                  />
                   <IconButton
                     icon={ShoppingCart}
                     onClick={() => navigate("/cart")}
@@ -573,12 +585,17 @@ if (isLoginOpen) {
                           Billetera
                         </span>
                       </div>
-                      <div
+                                            <div
                         className="flex flex-col items-center gap-2 cursor-pointer"
                         onClick={() => handleMenuClick("/notificaciones")}
                       >
-                        <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-[#FB6002]">
+                        <div className="relative p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-[#FB6002]">
                           <Bell className="w-6 h-6" />
+                          {unreadNotifications > 0 && (
+                            <span className="absolute top-0 right-0 inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold text-white bg-[#FB6002] rounded-full">
+                              {unreadNotifications}
+                            </span>
+                          )}
                         </div>
                         <span className="text-xs text-gray-500 dark:text-gray-400">
                           Notif.
@@ -670,7 +687,8 @@ if (isLoginOpen) {
                   ) : (
                     <div className="col-span-4 flex justify-center">
                       <button
-                        onClick={handleLogin}
+                        // onClick={handleLogin}
+                        onClick={login}
                         className="px-6 py-3 text-sm font-medium  bg-nero-500 dark:text-white hover:bg-nero-500 rounded-lg transition-colors w-full max-w-xs"
                       >
                         Ingresar

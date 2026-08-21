@@ -22,12 +22,13 @@ import Posts from "./pages/dashboard/Posts";
 import NotFound from "./pages/NotFound";
 import CreateProduct from "./pages/dashboard/CreateProduct";
 import SellerDashboard from "./pages/dashboard/SellerDashboard";
-import ShopPage from "./pages/ShopPage";
+// import ShopPage from "./pages/ShopPage"; // Deshabilitada en MVP (uso: /user/:id)
+import UserProfilePage from "./pages/UserProfilePage";
 import ScrollToTop from "./components/ScrollToTop";
 import Checkout from "./pages/Checkout";
 import OrderDetail from "./pages/dashboard/OrderDetail";
 import TermsAndConditions from "./pages/TermsAndConditions";
-import LoginPage from "./pages/LoginPage";
+// import LoginPage from "./pages/LoginPage";
 import MyOrders from "./pages/dashboard/MyOrders";
 import AdminDashboard from "./pages/AdminDashboard";
 import Referrals from "./pages/dashboard/Referrals";
@@ -38,6 +39,7 @@ import HelpBuyer from "./pages/HelpBuyer";
 import DisclaimerBanner from "./components/DisclaimerBanner";
 import Ayuda from "./pages/Ayuda";
 import Team from "./pages/Team";
+import Mensajes from "./pages/dashboard/Mensajes";
 
 export default function App() {
   const theme = useSelector((s) => s.theme.mode);
@@ -59,7 +61,7 @@ export default function App() {
         <Header />
         <main className="w-full min-h-screen px-2">
           <Routes>
-            <Route path="/login" element={<LoginPage />} />
+            {/* <Route path="/login" element={<LoginPage />} /> */}
             <Route path="/" element={<Home />} />
             <Route path="/post/:id" element={<PostDetail />} />
             <Route path="/product/:id" element={<ProductDetail />} />
@@ -67,7 +69,9 @@ export default function App() {
             <Route path="/social" element={<SocialMedia />} />
             <Route path="/c/:categorySlug" element={<CategoryResults />} />
             <Route path="/cart" element={<Cart />} />
-            <Route path="/shop/:username" element={<ShopPage />} />
+
+                        {/* <Route path="/shop/:username" element={<ShopPage />} /> */}
+            <Route path="/user/:id" element={<UserProfilePage />} />
             <Route path="/checkout/:sellerId" element={<Checkout />} />
             <Route path="/ofertas" element={<Offers />} />
             <Route path="/vender" element={<CreateProduct />} />
@@ -80,6 +84,7 @@ export default function App() {
               <Route path="perfil" element={<Profile />} />
               <Route path="billetera" element={<WalletPage />} />
               <Route path="notificaciones" element={<Notifications />} />
+              <Route path="mensajes" element={<Mensajes />} />
               <Route path="compras" element={<Purchases />} />
               <Route path="order/:id" element={<OrderDetail />} />
               <Route path="publicaciones" element={<SellerDashboard />} />
@@ -100,3 +105,4 @@ export default function App() {
     </BrowserRouter>
   );
 }
+

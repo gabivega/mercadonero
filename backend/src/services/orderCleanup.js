@@ -12,11 +12,15 @@ const startOrderCleanup = () => {
     try {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
-      // Buscamos órdenes que sigan en 'pending_payment' y tengan más de 1 hora
-      const expiredOrders = await Order.find({
-        status: "pending_payment",
-        createdAt: { $lt: oneHourAgo },
-      });
+            // Buscamos órdenes que sigan en 'pending_payment', tengan más de 1 hora
+            // y NO tengan una solicitud de cancelación o de liberación de garantía
+            // pendiente (para no interferir con flujos que requieren acción manual).
+            const expiredOrders = await Order.find({
+              status: "pending_payment",
+              createdAt: { $lt: oneHourAgo },
+              "pendingRequest.exists": { $ne: true },
+              "releaseRequest.exists": { $ne: true },
+            });
 
       if (expiredOrders.length === 0) {
         console.log("[Cron] No se encontraron órdenes expiradas en este ciclo.");
@@ -45,12 +49,18 @@ const startOrderCleanup = () => {
           // 3. Si la blockchain dio el OK, recién ahí guardamos el estado y adjuntamos el hash
           order.releaseTxHash = blockchainResult.txHash; // Guardamos el hash de la liberación por seguridad
           
-          await transitionToStatus(
+                    await transitionToStatus(
             order,
             "expired",
             "Cancelación automática por falta de pago tras 60 minutos.",
           );
-          
+
+          // PUNTO 5: registramos la expiración en el accounting del comprador
+          // (contador de órdenes generadas pero nunca pagadas que expiraron).
+          await User.findByIdAndUpdate(order.buyer, {
+            $inc: { "accounting.expiredOrdersAsBuyer": 1 },
+          });
+
           console.log(`[Cron] Orden ${order._id} expirada y colateral devuelto al vendedor con éxito.`);
 
         } catch (orderError) {
