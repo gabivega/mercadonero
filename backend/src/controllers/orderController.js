@@ -19,18 +19,27 @@ import {
   sendOrderCompletedToVendor,
   sendOrderCompletedToBuyer,
     sendRefundRequestedToVendor,
-  sendOrderCancelledToBuyer,
+    sendOrderCancelledToBuyer,
   sendOrderCancelledToVendor,
   sendAdminCancellationRequest,
+  sendVendorCollateralHoldRequested,
 } from "../services/sendEmail.js";
 import {
   createNotification,
 } from "../services/notificationService.js";
 import { accrueCashbackForOrder } from "../services/cashbackService.js";
+import { transitionToStatus } from "../services/orderHelpers.js";
+import {
+  getVendorEffectiveAvailable,
+  validateVendorHoldCapacity,
+  resolveCollateralHold,
+  expireCollateralHold,
+  COLLATERAL_HOLD_CONFIG,
+} from "../services/collateralHoldService.js";
 
 const createOrder = async (req, res) => {
   try {
-    const { sellerId, items, shippingAddress } = req.body;
+        const { sellerId, items, shippingAddress, paymentMethod = "bank_transfer", token = "USDT" } = req.body;
     const buyerId = req.user._id;
 
         const buyer = await User.findById(buyerId);
@@ -151,10 +160,116 @@ const createOrder = async (req, res) => {
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + MINUTES_TO_EXPIRATION);
 
-    // ==========================================
+        // ==========================================
     // 🛡️ NUEVA LÓGICA: SECCIÓN DE BLOCKCHAIN 🛡️
     // ==========================================
 
+    // ════════════════════════════════════════════════════════════
+    // FLUJO PAGO CON CRIPTOMONEDAS (Escrow NeroEscrow)
+    // El comprador fondeará USDT en el contrato escrow y los fondos quedan
+    // retenidos hasta que el admin libere (comprador confirmó recepción).
+    // NO se exige colateral al vendedor: el escrow retiene el pago del comprador.
+    // ════════════════════════════════════════════════════════════
+    if (paymentMethod === "crypto") {
+      // Validamos que AMBOS (comprador y vendedor) tengan wallet, ya que:
+      //  - El comprador fondea el escrow con su wallet.
+      //  - El vendedor recibe el pago del escrow en SU wallet.
+      if (!buyer.walletAddress) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Para pagar con criptomonedas necesitás tener una wallet Web3 vinculada. Activá tu billetera desde 'Mi Billetera' antes de continuar.",
+        });
+      }
+      if (!seller.walletAddress) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "El vendedor no tiene una wallet Web3 vinculada, por lo que no puede recibir pagos en criptomonedas.",
+        });
+      }
+
+            // El fee del escrow es GLOBAL y lo define el admin en el contrato (feeBps).
+      // Al crear la orden leemos el fee ACTUAL on-chain para que la comisión de
+      // esta orden coincida con la que cobrará el contrato al liberar el escrow.
+      const { getFeeBps } = await import("../services/escrowServices.js");
+      const feeRead = await getFeeBps();
+      const currentFeeBps = feeRead.success ? feeRead.feeBps : 300;
+      // Recalculamos la comisión de ESTA orden según el fee global vigente.
+      financials.platformFeeUsd = parseFloat(
+        (financials.totalUsd * (currentFeeBps / 10000)).toFixed(2),
+      );
+      financials.sellerNetReleaseUsd = parseFloat(
+        (financials.totalUsd - financials.platformFeeUsd).toFixed(2),
+      );
+
+      // Creamos la orden en estado 'pending_payment' con el sub-estado de pago
+      // crypto en 'funding'. El comprador fondeará el escrow desde su billetera.
+      const newOrderCrypto = new Order({
+        buyer: buyerId,
+        seller: sellerId,
+        products: productIds,
+        itemsSnapshot,
+        shippingAddress,
+        totalAmount: calculatedTotal + maxShippingCost,
+        productsAmount: calculatedTotal,
+        shippingAmount: maxShippingCost,
+        status: "pending_payment",
+        financials,
+        expiresAt: expiresAt,
+        payment: {
+          method: "crypto",
+          token: token,
+          status: "funding",
+          tokenAddress: "",
+          amountUsdRetained: financials.totalUsd + financials.shippingCostUsd,
+          feeUsd: financials.platformFeeUsd,
+          feeBps: currentFeeBps,
+          sellerNetUsd: financials.sellerNetReleaseUsd,
+        },
+      });
+
+      const savedCryptoOrder = await newOrderCrypto.save();
+
+      // Notificaciones (comprador y vendedor)
+      sendOrderCreatedToBuyer({
+        buyerEmail: buyer.email,
+        orderId: savedCryptoOrder._id,
+        amount: savedCryptoOrder.totalAmount,
+        products: savedCryptoOrder.itemsSnapshot,
+        seller: seller.username,
+      }).catch((err) => console.error("Falló notificación a comprador:", err));
+
+      sendOrderCreatedToVendor({
+        vendorEmail: seller.email,
+        orderId: savedCryptoOrder._id,
+        amount: savedCryptoOrder.totalAmount,
+        products: savedCryptoOrder.itemsSnapshot,
+        buyerName: buyer.name,
+      }).catch((err) => console.error("Falló notificación a vendedor:", err));
+
+      createNotification({
+        recipient: sellerId,
+        type: "order_created",
+        title: "¡Nueva orden de compra (cripto)!",
+        message: `${buyer.name} inició la orden #${savedCryptoOrder._id.toString().slice(-6).toUpperCase()} y abonará en USDT.`,
+        data: { orderId: savedCryptoOrder._id, totalAmount: savedCryptoOrder.totalAmount },
+      }).catch((err) => console.error("Falló notif in-app a vendedor:", err));
+
+            return res.status(201).json({
+        success: true,
+        message:
+          "Orden creada con pago en criptomonedas. Fondéa el escrow desde tu billetera para que el vendedor pueda despachar.",
+        order: savedCryptoOrder,
+        sellerWallet: seller.walletAddress,
+        buyerWallet: buyer.walletAddress,
+        escrowContract: process.env.ESCROW_CONTRACT_ADDRESS,
+      });
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // FLUJO TRANSFERENCIA BANCARIA (COLATERAL EXISTENTE)
+    // ════════════════════════════════════════════════════════════
     // A. Buscamos la wallet de Privy del vendedor en la DB
     // (seller ya fue cargado y validado más arriba)
     if (!seller.walletAddress) {
@@ -167,10 +282,8 @@ const createOrder = async (req, res) => {
     }
 
 
-    // B. Definimos qué ID va a tener esta orden para mandárselo al contrato.
+        // B. Definimos qué ID va a tener esta orden para mandárselo al contrato.
     // Como todavía no guardamos la orden en Mongoose, generamos un ObjectId temporal.
-    // const tempOrderId = new ethers.Mongoose.Types.ObjectId().toString();
-    // const tempOrderId = "123456789";
     // O si usas otro generador de IDs (como uuid), ponelo acá. Lo importante es que sea único.
     const newOrder = new Order({
       buyer: buyerId,
@@ -181,7 +294,7 @@ const createOrder = async (req, res) => {
       totalAmount: calculatedTotal + maxShippingCost,
       productsAmount: calculatedTotal,
       shippingAmount: maxShippingCost,
-      status: "pending_payment",
+      status: "pending_payment", // Se ajusta más abajo si pasa a "awaiting_collateral"
       financials,
       expiresAt: expiresAt,
     });
@@ -193,91 +306,165 @@ const createOrder = async (req, res) => {
     // o el total completo con envío. Usemos productos como ejemplo:
     const amountToLock = financials.totalUsd + financials.shippingCostUsd;
 
-        console.log(
+    console.log(
       `[Server] Intentando bloquear ${amountToLock} USDT de garantía para el vendedor ${seller.walletAddress}`,
     );
 
-    // C. Intentamos ejecutar el bloqueo en la Blockchain (Vía Admin)
-    const blockchainResult = await lockVendorCollateral(
-      orderIdForBlockchain,
+    // ────────────────────────────────────────────────────────────────
+    // C. LÓGICA DE COLATERAL: capacidad efectiva vs. lo que se necesita
+    // Antes de golpear la blockchain, verificamos si el vendedor tiene
+    // SALDO LIBRE suficiente (on-chain - reservado por holds activos).
+    //  - Si alcanza                      → flujo normal (block + pending_payment)
+    //  - Si NO alcanza (colateral fuera) → entra a "awaiting_collateral"
+    //    (se le da 15 min al vendedor para depositar, el comprador decide).
+    // ────────────────────────────────────────────────────────────────
+    const effective = await getVendorEffectiveAvailable(
+      seller._id,
       seller.walletAddress,
-      amountToLock,
     );
 
-
-
-
-
-        // Si la simulación de la blockchain falla (ej: no tiene saldo libre suficiente),
-    // abortamos acá mismo y no se crea nada en la Base de Datos.
-    if (!blockchainResult.success) {
-      console.error(
-        "[Server] Fallo al bloquear colateral del vendedor",
+    if (effective.effectiveAvailable >= amountToLock) {
+      // ── FLUJO NORMAL: hay colateral suficiente ──
+      const blockchainResult = await lockVendorCollateral(
+        orderIdForBlockchain,
         seller.walletAddress,
-        "| amountToLock:",
         amountToLock,
-        "| error:",
-        blockchainResult.error,
       );
-      // Incluimos el error REAL devuelto por el contrato para poder diagnosticar
-      // si es saldo insuficiente, wallet equivocada, ABI/contrato viejo, etc.
-      return res.status(400).json({
-        success: false,
-        message:
-          "No se pudo procesar la orden: el sistema no pudo congelar la garantía del vendedor en el contrato inteligente.",
-        error:
-          blockchainResult.error ||
-          "Error desconocido al bloquear colateral en blockchain",
-        detail: {
-          vendorWallet: seller.walletAddress,
-          contractAddress: process.env.CONTRACT_ADDRESS,
-          amountToLockUsd: amountToLock,
-        },
+
+      // Si la blockchain falla (error real del contrato, no insuficiencia),
+      // abortamos y no se crea nada en la DB.
+      if (!blockchainResult.success) {
+        console.error(
+          "[Server] Fallo al bloquear colateral del vendedor",
+          seller.walletAddress,
+          "| amountToLock:",
+          amountToLock,
+          "| error:",
+          blockchainResult.error,
+        );
+        return res.status(400).json({
+          success: false,
+          message:
+            "No se pudo procesar la orden: el sistema no pudo congelar la garantía del vendedor en el contrato inteligente.",
+          error:
+            blockchainResult.error ||
+            "Error desconocido al bloquear colateral en blockchain",
+          detail: {
+            vendorWallet: seller.walletAddress,
+            contractAddress: process.env.CONTRACT_ADDRESS,
+            amountToLockUsd: amountToLock,
+          },
+        });
+      }
+
+      // ── GUARDADO (flujo normal) ──
+      newOrder.collateralTxHash = blockchainResult.txHash;
+      newOrder.status = "pending_payment";
+
+      const savedOrder = await newOrder.save();
+
+      // Notificaciones (normal)
+      sendOrderCreatedToBuyer({
+        buyerEmail: buyer.email,
+        orderId: newOrder._id,
+        amount: newOrder.totalAmount,
+        products: newOrder.itemsSnapshot,
+        seller: seller.username,
+      }).catch((err) => console.error("Falló notificación a comprador:", err));
+
+      sendOrderCreatedToVendor({
+        vendorEmail: seller.email,
+        orderId: newOrder._id,
+        amount: newOrder.totalAmount,
+        products: newOrder.itemsSnapshot,
+        buyerName: buyer.name,
+      }).catch((err) => console.error("Falló notificación a vendedor:", err));
+
+      createNotification({
+        recipient: sellerId,
+        type: "order_created",
+        title: "¡Nueva orden de compra!",
+        message: `${buyer.name} inició la orden #${newOrder._id.toString().slice(-6).toUpperCase()}.`,
+        data: { orderId: newOrder._id, totalAmount: newOrder.totalAmount },
+      }).catch((err) => console.error("Falló notif in-app a vendedor:", err));
+
+      return res.status(201).json({
+        success: true,
+        message: "Orden creada con éxito y colateral congelado en Blockchain",
+        order: savedOrder,
       });
     }
 
-    // ==========================================
-    // 💾 GUARDADO DE LA ORDEN
-    // ==========================================
+    // ────────────────────────────────────────────────────────────────
+    // D. COLATERAL INSUFICIENTE → estado intermedio "awaiting_collateral"
+    // No rebotamos la orden: le damos al vendedor 15 min para depositar y
+    // al comprador la opción de esperar o cancelar.
+    // ────────────────────────────────────────────────────────────────
+    const holdCheck = await validateVendorHoldCapacity(seller._id);
+    if (!holdCheck.ok) {
+      // El vendedor ya agotó sus holds disponibles (2 activos o 3 vencidos/día).
+      return res.status(409).json({
+        success: false,
+        code: holdCheck.code,
+        message:
+          "El vendedor no puede recibir más solicitudes en espera de garantía en este momento.",
+        reason: holdCheck.reason,
+      });
+    }
 
-    // 4. Crear la Orden (Ahora le asignamos el ID exacto que usamos en Blockchain)
-    newOrder.collateralTxHash = blockchainResult.txHash;
+    const holdExpiresAt = new Date(Date.now() + COLLATERAL_HOLD_CONFIG.HOLD_MS);
 
-    const savedOrder = await newOrder.save();
+    newOrder.status = "awaiting_collateral";
+    newOrder.collateralHold = {
+      requestedAt: new Date(),
+      expiresAt: holdExpiresAt,
+      reserveUsd: amountToLock,
+      reason: "insufficient_collateral",
+      status: "pending",
+    };
 
-    // 3. Enviar el mail en segundo plano (Background)
-    sendOrderCreatedToBuyer({
-      buyerEmail: buyer.email,
-      orderId: newOrder._id,
-      amount: newOrder.totalAmount,
-      products: newOrder.itemsSnapshot,
-      seller: seller.username,
-    }).catch((err) => console.error("Falló notificación a comprador:", err));
+    const holdOrder = await newOrder.save();
 
-        // 4. Notificación al Vendedor (Background)
-    sendOrderCreatedToVendor({
-      vendorEmail: seller.email,
-      orderId: newOrder._id,
-      amount: newOrder.totalAmount,
-      products: newOrder.itemsSnapshot,
-      buyerName: buyer.name,
-    }).catch((err) => console.error("Falló notificación a vendedor:", err));
-
-    // Notificación in-app al Vendedor (Background) - Nueva orden recibida
+        // Notificar al VENDEDOR: necesita depositar colateral para no perder la venta
     createNotification({
       recipient: sellerId,
-      type: "order_created",
-      title: "¡Nueva orden de compra!",
-      message: `${buyer.name} inició la orden #${newOrder._id.toString().slice(-6).toUpperCase()}.`,
-      data: { orderId: newOrder._id, totalAmount: newOrder.totalAmount },
-    }).catch((err) => console.error("Falló notif in-app a vendedor:", err));
+      type: "collateral_hold_requested",
+      title: "¡Tenés una venta en espera por falta de garantía!",
+      message: `${buyer.name} quiere comprarte, pero no tenés saldo libre de garantía. Depositá USDT en los próximos ${Math.round(
+        COLLATERAL_HOLD_CONFIG.HOLD_MS / 60000,
+      )} minutos para no perder la venta (orden #${newOrder._id
+        .toString()
+        .slice(-6)
+        .toUpperCase()}).`,
+      data: { orderId: newOrder._id, amountToLockUsd: amountToLock },
+    }).catch((err) => console.error("Falló notif hold a vendedor:", err));
 
-    // verifyAndSyncVendorProducts(seller.walletAddress, seller._id);
+    // 💌 MAIL al vendedor: aviso de espera por falta de garantía, para que
+    // deposite USDT en el plazo y no pierda la venta.
+    if (seller?.email) {
+      sendVendorCollateralHoldRequested({
+        vendorEmail: seller.email,
+        orderId: newOrder._id,
+        amount: amountToLock,
+        products: newOrder.itemsSnapshot || [],
+        buyerName: buyer.name || buyer.firstName || "El comprador",
+        minutesLeft: Math.round(COLLATERAL_HOLD_CONFIG.HOLD_MS / 60000),
+      }).catch((err) =>
+        console.error("Falló email de garantía al vendedor:", err),
+      );
+    }
 
-    res.status(201).json({
+    return res.status(202).json({
       success: true,
-      message: "Orden creada con éxito y colateral congelado en Blockchain",
-      order: savedOrder,
+      status: "awaiting_collateral",
+      message:
+        "El vendedor debe depositar colateral para confirmar el envío. Podés esperar unos minutos o cancelar y buscar este producto en otro vendedor.",
+      order: holdOrder,
+            collateralHold: {
+        expiresAt: holdExpiresAt,
+        minutesLeft: Math.round(COLLATERAL_HOLD_CONFIG.HOLD_MS / 60000),
+        amountToLockUsd: amountToLock,
+      },
     });
   } catch (error) {
     console.error("Error al crear orden:", error);
@@ -536,15 +723,49 @@ const updateOrder = async (req, res) => {
         });
       }
 
-      try {
-        // B. Ejecutamos la transacción en la Blockchain usando nuestro helper
-        // El backend (admin) firma el releaseOrderCollateral en el contrato pool
-        const txHash = await executeBlockchainRelease(
-          order,
-          seller.walletAddress,
-          order.financials.totalUsd,
-        );
-        console.log(`[Server] Colateral liberado exitosamente. Tx: ${txHash}`);
+            try {
+        // ════════════════════════════════════════════════════════════
+        // FLUJO PAGO CRIPTO: el comprador confirmó la recepción.
+        // En vez de liberar el colateral del vendedor (transferencia bancaria),
+        // liberamos el escrow: el admin firma releaseOrder() y el contrato
+        // envía al vendedor el neto y el fee a la feeWallet.
+        // ════════════════════════════════════════════════════════════
+        let txHash;
+        if (order.payment?.method === "crypto") {
+          // La liberación del escrow NO requiere la wallet del vendedor como
+          // parámetro propio: el contrato guarda la dirección del vendedor al
+          // momento de fundar. El admin la envía al releaseOrder contract.
+          // Importamos el servicio escrow localmente para evitar ciclos.
+          const { releaseOrderEscrow } = await import("../services/escrowServices.js");
+          if (order.payment?.status !== "funded") {
+            return res.status(400).json({
+              success: false,
+              message:
+                "El escrow no está fondeado on-chain. Verificá que el comprador haya depositado los USDT antes de completar la orden.",
+            });
+          }
+          const escrowResult = await releaseOrderEscrow(order._id.toString());
+          if (!escrowResult.success) {
+            throw new Error(`Fallo en escrow: ${escrowResult.error}`);
+          }
+          txHash = escrowResult.txHash;
+
+          // Actualizamos el sub-estado de pago.
+          order.payment.status = "released";
+          order.payment.releaseTxHash = txHash;
+          order.payment.feeUsd = order.financials.platformFeeUsd;
+          order.payment.sellerNetUsd = order.financials.sellerNetReleaseUsd;
+          order.payment.releasedAt = new Date();
+        } else {
+          // B. Ejecutamos la transacción en la Blockchain usando nuestro helper
+          // El backend (admin) firma el releaseOrderCollateral en el contrato pool
+          txHash = await executeBlockchainRelease(
+            order,
+            seller.walletAddress,
+            order.financials.totalUsd,
+          );
+          console.log(`[Server] Colateral liberado exitosamente. Tx: ${txHash}`);
+        }
 
                 // C. Si la blockchain no tiró error y dio el OK, recién ahí impactamos la DB local
                 order.status = "completed";
@@ -1604,6 +1825,747 @@ const adminCancelOrder = async (req, res) => {
   }
 };
 
+/**
+ * REINTENTAR COLATERAL (estado "awaiting_collateral" → "pending_payment").
+ * Se llama cuando el vendedor deposita la garantía y quiere activar la orden.
+ * La pueden invocar:
+ *   - El VENDEDOR de la orden (tras depositar, pulsa "Deposité, activar orden").
+ *   - El ADMIN (si verifica que el depósito se hizo y lo activa manualmente).
+ *
+ * Delega la lógica en resolveCollateralHold (idempotente y a prueba de
+ * concurrencia: solo una llamada "gana" y crea el lock on-chain).
+ */
+const retryCollateral = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user._id.toString();
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    if (order.status !== "awaiting_collateral") {
+      return res.status(400).json({
+        success: false,
+        message: `La orden ya no está esperando colateral (estado actual: ${order.status}).`,
+      });
+    }
+
+    const isSeller = order.seller.toString() === userId;
+    const isAdmin = req.user.role === "admin" || req.user.privyDid === process.env.ADMIN_PRIVY_ID;
+    if (!isSeller && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Solo el vendedor o el admin pueden activar el colateral de esta orden.",
+      });
+    }
+
+    // Verificamos que el hold no haya vencido antes de intentar depositar.
+    if (new Date(order.collateralHold.expiresAt) < new Date()) {
+      // El hold venció. Lo marcamos como expirado (penalización al vendedor)
+      // y avisamos que ya no se puede reactivar por esta vía.
+      await expireCollateralHold(order);
+      return res.status(409).json({
+        success: false,
+        message: "El plazo para depositar colateral ya venció. Esta solicitud de compra fue cancelada.",
+        order,
+      });
+    }
+
+    const result = await resolveCollateralHold(order._id.toString());
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        message: "No se pudo activar la orden. Revisá que hayas depositado la garantía (USDT) y reintentá.",
+        retryable: result.retryable !== false,
+        error: result.error,
+      });
+    }
+
+    // Notificar al comprador que su orden ya está activa.
+    createNotification({
+      recipient: order.buyer,
+      type: "order_activated",
+      title: "¡Tu compra fue activada!",
+      message: `El vendedor depositó la garantía y tu orden #${order._id
+        .toString()
+        .slice(-6)
+        .toUpperCase()} ya está lista para que la abones.`,
+      data: { orderId: order._id, totalAmount: order.totalAmount },
+    }).catch(() => {});
+
+    return res.status(200).json({
+      success: true,
+      message: "Orden activada: el colateral fue congelado y ya podés proceder con el pago.",
+      order: result.order,
+      txHash: result.txHash,
+    });
+  } catch (error) {
+    console.error("Error al reintentar colateral:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * CANCELAR UN HOLD DE COLATERAL ("buscar otro vendedor").
+ * Cierra la orden en estado "awaiting_collateral" sin tocar blockchain
+ * (en este estado todavía NO se congeló ningún colateral on-chain, la orden
+ * recién pasa a reservar capacidad). La pueden invocar:
+ *   - El COMPRADOR: decide no esperar más y buscar este producto en otro
+ *     vendedor. Se marca como cancelada (no queda nada bloqueado).
+ *   - El VENDEDOR: decide que no puede cubrir la garantía y libera el "hold"
+ *     que tenía reservando capacidad (para no penalizar su cupo).
+ */
+const cancelCollateralHold = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user._id.toString();
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    if (order.status !== "awaiting_collateral") {
+      return res.status(400).json({
+        success: false,
+        message: `La orden no está en estado de espera de colateral (estado actual: ${order.status}).`,
+      });
+    }
+
+    const isBuyer = order.buyer.toString() === userId;
+    const isSeller = order.seller.toString() === userId;
+    if (!isBuyer && !isSeller) {
+      return res.status(403).json({
+        success: false,
+        message: "No tenés permisos para cancelar este hold de colateral.",
+      });
+    }
+
+        // En "awaiting_collateral" no hay colateral on-chain congelado, así que no
+    // hacemos transiciones a blockchain. Solo cerramos la orden como cancelada
+    // y liberamos la reserva de capacidad del vendedor.
+        order.collateralHold.status = "cancelled";
+    order.collateralHold.cancelledAt = new Date();
+    order.cancelledBy = isBuyer ? "buyer" : "seller";
+
+    await transitionToStatus(
+      order,
+      "cancelled",
+      isBuyer
+        ? "El comprador canceló la espera de colateral y buscará este producto en otro vendedor."
+        : "El vendedor no pudo cubrir la garantía de esta orden.",
+    );
+
+    // ══ CONTABILIZACIÓN (no penaliza; solo lleva la cuenta para que el admin
+    //    decida qué hacer). Órdenes que no se concretan por falta de colateral
+    //    del vendedor.
+    //  - El VENDEDOR rechazó  → collateralRejectedBySeller (+1 al vendedor)
+    //  - El COMPRADOR canceló → collateralHoldCancelledByBuyer (+1 al vendedor,
+    //    ya que la inacción fue del vendedor, no culpa del comprador).
+    if (isSeller) {
+      await User.findByIdAndUpdate(order.seller, {
+        $inc: { "accounting.collateralRejectedBySeller": 1 },
+      });
+    } else {
+      await User.findByIdAndUpdate(order.seller, {
+        $inc: { "accounting.collateralHoldCancelledByBuyer": 1 },
+      });
+    }
+
+    // Si es el VENDEDOR quien rechaza, avisamos al comprador de inmediato para
+    // que no quede esperando: notificación in-app + mail.
+    if (isSeller) {
+      const buyer = await User.findById(order.buyer);
+      createNotification({
+        recipient: order.buyer,
+        type: "order_cancelled",
+        title: "El vendedor rechazó tu orden",
+        message: `El vendedor no pudo cubrir la garantía y rechazó la orden #${order._id
+          .toString()
+          .slice(-6)
+          .toUpperCase()}. Buscá este producto en otro vendedor.`,
+        data: { orderId: order._id },
+      }).catch((err) =>
+        console.error("Falló notif de rechazo al comprador:", err),
+      );
+      if (buyer?.email) {
+        sendOrderCancelledToBuyer({
+          buyerEmail: buyer.email,
+          orderId: order._id,
+          amount: order.totalAmount,
+          withRefund: false,
+        }).catch((err) =>
+          console.error("Falló email de rechazo al comprador:", err),
+        );
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "La solicitud en espera de colateral fue cancelada. No se descontó ni se congeló nada.",
+      order,
+    });
+  } catch (error) {
+    console.error("Error al cancelar hold de colateral:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════
+// ESCROW DE PAGOS EN CRIPTO (NeroEscrow)
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * COMPRADOR CONFIRMA que fondeó el escrow on-chain.
+ * El front, tras firmar fundOrder() con su wallet de Privy, envía el txHash.
+ * El backend VERIFICA on-chain que el escrow quedó fondeado (lección aprendida:
+ * no confiar solo en que una tx se minó) y actualiza el estado de la orden a
+ * "funded". Solo entonces el vendedor puede despachar.
+ */
+const confirmEscrowFunding = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { fundTxHash, tokenAddress, token } = req.body;
+    const userId = req.user._id.toString();
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    if (order.buyer.toString() !== userId) {
+      return res
+        .status(403)
+        .json({ message: "Solo el comprador puede confirmar el fondeo del escrow" });
+    }
+
+    if (order.payment?.method !== "crypto") {
+      return res.status(400).json({
+        success: false,
+        message: "Esta orden no usa pago en criptomonedas.",
+      });
+    }
+
+    if (order.payment?.status === "funded") {
+      return res.status(200).json({
+        success: true,
+        alreadyFunded: true,
+        message: "El escrow ya estaba marcado como fondeado.",
+        order,
+      });
+    }
+    if (!["funding", "unpaid"].includes(order.payment?.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `No se puede confirmar el fondeo en este estado de pago: ${order.payment?.status}.`,
+      });
+    }
+    if (!fundTxHash) {
+      return res.status(400).json({
+        success: false,
+        message: "Falta el hash de la transacción del fondeo.",
+      });
+    }
+
+    // Verificamos on-chain que el escrow quedó fondeado y que el monto retenido
+    // coincida con lo esperado (total productos + envío en USD).
+    const { verifyOrderFunded } = await import("../services/escrowServices.js");
+    const verification = await verifyOrderFunded(
+      order._id.toString(),
+      order.financials.totalUsd + order.financials.shippingCostUsd,
+    );
+
+    if (!verification.success || !verification.funded) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "No pudimos verificar el fondeo on-chain. ¿Estás seguro de que hiciste la transacción al contrato correcto?",
+        error: verification.error || "El escrow no está fondeado on-chain.",
+        fundTxHash,
+      });
+    }
+    if (verification.amountMatches === false) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "El monto retenido on-chain no coincide con el total de la orden. Verificá el importe fondeado.",
+        escrow: verification.escrow,
+      });
+    }
+
+    // Actualizamos la orden y el sub-estado de pago.
+    order.payment.status = "funded";
+    order.payment.fundTxHash = fundTxHash;
+    order.payment.tokenAddress = tokenAddress || verification.escrow?.token || order.payment.tokenAddress;
+    order.payment.token = token || order.payment.token;
+    order.payment.amountUsdRetained =
+      order.financials.totalUsd + order.financials.shippingCostUsd;
+    order.payment.fundedAt = new Date();
+    order.statusHistory.push({
+      status: "paid",
+      changedAt: new Date(),
+      comment: "El comprador fondeó el escrow en cripto (USDT). Fondos retenidos en el contrato.",
+    });
+    // Mapeamos a "paid" para que el vendedor pueda despachar (ya no está pendiente de pago).
+    order.status = "paid";
+    order.paymentVerifiedAt = new Date();
+
+    // Notificamos al vendedor que puede despachar.
+    const seller = await User.findById(order.seller);
+    if (seller?.email) {
+      sendPaymentConfirmedToVendor({
+        vendorEmail: seller.email,
+        orderId: order._id,
+        amount: order.totalAmount,
+      }).catch((err) => console.error("Falló notif pago al vendedor:", err));
+    }
+    if (seller) {
+      createNotification({
+        recipient: seller._id,
+        type: "payment_confirmed",
+        title: "El comprador fondeó el escrow",
+        message: `El comprador depositó los USDT en el contrato de garantía para la orden #${order._id.toString().slice(-6).toUpperCase()}. Ya podés despachar.`,
+        data: { orderId: order._id, totalAmount: order.totalAmount },
+      }).catch((err) => console.error("Falló notif fondeo a vendedor:", err));
+    }
+
+    await order.save();
+    return res.status(200).json({
+      success: true,
+      message: "Escrow verificado y orden activada. El vendedor puede despachar.",
+      order,
+    });
+  } catch (error) {
+    console.error("Error al confirmar fondeo del escrow:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Ver el estado on-chain del escrow de una orden (útil para diagnóstico).
+ * Cualquier participante (comprador/vendedor) o admin puede consultarlo.
+ */
+const getEscrowStatus = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user._id.toString();
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    const isParticipant =
+      order.buyer.toString() === userId || order.seller.toString() === userId;
+    const isAdmin = req.user.role === "admin" || req.user.privyDid === process.env.ADMIN_PRIVY_ID;
+    if (!isParticipant && !isAdmin) {
+      return res.status(403).json({ message: "No tenés permisos para ver esta orden" });
+    }
+
+    const { getEscrow } = await import("../services/escrowServices.js");
+    const escrow = await getEscrow(order._id.toString());
+
+    return res.status(200).json({
+      success: true,
+      order,
+      escrow,
+    });
+  } catch (error) {
+    console.error("Error al obtener estado del escrow:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * CANCELACIÓN CON ESCROW (comprador / vendedor).
+ * A diferencia del flujo de transferencia bancaria (que requiere datos bancarios
+ * para el reembolso), acá si el escrow ya está fondeado, el admin firma
+ * cancelOrder() del contrato y devuelve el 100% de los USDT al comprador.
+ *
+ * Se distingue por order.payment.method === "crypto" && order.payment.status === "funded".
+ */
+const cancelCryptoOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user._id.toString();
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    const isBuyer = order.buyer.toString() === userId;
+    const isSeller = order.seller.toString() === userId;
+
+    if (!isBuyer && !isSeller) {
+      return res.status(403).json({ message: "No tenés permisos para cancelar esta orden" });
+    }
+
+    // Solo aplica a órdenes de pago crypto y en estados previos a liberar.
+    if (order.payment?.method !== "crypto") {
+      return res.status(400).json({
+        success: false,
+        message: "Esta orden no usa pago en criptomonedas. Usá el flujo de cancelación bancaria.",
+      });
+    }
+
+    const cancellable = ["pending_payment", "verifying_payment", "paid", "funded"].includes(order.status);
+    if (!cancellable) {
+      return res.status(400).json({
+        success: false,
+        message: `No se puede cancelar la orden en estado: ${order.status}`,
+      });
+    }
+
+    if (order.payment?.status === "funded") {
+      // El comprador ya fondeó el escrow → devolvemos el 100% vía el contrato.
+      const { cancelOrderEscrow } = await import("../services/escrowServices.js");
+      const escrowResult = await cancelOrderEscrow(order._id.toString());
+      if (!escrowResult.success) {
+        return res.status(500).json({
+          success: false,
+          message: "No se pudo devolver los USDT al comprador en la blockchain.",
+          error: escrowResult.error,
+        });
+      }
+
+      order.payment.status = "cancelled_refunded";
+      order.payment.cancelTxHash = escrowResult.txHash;
+      order.payment.cancelledRefundedAt = new Date();
+      order.payment.releasedAt = new Date(); // se usa closedAt para no duplicar estado
+      order.cancelledBy = isBuyer ? "buyer" : "seller";
+      order.status = "cancelled";
+      order.cancelledAt = new Date();
+      order.statusHistory.push({
+        status: "cancelled",
+        changedAt: new Date(),
+        comment: `${isBuyer ? "El comprador" : "El vendedor"} canceló la orden. Los USDT del escrow fueron devueltos al comprador (reembolso on-chain).`,
+      });
+      order.orderActions.push({
+        type: "cancel_executed",
+        initiator: isBuyer ? "buyer" : "seller",
+        paidStatus: "paid",
+        status: "completed",
+        reason: "Cancelación de orden con escrow fondeado. Reembolso on-chain al comprador.",
+        releaseTxHash: escrowResult.txHash,
+        createdBy: order.buyer,
+      });
+      await order.save();
+
+      // Contadores
+      await User.findByIdAndUpdate(order.buyer, {
+        $inc: { "accounting.cancellationsAsBuyer": 1 },
+      });
+
+      // Notificaciones
+      if (isBuyer) {
+        const buyer = await User.findById(order.buyer);
+        if (buyer?.email)
+          sendOrderCancelledToBuyer({
+            buyerEmail: buyer.email,
+            orderId: order._id,
+            amount: order.totalAmount,
+            withRefund: true,
+          }).catch(() => {});
+      }
+      const seller = await User.findById(order.seller);
+      if (seller?.email)
+        sendOrderCancelledToVendor({
+          vendorEmail: seller.email,
+          orderId: order._id,
+          amount: order.totalAmount,
+          withRefund: false,
+        }).catch(() => {});
+      createNotification({
+        recipient: order.seller,
+        type: "order_cancelled",
+        title: "Orden cancelada",
+        message: `La orden #${order._id.toString().slice(-6).toUpperCase()} fue cancelada. Los USDT fueron devueltos al comprador.`,
+        data: { orderId: order._id },
+      }).catch(() => {});
+
+      return res.status(200).json({
+        success: true,
+        message: "Orden cancelada. Los USDT del escrow fueron devueltos al comprador.",
+        order,
+        cancelTxHash: escrowResult.txHash,
+      });
+    }
+
+    // Si el escrow aún NO está fondeado (funding/unpaid), es una cancelación
+    // simple sin reembolso on-chain.
+    order.cancelledBy = isBuyer ? "buyer" : "seller";
+    order.status = "cancelled";
+    order.cancelledAt = new Date();
+    if (order.payment) {
+      order.payment.status = "cancelled_refunded";
+    }
+    order.statusHistory.push({
+      status: "cancelled",
+      changedAt: new Date(),
+      comment: `${isBuyer ? "El comprador" : "El vendedor"} canceló la orden antes de fondear el escrow.`,
+    });
+    order.orderActions.push({
+      type: "cancel_executed",
+      initiator: isBuyer ? "buyer" : "seller",
+      paidStatus: "not_paid",
+      status: "completed",
+      reason: "Cancelación de orden crypto antes de fondear el escrow.",
+      createdBy: order.buyer,
+    });
+    await order.save();
+
+    await User.findByIdAndUpdate(order.buyer, {
+      $inc: { "accounting.cancellationsAsBuyer": 1 },
+    });
+
+    const buyer = await User.findById(order.buyer);
+    if (buyer?.email)
+      sendOrderCancelledToBuyer({
+        buyerEmail: buyer.email,
+        orderId: order._id,
+        amount: order.totalAmount,
+        withRefund: false,
+      }).catch(() => {});
+    const sellerUsr = await User.findById(order.seller);
+    if (sellerUsr?.email)
+      sendOrderCancelledToVendor({
+        vendorEmail: sellerUsr.email,
+        orderId: order._id,
+        amount: order.totalAmount,
+        withRefund: false,
+      }).catch(() => {});
+    createNotification({
+      recipient: order.seller,
+      type: "order_cancelled",
+      title: "Orden cancelada",
+      message: `La orden #${order._id.toString().slice(-6).toUpperCase()} fue cancelada antes del fondeo del escrow.`,
+      data: { orderId: order._id },
+    }).catch(() => {});
+
+    return res.status(200).json({
+      success: true,
+      message: "Orden cancelada (escrow aún no fondeado).",
+      order,
+    });
+  } catch (error) {
+    console.error("Error al cancelar orden crypto:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * ADMIN: LIBERA el escrow manualmente (solo admin).
+ * Cuando el comprador confirmó la recepción (o se resolvió un reclamo a favor
+ * del vendedor), el admin firma releaseOrder() y el contrato envía el neto al
+ * vendedor y el fee (ESCRoy feeBps) a la feeWallet.
+ */
+const adminReleaseEscrow = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    if (order.payment?.method !== "crypto") {
+      return res.status(400).json({
+        success: false,
+        message: "Esta orden no usa pago en criptomonedas (escrow).",
+      });
+    }
+    if (order.payment?.status !== "funded") {
+      return res.status(400).json({
+        success: false,
+        message: `El escrow no está fondeado (estado: ${order.payment?.status}).`,
+      });
+    }
+
+    const { releaseOrderEscrow } = await import("../services/escrowServices.js");
+    const result = await releaseOrderEscrow(order._id.toString());
+    if (!result.success) {
+      return res.status(500).json({
+        success: false,
+        message: "No se pudo liberar el escrow on-chain.",
+        error: result.error,
+      });
+    }
+
+    order.payment.status = "released";
+    order.payment.releaseTxHash = result.txHash;
+    order.payment.releasedAt = new Date();
+    order.status = "completed";
+    order.completedAt = new Date();
+    order.statusHistory.push({
+      status: "completed",
+      changedAt: new Date(),
+      comment: "Escrow liberado manualmente por el admin (fondos enviados al vendedor).",
+    });
+    order.orderActions.push({
+      type: "admin_intervention",
+      initiator: "admin",
+      paidStatus: "paid",
+      status: "completed",
+      reason: "El admin liberó el escrow manualmente.",
+      releaseTxHash: result.txHash,
+      createdBy: req.user?._id,
+    });
+    await order.save();
+
+    // Actualizar métricas de venta completada (paridad con el flujo normal).
+    await User.findByIdAndUpdate(order.seller, {
+      $inc: { "accounting.completedSales": 1, "shop.totalSalesCount": 1 },
+    });
+    await User.findByIdAndUpdate(order.buyer, {
+      $inc: { "accounting.completedPurchases": 1 },
+    });
+    for (const item of order.itemsSnapshot) {
+      const qty = item.quantity || 1;
+      await Product.findByIdAndUpdate(item.productId, {
+        $inc: { sold: qty, stock: -qty },
+      });
+    }
+
+    const buyerThis = await User.findById(order.buyer);
+    if (buyerThis?.email)
+      sendOrderCompletedToBuyer({
+        buyerEmail: buyerThis.email,
+        orderId: order._id,
+        amount: order.totalAmount,
+      }).catch(() => {});
+
+    return res.status(200).json({
+      success: true,
+      message: "Escrow liberado y orden completada por el admin.",
+      order,
+      releaseTxHash: result.txHash,
+    });
+  } catch (error) {
+    console.error("Error al liberar escrow (admin):", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * ADMIN: CANCELA y reembolsa el escrow al comprador (solo admin).
+ * El admin firma cancelOrder() del contrato y los USDT vuelven al comprador.
+ */
+const adminCancelEscrow = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    if (order.payment?.method !== "crypto") {
+      return res.status(400).json({
+        success: false,
+        message: "Esta orden no usa pago en criptomonedas (escrow).",
+      });
+    }
+    if (order.payment?.status !== "funded") {
+      return res.status(400).json({
+        success: false,
+        message: `El escrow no está fondeado (estado: ${order.payment?.status}).`,
+      });
+    }
+
+    const { cancelOrderEscrow } = await import("../services/escrowServices.js");
+    const result = await cancelOrderEscrow(order._id.toString());
+    if (!result.success) {
+      return res.status(500).json({
+        success: false,
+        message: "No se pudo cancelar/dev oler el escrow on-chain.",
+        error: result.error,
+      });
+    }
+
+    order.payment.status = "cancelled_refunded";
+    order.payment.cancelTxHash = result.txHash;
+    order.payment.cancelledRefundedAt = new Date();
+    order.payment.releasedAt = new Date();
+    order.status = "cancelled";
+    order.cancelledAt = new Date();
+    order.cancelledBy = "admin";
+    order.statusHistory.push({
+      status: "cancelled",
+      changedAt: new Date(),
+      comment: "Escrow cancelado y reembolsado al comprador por el admin.",
+    });
+    order.orderActions.push({
+      type: "cancel_executed",
+      initiator: "admin",
+      paidStatus: "paid",
+      status: "completed",
+      reason: "El admin canceló la orden y devolvió los USDT del escrow al comprador.",
+      releaseTxHash: result.txHash,
+      createdBy: req.user?._id,
+    });
+    await order.save();
+
+    const buyerAdmin = await User.findById(order.buyer);
+    if (buyerAdmin?.email)
+      sendOrderCancelledToBuyer({
+        buyerEmail: buyerAdmin.email,
+        orderId: order._id,
+        amount: order.totalAmount,
+        withRefund: true,
+      }).catch(() => {});
+
+    return res.status(200).json({
+      success: true,
+      message: "Escrow cancelado y reembolsado al comprador por el admin.",
+      order,
+      cancelTxHash: result.txHash,
+    });
+  } catch (error) {
+    console.error("Error al cancelar escrow (admin):", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * ADMIN: GESTIÓN DEL FEE GLOBAL DEL ESCROW (solo admin).
+ * Actualiza el fee en el contrato (feeBps). Debe coincidir con el % de
+ * comisión que el backend usa en financials.platformFeeUsd.
+ */
+const adminUpdateEscrowFee = async (req, res) => {
+  try {
+    const { feeBps } = req.body;
+    if (typeof feeBps !== "number" || feeBps < 0 || feeBps > 5000) {
+      return res.status(400).json({
+        success: false,
+        message: "feeBps debe ser un número entre 0 y 5000 (0% a 50%).",
+      });
+    }
+
+    // Cargamos el contrato con la wallet admin y seteamos el fee.
+    const { ethers } = await import("ethers");
+    const fs = await import("fs");
+    const path = await import("path");
+    const { fileURLToPath } = await import("url");
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const abiPath = path.resolve(__dirname, "../../contracts/NeroEscrowABI.json");
+    const contractABI = JSON.parse(fs.readFileSync(abiPath, "utf8"));
+
+    const provider = new ethers.JsonRpcProvider(
+      process.env.BSC_TESTNET_RPC || "https://bsc-testnet-rpc.publicnode.com",
+    );
+    const adminWallet = new ethers.Wallet(process.env.WALLET_PK, provider);
+    const escrowContract = new ethers.Contract(
+      process.env.ESCROW_CONTRACT_ADDRESS,
+      contractABI,
+      adminWallet,
+    );
+
+    const tx = await escrowContract.setFeeBps(feeBps);
+    await tx.wait();
+
+    return res.status(200).json({
+      success: true,
+      message: `Fee del escrow actualizado a ${feeBps / 100}% (${feeBps} bps).`,
+      feeBps,
+      txHash: tx.hash,
+    });
+  } catch (error) {
+    console.error("Error al actualizar el fee del escrow:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export {
   createOrder,
   getMyOrders,
@@ -1617,4 +2579,12 @@ export {
   adminReleaseGuarantee,
   adminCancelOrder,
   adminGetCollateralStatus,
+  retryCollateral,
+  cancelCollateralHold,
+  confirmEscrowFunding,
+  getEscrowStatus,
+  cancelCryptoOrder,
+  adminReleaseEscrow,
+  adminCancelEscrow,
+  adminUpdateEscrowFee,
 };

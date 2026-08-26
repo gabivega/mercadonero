@@ -185,7 +185,9 @@ const userSchema = new Schema(
           accountNumber: String,
           cbu: { type: String, required: true }, // O CVU
           cuit: { type: String, required: true },
-          businessName: { type: String, required: true }, // Razón Social
+          // Razón Social. El onboarding de vendedor NO la recopila, así que
+          // no es obligatoria para poder guardar la cuenta desde ese flujo.
+          businessName: { type: String, default: "" },
           isDefault: { type: Boolean, default: true },
         },
       ],
@@ -269,6 +271,12 @@ const userSchema = new Schema(
       // Como vendedor
       cancellationsAsSeller: { type: Number, default: 0 },
       refundsPending: { type: Number, default: 0 }, // Reembolsos que el vendedor debe procesar
+      // Órdenes que NO se concretan por falta de colateral del vendedor.
+      // Alimentan el futuro sistema de reputación/cobertura y son insumo para
+      // que el admin decida qué hacer (penalización o no).
+      expiredCollateralHolds: { type: Number, default: 0 },        // venció el plazo sin depositar
+      collateralRejectedBySeller: { type: Number, default: 0 },    // el vendedor rechazó la orden
+      collateralHoldCancelledByBuyer: { type: Number, default: 0 }, // el comprador canceló la espera
       // Totales de órdenes (para cálculo de % de abuso)
       completedPurchases: { type: Number, default: 0 },
       completedSales: { type: Number, default: 0 },

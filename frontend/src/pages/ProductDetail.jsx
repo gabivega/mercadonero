@@ -94,7 +94,7 @@ export default function ProductDetail() {
       const normalizedProduct = {
         ...product,
         sellerId: product.seller?._id || product.seller, // Siempre plano
-        seller: product.seller?._id || product.seller, // Lo sobreescribimos para unificar
+        seller: product.seller, // Conservamos el objeto poblado (shop.name/username)
       };
 
       addToCart(normalizedProduct);
@@ -107,12 +107,13 @@ export default function ProductDetail() {
   };
 
   const handleAddToCart = () => {
-    // Normalizamos: nos aseguramos que seller sea el ID plano
-    // pero conservamos la info del vendedor en otra propiedad si la necesitás
+    // Normalizamos: sellerId SIEMPRE plano, pero conservamos el objeto
+    // `seller` poblado (con shop.name/username) para que el carrito pueda
+    // mostrar el nombre de la tienda.
     const normalizedProduct = {
       ...product,
       sellerId: product.seller?._id || product.seller, // Siempre plano
-      seller: product.seller?._id || product.seller, // Lo sobreescribimos para unificar
+      seller: product.seller, // Conservamos el objeto poblado
     };
 
     addToCart(normalizedProduct);
@@ -240,6 +241,11 @@ export default function ProductDetail() {
               </p>
             </div>
 
+            {/* Opiniones del producto */}
+            <div className="border-t border-gray-100 dark:border-gray-800 pt-8">
+              <ProductReviews productId={product._id} />
+            </div>
+
             {/* Preguntas y Respuestas */}
             <ProductQuestions
               productId={product._id}
@@ -304,7 +310,9 @@ export default function ProductDetail() {
                 >
                   Vendido por{" "}
                   <span className="underline">
-                    @{product.seller.username || "vendedor"}
+                    {product.seller?.shop?.name ||
+                      product.sellerName ||
+                      `@${product.seller.username || "vendedor"}`}
                   </span>
                 </button>
               )}

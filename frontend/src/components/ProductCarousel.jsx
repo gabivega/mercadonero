@@ -32,9 +32,12 @@ const fetchProducts = async () => {
     // --- EL FILTRO MÁGICO EN EL FRONT ---
     const allProducts = response.data.products;
     
-    // Si hay usuario logueado, filtramos sus productos. Si no, mostramos todo.
-    const filtered = dbUser?._id 
-      ? allProducts.filter(p => p.seller !== dbUser._id)
+        // Si hay usuario logueado, filtramos sus productos. Si no, mostramos todo.
+    // seller puede venir como ObjectId plano o como objeto poblado (con _id).
+    const filtered = dbUser?._id
+      ? allProducts.filter(
+          (p) => (p.seller?._id || p.seller) !== dbUser._id,
+        )
       : allProducts;
 
     setProducts(filtered.slice(0, 12)); // Nos quedamos con los 12 finales

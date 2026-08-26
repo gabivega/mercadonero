@@ -11,13 +11,16 @@ import {
   Save,
 } from "lucide-react";
 import axios from "axios";
+import { ethers } from "ethers";
 import Swal from "sweetalert2";
 import { AddressSection } from "../components/AddressSection";
 import { useUserStore } from "../store/useUserStore";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
 import AuthOnboarding from "../components/AuthOnboarding";
 import { useSyncUser } from "../Utils/userSync";
 import LoadingSpinner from "../components/LoadingSpinner";
+import CryptoPaymentModal from "../components/CryptoPaymentModal";
+import DepositUsdtModal from "../components/DepositUsdtModal";
 
 export default function Checkout() {
   const { sellerId } = useParams();
@@ -25,11 +28,61 @@ export default function Checkout() {
   const { cart, removeFromCart } = useCartStore();
   const { dbUser, setDbUser, setAddresses } = useUserStore();
   const { getAccessToken, ready, user, authenticated } = usePrivy(); // Asumiendo que viene de Privy
+  const { wallets } = useWallets();
 const addresses = dbUser?.addresses || [];
 
 const [selectedAddress, setSelectedAddress] = useState(null);
   const { syncUser } = useSyncUser(setDbUser);
   const [isLoading, setIsLoading] = useState(false);
+
+    // ── MÉTODO DE PAGO: "bank_transfer" (default) | "crypto" ──
+    const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
+  const [showCryptoModal, setShowCryptoModal] = useState(false);
+  const [cryptoOrder, setCryptoOrder] = useState(null);
+  const [tokenChoice, setTokenChoice] = useState("USDT");
+  const [showDepositModal, setShowDepositModal] = useState(false);
+
+  // ── TOKENS CRIPTO (BSC Testnet) ──
+  const CRYPTO_TOKENS = {
+    USDT: { address: "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd", decimals: 18 },
+    USDC: { address: "0x64544969ed7EBf5f083679233325356EbE738930", decimals: 18 },
+  };
+  const CRYPTO_ERC20_ABI = [
+    "function balanceOf(address account) external view returns (uint256)",
+  ];
+
+  const activeWallet = wallets?.[0];
+
+  // Convierte ARS → USDT usando una API pública de cotización del dólar cripto.
+  // Devuelve { usdRate, usdtAmount } o null si falla.
+  const getUsdtQuote = async (arsAmount) => {
+    try {
+      const { data } = await axios.get("https://dolarapi.com/v1/dolares/cripto");
+      const usdRate = data.venta; // ARS por 1 USDT
+      return {
+        usdRate,
+        usdtAmount: parseFloat((arsAmount / usdRate).toFixed(2)),
+      };
+    } catch (error) {
+      console.error("Error obteniendo cotización USDT:", error);
+      return { usdRate: 0, usdtAmount: 0 };
+    }
+  };
+
+  // Lee el balance USDT de la wallet activa. Devuelve el saldo (Number) o null.
+  const getUsdtBalance = async (wallet, tokenSymbol = "USDT") => {
+    try {
+      const token = CRYPTO_TOKENS[tokenSymbol] || CRYPTO_TOKENS.USDT;
+      const ethereumProvider = await wallet.getEthereumProvider();
+      const provider = new ethers.BrowserProvider(ethereumProvider);
+      const erc20 = new ethers.Contract(token.address, CRYPTO_ERC20_ABI, provider);
+      const bal = await erc20.balanceOf(wallet.address);
+      return parseFloat(ethers.formatUnits(bal, token.decimals));
+    } catch (error) {
+      console.error("Error leyendo balance:", error);
+      return 0;
+    }
+  };
 
     // ── ESTADO DEL MODAL DE DATOS OBLIGATORIOS (ONBOARDING PRE-CHECKOUT) ──
   const [dataModalOpen, setDataModalOpen] = useState(false);
@@ -236,11 +289,20 @@ const handleSaveBasicData = async () => {
       });
     }
 
-    if (!selectedAddress) {
+        if (!selectedAddress) {
       return Swal.fire({ icon: "warning", title: "Falta la dirección" });
     }
 
     const isDark = document.documentElement.classList.contains("dark");
+
+    // ════════════════════════════════════════════════════════════
+    // FLUJO PAGO CON CRIPTO: la orden NO se crea hasta que el
+    // comprador tenga wallet conectada Y saldo USDT suficiente.
+    // Acá validamos todo ANTES de tocar el backend.
+    // ════════════════════════════════════════════════════════════
+        if (paymentMethod === "crypto") {
+      return await handleCryptoConfirm({ isDark });
+    }
 
     // MODAL 1: Compromiso de compra
  const productListHtml = sellerProducts.map(p => `
@@ -313,7 +375,7 @@ const step1 = await Swal.fire({
       try {
         // 1. CREAMOS LA ORDEN EN EL BACKEND
         const token = await getAccessToken();
-        const response = await axios.post(
+                const response = await axios.post(
           `${import.meta.env.VITE_SERVER_URL}/api/order/create`,
           {
             sellerId,
@@ -322,11 +384,68 @@ const step1 = await Swal.fire({
               quantity: p.quantity,
             })),
             shippingAddress: selectedAddress,
+            paymentMethod: paymentMethod,
+            token: paymentMethod === "crypto" ? tokenChoice : undefined,
           },
           { headers: { Authorization: `Bearer ${token}` } },
         );
 
-        const newOrderId = response.data.order._id;
+                const newOrderId = response.data.order._id;
+
+        // 💳 CASO PAGO CON CRIPTO: abrimos el modal del escrow para que el
+        // comprador fondeé USDT desde su wallet. No entramos al flujo de
+        // transferencia bancaria.
+                if (paymentMethod === "crypto" && response.data.order?.payment?.method === "crypto") {
+          // Vaciamos el carrito: la orden quedó creada.
+          sellerProducts.forEach((p) => removeFromCart(p._id));
+          // Adjuntamos la wallet del vendedor para que el modal pueda fondear el
+          // escrow con la dirección de destino correcta.
+          setCryptoOrder({
+            ...response.data.order,
+            sellerWallet: response.data.sellerWallet,
+            escrowContract: response.data.escrowContract,
+          });
+          setShowCryptoModal(true);
+          return;
+        }
+
+        // 💰 CASO ESPECIAL: el vendedor no tiene garantía suficiente.
+        // El backend NO rebotó la compra: creó la orden en "awaiting_collateral"
+        // y le da al vendedor un plazo para depositar. Nosotros avisamos al
+        // comprador que la compra quedó en espera y que puede decidir.
+        if (response.data.status === "awaiting_collateral" || response.data.order?.status === "awaiting_collateral") {
+          // Vaciamos el carrito: la orden ya quedó reservada/creada.
+          sellerProducts.forEach((p) => removeFromCart(p._id));
+          await Swal.fire({
+            title: "Compra en espera de garantía",
+            html: `
+              <div style="text-align: left; font-size: 0.9rem; line-height: 1.5; color: ${isDark ? "#e4e4e7" : "#374151"};">
+                <p style="margin-bottom: 12px;">
+                  El vendedor necesita depositar su <b>fondo de garantía</b> para poder activar tu orden.
+                </p>
+                <div style="background: ${isDark ? "#1f2937" : "#fffbeb"}; border: 1px solid ${isDark ? "#92400e" : "#fcd34d"}; padding: 12px; border-radius: 10px; margin-bottom: 12px;">
+                  <p style="margin: 0 0 4px 0; font-weight: 700; color: ${isDark ? "#fbbf24" : "#92400e"};">
+                    ⏱️ Plazo aproximado: ${response.data.collateralHold?.minutesLeft || 15} minutos
+                  </p>
+                  <p style="margin: 0;">
+                    Podés esperar a que el vendedor ponga la garantía, o buscar este producto en otro vendedor.
+                  </p>
+                </div>
+                <p style="font-size: 0.82rem; color: #6b7280;">
+                  No se te descontará nada hasta que el vendedor confirme su garantía. Si decide no hacerlo, la
+                  orden se cancelará sola sin costo para vos.
+                </p>
+              </div>
+            `,
+            icon: "info",
+            confirmButtonText: "Ver Detalle",
+            confirmButtonColor: "#3483fa",
+            background: isDark ? "#121212" : "#ffffff",
+            color: isDark ? "#f3f4f6" : "#1f2937",
+          });
+                    navigate(`/order/${response.data.order._id}`);
+          return;
+        }
 
         // Obtener datos bancarios del vendedor
         let bankAccount = null;
@@ -409,6 +528,182 @@ const step1 = await Swal.fire({
     }
   };
 
+    // ════════════════════════════════════════════════════════════
+  // FLUJO DE CONFIRMACIÓN PARA PAGO EN CRIPTO.
+  // Antes de crear la orden validamos que el comprador tenga:
+  //  1) Una wallet Web3 conectada (si no → CTA "Ir a Mi Billetera").
+  //  2) Saldo USDT suficiente para cubrir el total de la compra.
+  // La orden SOLO se crea si supera ambas validaciones.
+  // ════════════════════════════════════════════════════════════
+  const handleCryptoConfirm = async ({ isDark }) => {
+        // ── 1ª VALIDACIÓN: wallet conectada ──
+    const wallet = wallets?.find((w) => w.connected) || wallets?.[0];
+
+    // La wallet está conectada si existe y tiene dirección.
+    if (!wallet || !wallet.address) {
+      return await Swal.fire({
+        html: `
+          <div style="text-align: left; font-size: 0.9rem; line-height: 1.5; color: ${isDark ? "#e4e4e7" : "#374151"};">
+            <p style="margin: 0 0 12px 0;">Para pagar con criptomonedas necesitás tener una <b>wallet Web3</b> vinculada.</p>
+            <div style="background-color: ${isDark ? "#1e1b4b" : "#eff6ff"}; border: 1px solid ${isDark ? "#312e81" : "#bfdbfe"}; padding: 12px; border-radius: 8px;">
+              <p style="margin: 0; font-size: 0.85rem; color: ${isDark ? "#93c5fd" : "#1e40af"};">
+                Creá tu billetera desde <b>Mi Billetera</b> y volvé a este checkout para continuar.
+              </p>
+            </div>
+          </div>
+        `,
+        icon: "warning",
+        title: "Necesitás una wallet",
+        showCancelButton: true,
+        confirmButtonText: "Ir a Mi Billetera",
+        cancelButtonText: "Usar transferencia",
+        confirmButtonColor: "#F26722",
+        cancelButtonColor: isDark ? "#27272a" : "#6b7280",
+        background: isDark ? "#121212" : "#ffffff",
+        color: isDark ? "#f3f4f6" : "#1f2937",
+        reverseButtons: true,
+      }).then((result) => {
+        if (result.isConfirmed) {
+          navigate("/wallet");
+        } else {
+          setPaymentMethod("bank_transfer");
+          return handleFinalConfirm();
+        }
+      });
+    }
+
+    // ── 2ª VALIDACIÓN: cotización y saldo USDT ──
+    const quote = await getUsdtQuote(finalTotal);
+    const usdtNeeded = quote.usdtAmount || 0;
+
+        // Leemos el balance actual USDT de la wallet activa.
+    const usdtBalance = await getUsdtBalance(wallet);
+
+    const hasBalance = usdtBalance > 0 && usdtBalance >= usdtNeeded;
+
+    // ── SWAL DE CONFIRMACIÓN CRIPTO ──
+    // Mostramos el detalle en USDT y el estado del saldo de la wallet.
+    const confirmSwal = await Swal.fire({
+      title: '<span style="font-size: 1.15rem; font-weight: 800;">Confirmar pago en criptomonedas</span>',
+      html: `
+        <div style="text-align: left; font-size: 0.9rem; line-height: 1.6; color: ${isDark ? "#e4e4e7" : "#374151"};">
+          <div style="background-color: ${isDark ? "#1c1917" : "#fff7ed"}; border: 1px solid ${isDark ? "#7c2d12" : "#fdba74"}; padding: 15px; border-radius: 12px; margin-bottom: 15px;">
+            <p style="margin: 0 0 6px 0; font-weight: 800; color: #F26722; font-size: 0.95rem;">Monto a abonar en USDT</p>
+            <p style="margin: 0; font-size: 1.6rem; font-weight: 900; color: #F26722;">
+              ${usdtNeeded.toFixed(2)} <span style="font-size: 1rem; font-weight: 700;">USDT</span>
+            </p>
+            <p style="margin: 6px 0 0 0; font-size: 0.78rem; color: ${isDark ? "#a8a29e" : "#78716c"};">
+              ≈ $${finalTotal.toLocaleString()} ARS · Cotización: 1 USDT ≈ $${(quote.usdRate || 0).toFixed(2)} ARS
+            </p>
+          </div>
+
+          <div style="background-color: ${isDark ? "#27272a" : "#f4f4f5"}; padding: 12px; border-radius: 10px; margin-bottom: 12px;">
+            <p style="margin: 0 0 6px 0; font-weight: 700;">Detalle de la compra</p>
+            <p style="margin: 3px 0; font-size: 0.82rem;">📦 Productos: $${total.toLocaleString()} ARS</p>
+            <p style="margin: 3px 0; font-size: 0.82rem;">🚚 Envío: ${shippingTotal.toLocaleString() > 0 ? "$" + shippingTotal.toLocaleString() + " ARS" : "GRATIS"}</p>
+            <p style="margin: 6px 0 0 0; font-size: 0.82rem;">📍 Envío a: ${selectedAddress.street} ${selectedAddress.streetNumber}, ${selectedAddress.city}</p>
+          </div>
+
+          <div style="padding: 10px; border-radius: 10px; margin-bottom: 10px; ${
+            hasBalance
+              ? `background-color: ${isDark ? "#052e16" : "#ecfdf5"}; border: 1px solid ${isDark ? "#15803d" : "#a7f3d0"};`
+              : `background-color: ${isDark ? "#450a0a" : "#fef2f2"}; border: 1px solid ${isDark ? "#b91c1c" : "#fecaca"};`
+          }">
+            <p style="margin: 0; font-weight: 700; font-size: 0.85rem; color: ${hasBalance ? "#10b981" : "#ef4444"};">
+              ${hasBalance
+                ? `✅ Saldo suficiente: ${usdtBalance.toFixed(2)} USDT disponibles`
+                : `⚠️ Saldo insuficiente: ${usdtBalance.toFixed(2)} USDT disponibles`}
+            </p>
+            ${
+              hasBalance
+                ? ""
+                : `<p style="margin: 6px 0 0 0; font-size: 0.78rem; color: ${isDark ? "#fca5a5" : "#b91c1c"};">
+                     Necesitás **${usdtNeeded.toFixed(2)} USDT** para completar esta compra.
+                   </p>`
+            }
+          </div>
+
+          ${
+            hasBalance
+              ? `<p style="font-size: 0.78rem; color: #10b981; display: flex; align-items: center; gap: 4px;">🛡️ Tus USDT quedarán protegidos en el contrato escrow hasta que recibas el pedido.</p>`
+              : `<p style="font-size: 0.78rem; color: ${isDark ? "#a8a29e" : "#78716c"};">
+                   Depositá USDT en tu wallet para proceder con la compra. Usá el botón <b>"Depositar USDT"</b>.
+                 </p>`
+          }
+        </div>
+      `,
+      icon: hasBalance ? "question" : "warning",
+      showCancelButton: true,
+      confirmButtonText: hasBalance ? "Fondear escrow y confirmar" : "Depositar USDT",
+      cancelButtonText: "Volver",
+      confirmButtonColor: hasBalance ? "#F26722" : "#F26722",
+      cancelButtonColor: isDark ? "#27272a" : "#6b7280",
+      background: isDark ? "#121212" : "#ffffff",
+      color: isDark ? "#f3f4f6" : "#1f2937",
+      reverseButtons: true,
+      width: "560px",
+    });
+
+    // Si NO hay saldo suficiente, el botón "Depositar USDT" abre el modal de
+    // depósito (punto 4) para que vea su dirección y cómo comprar USDT.
+    if (confirmSwal.isConfirmed && !hasBalance) {
+      setShowDepositModal(true);
+      return;
+    }
+
+    // Si canceló, no se hace nada (sigue en el checkout).
+    if (!confirmSwal.isConfirmed) {
+      return;
+    }
+
+    // ── 3ª VALIDACIÓN PASADA → CREAMOS LA ORDEN Y ABRIMOS EL ESCROW ──
+    setIsLoading(true);
+    try {
+      const token = await getAccessToken();
+      const response = await axios.post(
+        `${import.meta.env.VITE_SERVER_URL}/api/order/create`,
+        {
+          sellerId,
+          items: sellerProducts.map((p) => ({
+            productId: p._id,
+            quantity: p.quantity,
+          })),
+          shippingAddress: selectedAddress,
+          paymentMethod: "crypto",
+          token: tokenChoice,
+        },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      const newOrder = response.data.order;
+      if (!newOrder?._id) {
+        throw new Error("No se pudo crear la orden. Intentá de nuevo.");
+      }
+
+      // Vaciamos el carrito: la orden quedó creada.
+      sellerProducts.forEach((p) => removeFromCart(p._id));
+
+      // Adjuntamos la wallet del vendedor y abrimos el modal del escrow para
+      // que el comprador apruebe y fondeé los USDT en el contrato.
+      setCryptoOrder({
+        ...newOrder,
+        sellerWallet: response.data.sellerWallet,
+        escrowContract: response.data.escrowContract,
+      });
+      setShowCryptoModal(true);
+    } catch (error) {
+      const errorMsg = error?.response?.data?.message || error.message || "No pudimos procesar la orden";
+      await Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: errorMsg,
+        confirmButtonColor: "#3483fa",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // 1. Filtramos los productos de este vendedor desde el Store
   const sellerProducts = useMemo(() => {
   return cart.filter(
@@ -440,7 +735,10 @@ const total = useMemo(() => {
 const finalTotal = useMemo(() => total + shippingTotal, [total, shippingTotal]);
 
 
-  const sellerName = sellerProducts[0]?.sellerName || "Vendedor";
+  const sellerName =
+    sellerProducts[0]?.seller?.shop?.name ||
+    sellerProducts[0]?.sellerName ||
+    "Vendedor";
 
   // Ahora puedes pasarle la función al Onboarding sin problemas
 
@@ -520,9 +818,18 @@ if (!authenticated ||  !dbUser ) {
               <CreditCard className="text-[#3483fa]" size={22} />
               Método de pago
             </h3>
-            <div className="flex flex-col sm:flex-row items-center justify-between p-4 border cursor-pointer border-[#3483fa] bg-blue-50 dark:bg-blue-900/10 rounded-lg">
+                        <div
+              onClick={() => { setPaymentMethod("bank_transfer"); }}
+              className={`flex flex-col sm:flex-row items-center justify-between p-4 border cursor-pointer rounded-lg ${
+                paymentMethod === "bank_transfer"
+                  ? "border-[#3483fa] bg-blue-50 dark:bg-blue-900/10"
+                  : "border-zinc-200 dark:border-zinc-700 bg-transparent"
+              }`}
+            >
               <div className="flex items-center gap-3">
-                <div className="w-4 h-4 rounded-full border-4 border-[#3483fa] hidden md:flex"></div>
+                <div className={`w-4 h-4 rounded-full border-4 hidden md:flex ${
+                  paymentMethod === "bank_transfer" ? "border-[#3483fa]" : "border-zinc-300 dark:border-zinc-600"
+                }`}></div>
                 <div>
                   <p className="font-semibold text-sm dark:text-white">
                     Transferencia o tarjeta de crédito
@@ -532,25 +839,42 @@ if (!authenticated ||  !dbUser ) {
                   </p>
                 </div>
               </div>
-              <span className="text-[10px] bg-[#3483fa] text-white m-2 px-2 py-0.5 rounded font-bold">
-                MEJOR PRECIO
-              </span>
+                            {paymentMethod === "bank_transfer" ? (
+                <span className="text-[10px] bg-[#3483fa] text-white px-2 py-0.5 rounded font-bold">
+                  SELECCIONADO
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded font-bold"></span>
+              )}
             </div>
-            <div className="flex flex-col sm:flex-row items-center justify-between p-4 border mt-4 border-[#173768] bg-blue-50 dark:bg-blue-900/10 rounded-lg select-none">
+            <div
+              onClick={() => { setPaymentMethod("crypto"); }}
+              className={`flex flex-col sm:flex-row items-center justify-between p-4 border mt-4 cursor-pointer rounded-lg ${
+                paymentMethod === "crypto"
+                  ? "border-[#F26722] bg-orange-50 dark:bg-orange-900/10"
+                  : "border-zinc-200 dark:border-zinc-700 bg-transparent"
+              }`}
+            >
               <div className="flex items-center gap-3">
-                <div className="w-4 h-4 rounded-full border-4 border-[#133669] hidden md:flex"></div>
+                <div className={`w-4 h-4 rounded-full border-4 hidden md:flex ${
+                  paymentMethod === "crypto" ? "border-[#F26722]" : "border-zinc-300 dark:border-zinc-600"
+                }`}></div>
                 <div>
                   <p className="font-semibold text-sm dark:text-white">
                     Pagar con Criptomonedas
                   </p>
                   <p className="text-xs text-gray-500">
-                    Paga con criptomonedas desde el saldo de tu wallet, con menor comisión.
+                      "Pagarás con USDT desde tu wallet. Fondos 100% protegidos en el contrato."                     
                   </p>
                 </div>
               </div>
-              <span className="text-[10px] bg-[#3483fa] text-white px-2 m-2 py-0.5 rounded font-bold">
-                PROXIMAMENTE
-              </span>
+                            {paymentMethod === "crypto" ? (
+                <span className="text-[10px] bg-[#F26722] text-white px-2 py-0.5 rounded font-bold">
+                  SELECCIONADO
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded font-bold"></span>
+              )}
             </div>
             {/* <div className="flex flex-col sm:flex-row items-center justify-between p-4 border mt-4 border-[#173768] bg-blue-50 dark:bg-blue-900/10 rounded-lg select-none">
               <div className="flex items-center gap-3">
@@ -873,8 +1197,42 @@ if (!authenticated ||  !dbUser ) {
                 </button>
               </div>
             )}
-          </div>
+                    </div>
         </div>
+      )}
+
+      {/* ──────────────────────────────────────
+          MODAL DE PAGO CON CRIPTO (Escrow)
+          Se muestra cuando el comprador eligió pagar con criptomonedas y
+          confirmó la orden (que ya quedó creada en el backend).
+      ────────────────────────────────────── */}
+            {showCryptoModal && cryptoOrder && (
+        <CryptoPaymentModal
+          order={cryptoOrder}
+          getAccessToken={getAccessToken}
+          onClose={() => { setShowCryptoModal(false); navigate("/compras"); }}
+          onSuccess={(updatedOrder) => {
+            setShowCryptoModal(false);
+            navigate(`/order/${updatedOrder._id}`);
+          }}
+        />
+      )}
+
+      {/* ──────────────────────────────────────
+          MODAL DE DEPÓSITO USDT
+          Se muestra cuando el comprador eligió pagar con cripto pero no tiene
+          saldo suficiente. Le muestra su dirección (copiable) y cómo comprar
+          USDT a un proveedor.
+      ────────────────────────────────────── */}
+      {showDepositModal && (
+        <DepositUsdtModal
+          onClose={() => {
+            setShowDepositModal(false);
+            // Al volver, recargamos el saldo y reabrimos la confirmación para
+            // que el comprador pueda reintentar el pago una vez depositó.
+            handleFinalConfirm();
+          }}
+        />
       )}
     </div>
   );

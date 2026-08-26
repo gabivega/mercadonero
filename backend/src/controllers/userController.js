@@ -1,5 +1,212 @@
 import User from "../models/User.js";
 import Product from "../models/Product.js";
+import {
+  validateBankAccount,
+  validateCUIT,
+  checkTitular,
+} from "../services/validationService.js";
+
+// ────────────────────────────────────────────────────────────────────────
+// ONBOARDING VENDEDOR
+// ────────────────────────────────────────────────────────────────────────
+// Completa los datos que un vendedor necesita para poder publicar productos
+// (publicaciones de pago con escrow). El front bloquea la publicación hasta
+// que se complete. Acá validamos sintaxis de CBU/CVU y CUIT. La titularidad
+// real (checkTitular) queda en stand by para cuentas verificadas premium.
+// ────────────────────────────────────────────────────────────────────────
+export const completeSellerOnboarding = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const {
+      bankName,
+      accountType,
+      holderName,
+      cuitCuil,
+      cbuCvu,
+            accountNumberType,
+      alias,
+      shopName,
+      shopDescription,
+      city,
+      province,
+      zipCode,
+      taxCondition,
+      firstName,
+      lastName,
+      dni,
+      phone,
+    } = req.body || {};
+
+        // Detección automática CBU vs CVU por cantidad de dígitos:
+    // 22 dígitos → CBU (cuenta bancaria) · 23 dígitos → CVU (billetera virtual).
+    const cbuCvuClean = String(cbuCvu || "").replace(/[\s-]/g, "");
+    const accountTypeValue = cbuCvuClean.length === 23 ? "CVU" : "CBU";
+    const bankValidation = validateBankAccount(accountTypeValue, cbuCvuClean);
+    if (!bankValidation.valid) {
+      return res.status(400).json({ success: false, field: "cbuCvu", message: bankValidation.reason });
+    }
+
+    const cuitValidation = validateCUIT(cuitCuil);
+    if (!cuitValidation.valid) {
+      return res.status(400).json({ success: false, field: "cuitCuil", message: cuitValidation.reason });
+    }
+
+    const required = { bankName, holderName, cuitCuil, cbuCvu, shopName, city, province };
+    const missing = Object.entries(required).find(([, v]) => !v || !String(v).trim());
+    if (missing) {
+      const [field] = missing;
+      const labels = {
+        bankName: "el nombre del banco",
+        holderName: "el titular de la cuenta",
+        cuitCuil: "el CUIT/CUIL",
+        cbuCvu: "el CBU/CVU",
+        shopName: "el nombre de la tienda",
+        city: "la ciudad",
+        province: "la provincia",
+      };
+      return res.status(400).json({ success: false, field, message: `Completá ${labels[field] || field} para continuar.` });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Usuario no encontrado." });
+    }
+
+    const updates = {};
+    if (firstName) updates.firstName = firstName;
+    if (lastName) updates.lastName = lastName;
+    if (dni) updates.dni = dni;
+    if (phone) updates.phone = phone;
+    if (firstName && lastName && dni && phone) updates.profileCompleted = true;
+
+    const shopBankAccount = {
+      bankName,
+      accountType: accountTypeValue,
+      cbu: cbuCvu,
+      cuit: cuitCuil,
+      holderName,
+      isDefault: true,
+      titularVerified: checkTitular,
+    };
+
+    updates["shop.active"] = true;
+    updates["shop.name"] = shopName.trim();
+    if (shopDescription) updates["shop.description"] = shopDescription.trim();
+        updates["shop.location"] = { city, province };
+    if (zipCode) updates["shop.location"].zipCode = zipCode.trim();
+    if (taxCondition && ["Monotributista", "Responsable Inscripto", "Exento", "Consumidor Final"].includes(taxCondition)) {
+      updates["shop.taxCondition"] = taxCondition;
+    }
+    updates["shop.bankAccounts"] = [shopBankAccount];
+    updates.isSeller = true;
+
+    const updatedUser = await User.findByIdAndUpdate(userId, { $set: updates }, { new: true, runValidators: true });
+
+    res.status(200).json({
+      success: true,
+      message: "¡Onboarding completado! Ya podés publicar tus productos.",
+      user: updatedUser,
+      shopActive: true,
+    });
+  } catch (error) {
+    console.error("Error en completeSellerOnboarding:", error);
+    res.status(500).json({ success: false, message: "Error al completar el onboarding de vendedor." });
+  }
+};
+
+// ────────────────────────────────────────────────────────────────────────
+// ESTADO DE ONBOARDING VENDEDOR
+// ────────────────────────────────────────────────────────────────────────
+export const getSellerOnboardingStatus = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const user = await User.findById(userId).select(
+      "shop.active shop.name firstName lastName dni phone shop.taxCondition",
+    );
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Usuario no encontrado." });
+    }
+
+    const shopActive = Boolean(user.shop?.active);
+    const hasBasicData = Boolean(user.firstName && user.lastName && user.dni && user.phone);
+
+    res.status(200).json({
+      success: true,
+      onboardingComplete: shopActive,
+      prefill: {
+        firstName: user.firstName || "",
+        lastName: user.lastName || "",
+        dni: user.dni || "",
+        phone: user.phone || "",
+        shopName: user.shop?.name || "",
+        taxCondition: user.shop?.taxCondition || "",
+      },
+            basicDataComplete: hasBasicData,
+    });
+  } catch (error) {
+    console.error("Error en getSellerOnboardingStatus:", error);
+    res.status(500).json({ success: false, message: "Error al obtener el estado de onboarding." });
+  }
+};
+
+// ────────────────────────────────────────────────────────────────────────
+// ACTUALIZACIÓN DE TIENDA (modo "editar tienda")
+// ────────────────────────────────────────────────────────────────────────
+// Actualiza SOLO los datos de la tienda y los datos básicos de usuario.
+// A diferencia de completeSellerOnboarding, NUNCA toca las cuentas
+// bancarias (shop.bankAccounts), que se administran exclusivamente desde
+// el perfil (BankAccountSection). Esto evita duplicar o pisar la cuenta.
+// ────────────────────────────────────────────────────────────────────────
+export const updateShop = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const {
+      firstName,
+      lastName,
+      dni,
+      phone,
+      shopName,
+      shopDescription,
+      city,
+      province,
+      zipCode,
+    } = req.body || {};
+
+    if (!shopName || !String(shopName).trim()) {
+      return res.status(400).json({ success: false, field: "shopName", message: "El nombre de la tienda es obligatorio." });
+    }
+    if (!city || !String(city).trim()) {
+      return res.status(400).json({ success: false, field: "city", message: "La ciudad es obligatoria." });
+    }
+    if (!province || !String(province).trim()) {
+      return res.status(400).json({ success: false, field: "province", message: "La provincia es obligatoria." });
+    }
+
+    const updates = {};
+    if (firstName) updates.firstName = firstName;
+    if (lastName) updates.lastName = lastName;
+    if (dni) updates.dni = dni;
+    if (phone) updates.phone = phone;
+    if (firstName && lastName && dni && phone) updates.profileCompleted = true;
+
+    updates["shop.name"] = shopName.trim();
+    if (shopDescription) updates["shop.description"] = shopDescription.trim();
+    updates["shop.location"] = { city, province };
+    if (zipCode) updates["shop.location"].zipCode = zipCode.trim();
+
+    const updatedUser = await User.findByIdAndUpdate(userId, { $set: updates }, { new: true, runValidators: true });
+
+    res.status(200).json({
+      success: true,
+      message: "¡Tienda actualizada!",
+      user: updatedUser,
+    });
+  } catch (error) {
+    console.error("Error en updateShop:", error);
+    res.status(500).json({ success: false, message: "Error al actualizar la tienda." });
+  }
+};
 
 /**
  * Formatea un contador al estilo "+10", "+50", "+100", etc.

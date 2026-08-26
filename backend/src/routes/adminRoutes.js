@@ -9,6 +9,9 @@ import {
   adminReleaseGuarantee,
   adminCancelOrder,
   adminGetCollateralStatus,
+  adminReleaseEscrow,
+  adminCancelEscrow,
+  adminUpdateEscrowFee,
 } from '../controllers/orderController.js';
 import {
   adminGetCashbackConfig,
@@ -32,6 +35,14 @@ router.patch('/orders/:orderId/release-guarantee', verifyPrivyToken, isAdmin, ad
 // Verificar estado real del colateral on-chain (solo admin) — PRIMER paso ante
 // una orden cancelada con garantía presuntamente congelada.
 router.get('/orders/:orderId/collateral-status', verifyPrivyToken, isAdmin, adminGetCollateralStatus);
+
+// ── GESTIÓN DEL ESCROW DE PAGOS CRIPTO (solo admin) ──
+// Liberar el escrow manualmente (fondos al vendedor, se cobra el fee).
+router.patch('/orders/:orderId/release-escrow', verifyPrivyToken, isAdmin, adminReleaseEscrow);
+// Cancelar/reembolsar el escrow (USDT al comprador).
+router.patch('/orders/:orderId/cancel-escrow', verifyPrivyToken, isAdmin, adminCancelEscrow);
+// Actualizar el fee global del escrow en el contrato (puntos base).
+router.patch('/escrow/fee', verifyPrivyToken, isAdmin, adminUpdateEscrowFee);
 
 // ── CASHBACK (solo admin) ──
 // Configuración global: activar/desactivar, importe, umbral, etc.

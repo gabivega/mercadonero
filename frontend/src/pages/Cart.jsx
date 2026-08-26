@@ -26,8 +26,16 @@ export default function Cart() {
 
   // Agrupamos por ID de vendedor para procesar órdenes individuales
   const groupedBySeller = cart.reduce((acc, item) => {
-    const sellerId = item.seller || "unknown";
-    const sellerName = item.sellerName || "Vendedor de Mercado Nero";
+    // seller puede venir como ObjectId plano o como objeto poblado (con shop).
+    const sellerRaw = item.seller;
+    const sellerId =
+      sellerRaw && typeof sellerRaw === "object"
+        ? sellerRaw._id || sellerRaw
+        : sellerRaw || "unknown";
+    const sellerName =
+      item.seller?.shop?.name ||
+      item.sellerName ||
+      "Vendedor de Mercado Nero";
     if (!acc[sellerId]) {
       acc[sellerId] = {
         name: sellerName,

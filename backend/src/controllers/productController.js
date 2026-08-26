@@ -150,8 +150,8 @@ if (listingType !== 'classified' && shipping) {
       // Logística Centralizada
       shipping:finalShipping,
       specifications: specifications || [],
-      seller: userId,
-      sellerName: userProfile?.username,
+            seller: userId,
+      sellerName: userProfile?.shop?.name || userProfile?.username,
       sellerIsVerified: userProfile?.isVerified || false,
       location: location,
       status: "active",
@@ -198,12 +198,14 @@ export const getMyProducts = async (req, res) => {
 
     // 3. Ahora buscamos los productos usando el ObjectId del vendedor (_id)
     // No usamos el did, usamos user._id que es el que guardamos al crear el producto
-    const products = await Product.find({
+        const products = await Product.find({
       seller: user._id,
       status: { $ne: "deleted" },
-    }).sort({
-      createdAt: -1,
-    });
+    })
+      .populate("seller", "username name shop isVerified")
+      .sort({
+        createdAt: -1,
+      });
 
     res.status(200).json({
       success: true,
@@ -359,13 +361,16 @@ export const getProducts = async (req, res) => {
 
    // --- 3. Ejecutar la Query con el orden dinámico ---
     // Si sortOptions está vacío (caso ofertas), no le pasamos nada al sort para no gastar recursos
-    const productsQuery = Product.find(query);
+        const productsQuery = Product.find(query);
     if (Object.keys(sortOptions).length > 0) {
       productsQuery.sort(sortOptions);
     }
-    
-    // Traemos un lote de productos (ej: 50) para luego mezclarlos
-    let products = await productsQuery.limit(50);
+
+    // Ejecutamos la query. Populate del vendedor para traer shop.name/username
+    // y poder mostrar el nombre de la tienda en las tarjetas de producto.
+    let products = await productsQuery
+      .populate("seller", "username name shop isVerified")
+      .exec();
 
     // 🔥 SI ES SECCIÓN DE OFERTAS, BARAJAMOS EL ARRAY (Algoritmo Fisher-Yates)
     if (isRandom && products.length > 0) {
@@ -398,9 +403,12 @@ export const getProductById = async (req, res) => {
     const { id } = req.params;
     console.log("GetproductbyId id: ", id);
 
-    const product = await Product.findById(id).populate(
+
+
+
+        const product = await Product.findById(id).populate(
       "seller",
-      "username name shop isVerified",
+      "username name shop isVerified shopName",
     ); // Traemos data del vendedor
 
     // Validamos que el producto exista Y que esté activo

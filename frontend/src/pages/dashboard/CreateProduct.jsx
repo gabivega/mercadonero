@@ -12,6 +12,10 @@ import PropertyForm from "../../components/PropertyForm.jsx";
 import ServiceForm from "../../components/ServiceForm.jsx";
 import DashboardLayout from "../../components/DashboardLayout.jsx";
 import NeroLogin from "../../components/NeroLogin.jsx";
+import SellerOnboarding from "../../components/SellerOnboarding.jsx";
+import { useUserStore } from "../../store/useUserStore";
+import { useSyncUser } from "../../Utils/userSync";
+
 
 import {
   Package,
@@ -30,8 +34,36 @@ export default function CreateProduct() {
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
-  // console.log("User:", user);
+    // console.log("User:", user);
   // console.log("isAuthenticated:", authenticated);
+
+  // ── ONBOARDING VENDEDOR ──
+  const { dbUser, setDbUser } = useUserStore();
+  const { syncUser } = useSyncUser(setDbUser);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [pendingProduct, setPendingProduct] = useState(null);
+  // ¿El usuario ya completó el onboarding del vendedor (tienda activa)?
+  const onboardingComplete = Boolean(dbUser?.shop?.active);
+  // Prefilleo con datos que ya tengamos del perfil
+  const onboardingPrefill = {
+    firstName: dbUser?.firstName || "",
+    lastName: dbUser?.lastName || "",
+    dni: dbUser?.dni || "",
+    phone: dbUser?.phone || "",
+    shopName: dbUser?.shop?.name || "",
+    taxCondition: dbUser?.shop?.taxCondition || "",
+  };
+
+  // Al terminar el onboarding, actualizamos el usuario y reintentamos publicar
+    const handleOnboardingComplete = async (draft) => {
+    // 1. Cerramos el modal
+    setIsOnboardingOpen(false);
+    // 2. Re-sincronizamos el usuario (trae shop.active = true al store)
+    await syncUser();
+    // 3. Reintentamos la publicación con el draft que venía.
+    //    force=true: ya completó el onboarding, no re-bloquear.
+    if (draft) await handleSubmit(draft, true);
+  };
 
   // Función unificada para errores
   const showError = (msg) => {
@@ -46,7 +78,22 @@ export default function CreateProduct() {
     });
   };
 
-  const handleSubmit = async (productData) => {
+    const handleSubmit = async (productData, force = false) => {
+      // ── BLOQUEO DE ONBOARDING VENDEDOR ──
+      // Solo se exige onboarding vendedor completo para publicaciones de pago
+      // (producto con escrow). Los clasificados (vehículos, servicios, inmuebles)
+      // no intervienen en el pago y NO piden estos datos en el MVP
+      // (eso será para cuentas verificadas premium).
+      const isPaidListing = productData.listingType !== "classified";
+
+      if (isPaidListing && !onboardingComplete && !force) {
+        // Guardamos el draft para reintentar el submit al terminar el onboarding
+        // (punto B: no se pierde el esfuerzo del vendedor).
+        setPendingProduct(productData);
+        setIsOnboardingOpen(true);
+        return;
+      }
+
     // 1. Validación de imágenes (Universal)
     if (!productData.images || productData.images.length === 0) {
       return Swal.fire({
@@ -216,9 +263,19 @@ export default function CreateProduct() {
             handleSubmit={handleSubmit} 
             isSubmitting={isSubmitting} 
           />
-        )}
+                )}
         <ImportSection />
       </div>
+
+      {/* Modal de Onboarding Vendedor */}
+      <SellerOnboarding
+        isOpen={isOnboardingOpen}
+        onClose={() => setIsOnboardingOpen(false)}
+        onComplete={handleOnboardingComplete}
+        draft={pendingProduct}
+        prefill={onboardingPrefill}
+      />
     </DashboardLayout>
   );
 }
+

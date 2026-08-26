@@ -154,6 +154,9 @@ const AdminUserModal = ({ user, isOpen, onClose }) => {
                   <InfoItem icon={Mail} label="Reembolsos pend." value={data.accounting?.refundsPending ?? 0} />
                   <InfoItem icon={FileText} label="Reclamos" value={data.accounting?.claimsOpened ?? 0} />
                   <InfoItem icon={Store} label="Devoluciones" value={data.accounting?.returnsRequested ?? 0} />
+                  <InfoItem icon={Clock} label="Garantías vencidas" value={data.accounting?.expiredCollateralHolds ?? 0} />
+                  <InfoItem icon={X} label="Orden rechazada (vendedor)" value={data.accounting?.collateralRejectedBySeller ?? 0} />
+                  <InfoItem icon={Clock} label="Espera cancelada p/ comprador" value={data.accounting?.collateralHoldCancelledByBuyer ?? 0} />
                 </div>
               </section>
 

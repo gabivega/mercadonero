@@ -30,8 +30,9 @@ export default function Purchases() {
   }, []);
 
   // Helper para los colores y etiquetas del estado
-  const getStatusDetails = (status) => {
+    const getStatusDetails = (status) => {
     const states = {
+      awaiting_collateral: { label: 'En espera de garantía', color: 'text-amber-500 bg-amber-50 dark:bg-amber-900/10', icon: <Clock size={14}/> },
       pending_payment: { label: 'Pendiente de pago', color: 'text-amber-500 bg-amber-50 dark:bg-amber-900/10', icon: <Clock size={14}/> },
       verifying_payment: { label: 'Verificando pago', color: 'text-blue-500 bg-blue-50 dark:bg-blue-900/10', icon: <AlertCircle size={14}/> },
       paid: { label: 'Pagado', color: 'text-green-500 bg-green-50 dark:bg-green-900/10', icon: <CheckCircle size={14}/> },

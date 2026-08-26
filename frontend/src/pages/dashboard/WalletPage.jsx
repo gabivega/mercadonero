@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import { usePrivy, useWallets, useCreateWallet } from '@privy-io/react-auth';
 import { createPublicClient, http, formatUnits, createWalletClient, custom, parseUnits } from 'viem';
 import { bscTestnet } from 'viem/chains';
-import { Wallet, RefreshCcw, ArrowUpRight, Copy, PlusCircle, Sparkles, BadgePercent } from 'lucide-react';
+
+import { Wallet, RefreshCcw, ArrowUpRight, Copy, PlusCircle, Sparkles, BadgePercent, ChevronDown } from 'lucide-react';
 import axios from 'axios';
 import SendTokenModal from '../../components/SendTokenModal';
 import Swal from 'sweetalert2';
 import CollateralManager from '../../components/CollateralManager';
 import LoadingSpinner from '../../components/LoadingSpinner';
+import { useUserStore } from '../../store/useUserStore';
 
 const TESTNET_TOKENS = [
   { 
@@ -34,6 +36,15 @@ export default function WalletPage() {
   const { user, authenticated, getAccessToken } = usePrivy();
   const { wallets } = useWallets();
   const { createWallet } = useCreateWallet();
+  const { dbUser } = useUserStore();
+
+      // Solo los vendedores gestionan garantías (colateral para vender).
+  // El flag isSeller de la BD no siempre se actualiza al crear productos,
+  // así que además del flag oficial consideramos vendedor a quien tenga
+  // al menos una publicacion creada (ver checkSellerByProducts).
+  const [hasProducts, setHasProducts] = useState(false);
+  const [isCollateralOpen, setIsCollateralOpen] = useState(false);
+  const isSeller = Boolean(dbUser?.isSeller) || hasProducts;
 
   const [balances, setBalances] = useState({});
   const [isLoading, setIsLoading] = useState(false);
@@ -157,9 +168,25 @@ export default function WalletPage() {
       setCashback(res.data.cashback || null);
     } catch (err) {
       console.error("Error cargando cashback:", err);
-      setCashback(null);
+            setCashback(null);
     } finally {
       setCashbackLoading(false);
+    }
+  };
+
+  // Verifica si el usuario tiene publicaciones creadas, para considerarlo
+  // vendedor incluso cuando el flag isSeller de la BD no se actualiza.
+  const checkSellerByProducts = async () => {
+    try {
+      const token = await getAccessToken();
+      const res = await axios.get(
+        `${import.meta.env.VITE_SERVER_URL}/api/product/my-products`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setHasProducts(Number(res.data?.count ?? 0) > 0);
+    } catch (err) {
+      console.error("Error verificando publicaciones del usuario:", err);
+      setHasProducts(false);
     }
   };
 
@@ -202,8 +229,33 @@ export default function WalletPage() {
           nonce: nextNonce,
         });
       }
+      // ... existing code ...
 
-      alert(`¡Envío exitoso! Hash: ${hash}`);
+      const isDark = document.documentElement.classList.contains("dark");
+
+      Swal.fire({
+        title: "¡Envío Exitoso!",
+        html: `
+          <p style="color: ${isDark ? "#9ca3af" : "#4b5563"}; margin-bottom: 8px;">
+            Tu transacción fue procesada correctamente.
+          </p>
+          <p style="font-family: monospace; font-size: 12px; color: ${isDark ? "#60a5fa" : "#2563eb"}; word-break: break-all;">
+            ${hash}
+          </p>
+        `,
+        icon: "success",
+        background: isDark ? "#1f2937" : "#ffffff",
+        color: isDark ? "#f3f4f6" : "#1f2937",
+        confirmButtonColor: "#F26722",
+        confirmButtonText: "Listo",
+        showCancelButton: true,
+        cancelButtonText: "Ver en explorador",
+        cancelButtonColor: "#3483fa",
+      }).then((result) => {
+        if (result.dismiss === Swal.DismissReason.cancel) {
+          window.open(`https://testnet.bscscan.com/tx/${hash}`, "_blank");
+        }
+      });
       setIsModalOpen(false);
       
       setTimeout(() => {
@@ -212,17 +264,27 @@ export default function WalletPage() {
 
     } catch (error) {
       console.error("Error envío:", error);
-      alert("La transacción falló o fue rechazada.");
-    } finally {
+      const isDark = document.documentElement.classList.contains("dark");
+      Swal.fire({
+        title: "Envío Fallido",
+        text: "La transacción falló o fue rechazada. Verificá el saldo y la dirección, e intentá nuevamente.",
+        icon: "error",
+        background: isDark ? "#1f2937" : "#ffffff",
+        color: isDark ? "#f3f4f6" : "#1f2937",
+        confirmButtonColor: "#F26722",
+      });
+        } finally {
       setIsSending(false);
     }
   };
 
             useEffect(() => {
-    if (authenticated) {
+        if (authenticated) {
       // El cashback vive en la BD de la plataforma (no on-chain), por lo que
       // lo cargamos siempre, incluso si todavía no tiene wallet web3 creada.
       fetchCashback();
+      // Verificamos si el usuario es vendedor (tiene publicaciones creadas).
+      checkSellerByProducts();
       if (hasWallet) {
         fetchAllBalances();
       }
@@ -265,13 +327,42 @@ export default function WalletPage() {
               <LoadingSpinner size="sm" />
               <span>Generando billetera...</span>
             </>
-                    ) : (
+                                        ) : (
             <>
               <PlusCircle size={20} />
               <span>Crear mi Billetera</span>
             </>
           )}
-                </button>
+        </button>
+
+        {/* Saldo acumulado de cashback (en BD, visible aunque no tenga wallet) */}
+        <div className="w-full text-left mt-6 p-5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/30">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2.5 bg-white dark:bg-zinc-900 rounded-xl shrink-0">
+              <BadgePercent className="text-emerald-600" size={20} />
+            </div>
+            <h3 className="font-bold text-sm dark:text-white">
+              Tu cashback acumulado
+            </h3>
+          </div>
+          {cashbackLoading && !cashback ? (
+            <div className="py-3">
+              <LoadingSpinner size="sm" text="Cargando saldo..." />
+            </div>
+          ) : (
+            <>
+              <p className="text-sm text-zinc-600 dark:text-zinc-300">
+                Saldo acumulado mediante cashback por tus compras:{" "}
+                <b className="text-emerald-600 dark:text-emerald-400">
+                  US$ {(cashback?.balance ?? 0).toFixed(2)} USDT
+                </b>
+              </p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">
+                Activá tu wallet para poder utilizarlo.
+              </p>
+            </>
+          )}
+        </div>
       </div>
     );
   }
@@ -324,6 +415,22 @@ export default function WalletPage() {
             </button>
           </div>
         ))}
+      </div>
+      <div className="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-100 dark:border-blue-900/30 flex items-start gap-3">
+        <Wallet className="text-blue-600 mt-1" size={20} />
+        <div className="flex-1">
+          <p className="text-sm text-blue-800 dark:text-blue-300 font-medium">Dirección de depósito (BSC)</p>
+          <div className="flex items-center gap-2">
+            <p className="text-xs font-mono text-blue-600/70 break-all">{user.wallet.address}</p>
+            <button
+              onClick={handleCopyAddress}
+              className="p-1.5 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+              title="Copiar dirección"
+            >
+              <Copy size={14} className="text-blue-600 dark:text-blue-400" />
+            </button>
+          </div>
+        </div>
       </div>
 
             {/* ────────────────────────────────────────────────
@@ -431,26 +538,34 @@ export default function WalletPage() {
         )}
       </section>
 
-      <div className="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-100 dark:border-blue-900/30 flex items-start gap-3">
-        <Wallet className="text-blue-600 mt-1" size={20} />
-        <div className="flex-1">
-          <p className="text-sm text-blue-800 dark:text-blue-300 font-medium">Dirección de depósito (BSC)</p>
-          <div className="flex items-center gap-2">
-            <p className="text-xs font-mono text-blue-600/70 break-all">{user.wallet.address}</p>
-            <button
-              onClick={handleCopyAddress}
-              className="p-1.5 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
-              title="Copiar dirección"
-            >
-              <Copy size={14} className="text-blue-600 dark:text-blue-400" />
-            </button>
-          </div>
-        </div>
-      </div>
 
-      <CollateralManager />
+            {/* ── GARANTÍAS DE VENDEDOR ──
+           Solo visible para vendedores. Como es una sección de uso
+           esporádico, se muestra plegada y se despliega a pedido. */}
+      {isSeller && (
+        <section className="bg-white dark:bg-[#252525] rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm">
+          <button
+            onClick={() => setIsCollateralOpen((v) => !v)}
+            className="w-full flex items-center justify-between gap-3 p-5 hover:bg-gray-50 dark:hover:bg-zinc-800/40 transition-colors"
+          >
+            <span className="flex items-center gap-3">
+              <span className="text-lg font-bold dark:text-white">Garantías de Vendedor</span>
+              <span className="text-xs text-gray-400">Gestión de colateral para vender</span>
+            </span>
+            <ChevronDown
+              size={20}
+              className={`text-gray-400 transition-transform ${isCollateralOpen ? "rotate-180" : ""}`}
+            />
+          </button>
+          {isCollateralOpen && (
+            <div className="px-5 pb-5">
+              <CollateralManager />
+            </div>
+          )}
+        </section>
+      )}
 
-      <SendTokenModal 
+      <SendTokenModal  
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)} 
         token={selectedToken} 

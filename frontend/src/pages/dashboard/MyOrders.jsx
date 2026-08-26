@@ -33,9 +33,10 @@ export default function MyOrders() {
     fetchOrders();
   }, []);
 
-  const getStatusStyle = (status) => {
+    const getStatusStyle = (status) => {
     switch (status) {
       case 'pending': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
+      case 'awaiting_collateral': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
       case 'payment_submitted': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
       case 'payment_confirmed': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400';
       case 'shipped': return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400';
@@ -48,6 +49,7 @@ export default function MyOrders() {
   const translateStatus = (status) => {
     const map = {
       pending: 'Pendiente Pago',
+      awaiting_collateral: 'Espera de Garantía',
       payment_submitted: 'Pago Enviado',
       verifying_payment: 'Pago por verificar',
       payment_confirmed: 'Pago Recibido',
@@ -57,6 +59,10 @@ export default function MyOrders() {
     };
     return map[status] || status;
   };
+
+  // Si la orden está esperando garantía, mostramos un indicador visual de
+  // acción pendiente para el vendedor (depositar colateral).
+  const isAwaitingCollateral = (status) => status === 'awaiting_collateral';
 
   if (loading) return <div className="p-8 text-center"><LoadingSpinner size="lg" text="Cargando órdenes..." /></div>;
 
@@ -81,8 +87,8 @@ export default function MyOrders() {
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <div className={`p-3 rounded-2xl ${getStatusStyle(order.status)}`}>
-                    {order.status === 'payment_submitted' ? <AlertCircle size={24} /> : <Clock size={24} />}
+                                    <div className={`p-3 rounded-2xl ${getStatusStyle(order.status)}`}>
+                    {(order.status === 'payment_submitted' || isAwaitingCollateral(order.status)) ? <AlertCircle size={24} /> : <Clock size={24} />}
                   </div>
                   
                   <div>
@@ -122,8 +128,9 @@ export default function MyOrders() {
                 </div>
               </div>
               
-              {/* Indicador visual para el vendedor si hay un pago pendiente de revisar */}
-              {order.status === 'payment_submitted' && (
+                            {/* Indicador visual para el vendedor si tiene una acción pendiente:
+                  pago por revisar o depósito de garantía para activar la venta */}
+              {(order.status === 'payment_submitted' || isAwaitingCollateral(order.status)) && (
                 <div className="absolute -top-1 -right-1 flex h-4 w-4">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#F26722] opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-4 w-4 bg-[#F26722]"></span>

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import {
-  Package,
+    Package,
   Eye,
   ShoppingCart,
   DollarSign,
+  TrendingUp,
   Edit3,
   Pause,
   Play,
@@ -14,20 +15,27 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  Store,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 import axios from "axios";
 import LoadingSpinner from "../../components/LoadingSpinner";
 import ProductEditModal from "../../components/ProductEditModal";
+import SellerOnboarding from "../../components/SellerOnboarding";
+import { useUserStore } from "../../store/useUserStore";
+import { useSyncUser } from "../../Utils/userSync";
 
 export default function SellerDashboard() {
   const { getAccessToken } = usePrivy(); //
+  const { dbUser, setDbUser } = useUserStore();
+  const { syncUser } = useSyncUser(setDbUser);
   const [products, setProducts] = useState([]); //
   const [orders, setOrders] = useState([]); //[cite: 1]
   const [isLoading, setIsLoading] = useState(true); //[cite: 1]
   const [selectedProduct, setSelectedProduct] = useState(null); //[cite: 1]
   const [isEditModalOpen, setIsEditModalOpen] = useState(false); //[cite: 1]
+  const [isShopEditOpen, setIsShopEditOpen] = useState(false);
   const navigate = useNavigate(); //[cite: 1]
 
   // 🔍 ESTADOS NUEVOS PARA FILTRADO Y PAGINACIÓN
@@ -46,9 +54,14 @@ export default function SellerDashboard() {
     setCurrentPage(1);
   };
 
-  const handleEditClick = (product) => {
+    const handleEditClick = (product) => {
     setSelectedProduct(product); //[cite: 1]
     setIsEditModalOpen(true); //[cite: 1]
+  };
+
+  // 👁️ Función para previsualizar el producto en una nueva pestaña
+  const handlePreview = (productId) => {
+    window.open(`/product/${productId}`, "_blank", "noopener,noreferrer");
   };
 
   const fetchMyOrders = async () => {
@@ -201,32 +214,56 @@ export default function SellerDashboard() {
   // Estos son los productos recortados finales que se van a mapear en el render
   const currentProducts = filteredProducts.slice(indexOfFirstItem, indexOfLastItem);
 
+  // Datos reales de la tienda para el modal de edición (prefilleo).
+  const shop = dbUser?.shop || {};
+  const shopPrefill = {
+    firstName: dbUser?.firstName || "",
+    lastName: dbUser?.lastName || "",
+    dni: dbUser?.dni || "",
+    phone: dbUser?.phone || "",
+    shopName: shop?.name || "",
+    shopDescription: shop?.description || "",
+    province: shop?.location?.province || "",
+    city: shop?.location?.city || "",
+    zipCode: shop?.location?.zipCode || "",
+    bankName: shop?.bankAccounts?.[0]?.bankName || "",
+    holderName: shop?.bankAccounts?.[0]?.holderName || "",
+    cuitCuil: shop?.bankAccounts?.[0]?.cuit || "",
+    cbuCvu: shop?.bankAccounts?.[0]?.cbu || "",
+                alias: shop?.bankAccounts?.[0]?.alias || "",
+  };
+
+  // 💰 Total COMERCIADO en USD: suma del valor bruto (totalUsd) de las órdenes completadas.
+  const totalTradedUsd = orders
+    .filter((order) => order.status === "completed")
+    .reduce((acc, order) => acc + (order.financials?.totalUsd || 0), 0);
+
   const stats = [
     {
       label: "Productos",
-      value: products.length, //[cite: 1]
-      icon: <Package size={20} />, //[cite: 1]
-      color: "text-blue-500", //[cite: 1]
+      value: products.length,
+      icon: <Package size={20} />,
+      color: "text-blue-500",
     },
     {
       label: "Vistas Totales",
-      value: products.reduce((acc, p) => acc + (p.views || 0), 0), //[cite: 1]
-      icon: <Eye size={20} />, //[cite: 1]
-      color: "text-purple-500", //[cite: 1]
+      value: products.reduce((acc, p) => acc + (p.views || 0), 0),
+      icon: <Eye size={20} />,
+      color: "text-purple-500",
     },
     {
       label: "Mis Órdenes",
-      value: orders.length, //[cite: 1]
-      icon: <ShoppingCart size={20} />, //[cite: 1]
-      color: "text-green-500", //[cite: 1]
-      clickable: true, //[cite: 1]
-      onClick: () => navigate("/mis-ordenes"), //[cite: 1]
+      value: orders.length,
+      icon: <ShoppingCart size={20} />,
+      color: "text-green-500",
+      clickable: true,
+      onClick: () => navigate("/mis-ordenes"),
     },
     {
-      label: "Ingresos (Mock)",
-      value: "$540.000", //[cite: 1]
-      icon: <DollarSign size={20} />, //[cite: 1]
-      color: "text-amber-500", //[cite: 1]
+      label: "Total Comerciado",
+      value: `USD ${totalTradedUsd.toLocaleString("en-US")}`,
+      icon: <TrendingUp size={20} />,
+      color: "text-amber-500",
     },
   ];
 
@@ -249,12 +286,22 @@ export default function SellerDashboard() {
             Gestiona tus publicaciones y ventas en tiempo real.
           </p>
         </div>
-        <button
-          onClick={() => navigate("/vender")} //[cite: 1]
-          className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-blue-500/20 uppercase text-xs tracking-widest"
-        >
-          <Plus size={18} /> Vender
-        </button>
+                <div className="w-full md:w-auto flex flex-col sm:flex-row gap-3">
+          {dbUser?.shop?.active && (
+            <button
+              onClick={() => setIsShopEditOpen(true)}
+              className="w-full md:w-auto bg-white dark:bg-[#1A1A1A] hover:bg-gray-50 dark:hover:bg-[#252525] text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700 px-6 py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all active:scale-95 uppercase text-xs tracking-widest"
+            >
+              <Store size={18} /> Editar tienda
+            </button>
+          )}
+          <button
+            onClick={() => navigate("/vender")} //[cite: 1]
+            className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-blue-500/20 uppercase text-xs tracking-widest"
+          >
+            <Plus size={18} /> Vender
+          </button>
+        </div>
       </div>
 
       {/* Grid de Stats */}
@@ -408,7 +455,14 @@ export default function SellerDashboard() {
                       </span>
                     </td>
                     <td className="p-6">
-                      <div className="flex justify-end gap-2">
+                                            <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => handlePreview(p._id)}
+                          className="p-3 hover:bg-purple-50 dark:hover:bg-purple-500/10 text-purple-500 rounded-xl transition-all"
+                          title="Vista previa"
+                        >
+                          <Eye size={18} />
+                        </button>
                         <button
                           onClick={() => toggleStatus(p._id, p.status)} //[cite: 1]
                           className={`p-3 rounded-xl transition-all ${p.status === "active" ? "hover:bg-amber-50 dark:hover:bg-amber-500/10 text-amber-500" : "hover:bg-green-50 dark:hover:bg-green-500/10 text-green-500"}`} //[cite: 1]
@@ -502,7 +556,14 @@ export default function SellerDashboard() {
                   >
                     {p.status === "active" ? "Activo" : "Pausado"}
                   </span>
-                  <div className="flex gap-2">
+                                    <div className="flex gap-2">
+                    <button
+                      onClick={() => handlePreview(p._id)}
+                      className="p-2 hover:bg-purple-50 dark:hover:bg-purple-500/10 text-purple-500 rounded-lg transition-all"
+                      title="Vista previa"
+                    >
+                      <Eye size={16} />
+                    </button>
                     <button
                       onClick={() => toggleStatus(p._id, p.status)} //[cite: 1]
                       className={`p-2 rounded-lg transition-all ${p.status === "active" ? "hover:bg-amber-50 dark:hover:bg-amber-500/10 text-amber-500" : "hover:bg-green-50 dark:hover:bg-green-500/10 text-green-500"}`} //[cite: 1]
@@ -595,10 +656,22 @@ export default function SellerDashboard() {
         )}
       </div>
 
-      <ProductEditModal
+            <ProductEditModal
         product={selectedProduct} //[cite: 1]
         isOpen={isEditModalOpen} //[cite: 1]
         onClose={() => setIsEditModalOpen(false)} //[cite: 1]
+      />
+
+      <SellerOnboarding
+        isOpen={isShopEditOpen}
+        mode="edit"
+        prefill={shopPrefill}
+        onClose={() => {
+          setIsShopEditOpen(false);
+          // Refrescamos el usuario en el store para reflejar los cambios de la tienda.
+          syncUser();
+        }}
+        onComplete={() => {}}
       />
     </div>
   );

@@ -113,10 +113,13 @@ export const getAllUsers = async (req, res) => {
 
 
 
-                    "accounting.claimsOpened": 1,
-                    "accounting.returnsRequested": 1,
-                    "accounting.expiredOrdersAsBuyer": 1,
-                    "accounting.restricted": 1,
+                                                  "accounting.claimsOpened": 1,
+          "accounting.returnsRequested": 1,
+          "accounting.expiredOrdersAsBuyer": 1,
+          "accounting.expiredCollateralHolds": 1,
+          "accounting.collateralRejectedBySeller": 1,
+          "accounting.collateralHoldCancelledByBuyer": 1,
+          "accounting.restricted": 1,
           totalSales: { $size: "$sales" },
           totalPurchases: { $size: "$purchases" },
         },
@@ -141,12 +144,15 @@ export const getAllUsers = async (req, res) => {
             totalSales: u.totalSales,
       totalPurchases: u.totalPurchases,
       rating: u.rating,
-      createdAt: u.createdAt,
-            accounting: {
+            createdAt: u.createdAt,
+      accounting: {
         refundsPending: u.accounting?.refundsPending ?? 0,
         claimsOpened: u.accounting?.claimsOpened ?? 0,
         returnsRequested: u.accounting?.returnsRequested ?? 0,
         expiredOrdersAsBuyer: u.accounting?.expiredOrdersAsBuyer ?? 0,
+        expiredCollateralHolds: u.accounting?.expiredCollateralHolds ?? 0,
+        collateralRejectedBySeller: u.accounting?.collateralRejectedBySeller ?? 0,
+        collateralHoldCancelledByBuyer: u.accounting?.collateralHoldCancelledByBuyer ?? 0,
         restricted: u.accounting?.restricted ?? false,
       },
     }));

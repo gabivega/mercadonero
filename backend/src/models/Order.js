@@ -76,6 +76,7 @@ const orderSchema = new Schema(
     status: {
       type: String,
       enum: [
+        "awaiting_collateral",
         "pending_payment",
         "verifying_payment",
         "paid",
@@ -91,6 +92,7 @@ const orderSchema = new Schema(
         status: {
           type: String,
           enum: [
+            "awaiting_collateral",
             "pending_payment",
             "verifying_payment",
             "paid",
@@ -124,7 +126,80 @@ const orderSchema = new Schema(
       shippingCostUsd: { type: Number, default: 0 }, // Costo de envío en USD (si aplica)
       sellerNetReleaseUsd: { type: Number, required: true }, // Lo que efectivamente recibe el vendedor
     },
+
+    // ────────────────────────────────────────────────
+    // CASHBACK (acumulación en BD) - auditoría por orden
+    // ────────────────────────────────────────────────
+    cashback: {
+      // Monto de cashback acreditado al comprador al completarse la orden.
+      earnedUsd: { type: Number, default: 0 },
+      // Tasa efectiva usada (feePercent de la config global o override).
+      feePercentUsed: { type: Number, default: 0 },
+      // Si el comprador usó cashback para descontar el pago de ESTA orden.
+      usedInCheckout: { type: Number, default: 0 }, // USD descontados con cashback
+      // Si el cashback de esta orden fue acreditado (evita acreditación doble).
+      creditAccrued: { type: Boolean, default: false },
+    },
     expiresAt: { type: Date, required: true },
+
+    // ────────────────────────────────────────────────
+    // PAGO CON CRIPTOMONEDAS (Escrow NeroEscrow)
+    // Cuando payment.method === "crypto", el comprador fondea USDT/USDC/DAI
+    // en el contrato escrow y los fondos quedan retenidos hasta que el admin
+    // libera (comprador confirmó recepción) o cancela (reembolso al comprador).
+    // ────────────────────────────────────────────────
+    payment: {
+      method: {
+        type: String,
+        enum: ["bank_transfer", "crypto"],
+        default: "bank_transfer",
+      },
+      token: {
+        type: String,
+        enum: ["USDT", "USDC", "DAI", "BNB"],
+        default: "USDT",
+      },
+      status: {
+        type: String,
+        enum: ["unpaid", "funding", "funded", "released", "cancelled_refunded"],
+        default: "unpaid",
+      },
+      tokenAddress: { type: String, default: "" },        // dirección del token usado
+      amountUsdRetained: { type: Number, default: 0 },    // monto total USDT retenido (productos + envío)
+      feeBps: { type: Number, default: 0 },               // fee global del contrato en puntos base al momento de la orden
+      feeUsd: { type: Number, default: 0 },               // comisión del backend (feeBps sobre el total)
+      sellerNetUsd: { type: Number, default: 0 },         // lo que recibe el vendedor (neto)
+      fundTxHash: { type: String, default: "" },          // tx del comprador fondeando el escrow
+      releaseTxHash: { type: String, default: "" },       // tx del admin liberando al vendedor
+      cancelTxHash: { type: String, default: "" },        // tx del admin devolviendo al comprador
+      fundedAt: { type: Date, default: null },            // cuándo se fondeó on-chain
+      releasedAt: { type: Date, default: null },          // cuándo se liberó (vendió)
+      cancelledRefundedAt: { type: Date, default: null }, // cuándo se reembolsó
+    },
+
+    // ────────────────────────────────────────────────
+    // HOLD DE COLATERAL (estado "awaiting_collateral")
+    // Cuando el vendedor no tiene saldo de garantía libre suficiente para
+    // cubrir una orden, ésta entra a un estado intermedio de espera hasta que
+    // el vendedor deposite (15 min) o el comprador la cancele/expire.
+    // ────────────────────────────────────────────────
+    collateralHold: {
+      requestedAt: { type: Date, default: null },
+      expiresAt: { type: Date, default: null },       // Dead-line del vend, 15 min
+      reserveUsd: { type: Number, default: 0 },       // Monto USDT reservado en capacidad
+      reason: { type: String, default: "" },          // "insufficient_collateral"
+      status: {
+        type: String,
+        enum: ["pending", "fulfilled", "expired", "cancelled"],
+        default: "pending",
+      },
+      fulfilledAt: { type: Date, default: null },      // Cuando el vendedor depositó
+      expiredAt: { type: Date, default: null },        // Cuando venció el plazo
+      cancelledAt: { type: Date, default: null },      // Cuando se canceló la espera
+      // Nota: cuando el vendedor deposita y la orden pasa a 'pending_payment',
+      // status -> "fulfilled" y se libera el campo collateralTxHash con el
+      // hash real del lock on-chain (guardado en collateralTxHash como hoy).
+    },
 
     // Quién canceló (o expiró) la orden. Sirve para decidir qué ratings de
     // usuario ("seller_rating" / "buyer_rating") están habilitados cuando la

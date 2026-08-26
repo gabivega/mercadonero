@@ -13,7 +13,9 @@ import {
   UploadCloud,
   MessageSquare,
   Sparkles,
-  Star,
+    Star,
+  Hourglass,
+  ShieldCheck,
 } from "lucide-react";
 import Swal from "sweetalert2";
 import { useUserStore } from "../../store/useUserStore";
@@ -26,6 +28,7 @@ import OrderInfoAccordion from "../../components/OrderInfoAccordion";
 import CancelOrderAction from "../../components/CancelOrderAction";
 import LoadingSpinner from "../../components/LoadingSpinner";
 import OrderRatings from "../../components/OrderRatings";
+import CollateralHoldCard from "../../components/CollateralHoldCard";
 
 export default function OrderDetail() {
     const { id } = useParams();
@@ -202,8 +205,20 @@ export default function OrderDetail() {
       )}
       {/* 1. Línea de Tiempo / Status */}
       <div className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
-        <div className="flex flex-wrap justify-between gap-4">
-       {order.status !== "expired" ? steps.map((step, index) => (
+                <div className="flex flex-wrap justify-between gap-4">
+       {order.status === "awaiting_collateral" ? (
+          <div className="flex flex-col items-center gap-2 flex-1 min-w-[100px]">
+            <div className="p-3 rounded-full bg-amber-500 text-white animate-pulse">
+              <Hourglass size={20} />
+            </div>
+            <p className="text-[10px] font-bold uppercase text-center text-amber-600 dark:text-amber-400">
+              Esperando garantía del vendedor
+            </p>
+            <p className="text-[9px] text-gray-500 dark:text-gray-400 text-center max-w-xs">
+              El vendedor debe depositar su fondo de garantía para confirmar el envío de tu orden.
+            </p>
+          </div>
+        ) : order.status !== "expired" ? steps.map((step, index) => (
             <div
               key={step.id}
               className={`flex flex-col items-center gap-2 flex-1 min-w-[100px] ${index <= currentStepIndex ? "opacity-100" : "opacity-30"}`}
@@ -239,10 +254,15 @@ export default function OrderDetail() {
                 hour: '2-digit',
                 minute: '2-digit'
               }) : 'Fecha no disponible'}
-            </p>
+                        </p>
           </div>}
         </div>
       </div>
+
+            {/* Estado de espera de colateral (vendedor sin garantía suficiente) */}
+      {order.status === "awaiting_collateral" && (
+        <CollateralHoldCard order={order} role={role} onUpdate={fetchOrder} />
+      )}
 
             {/* Botón para comunicarse con la otra parte */}
       <section className="bg-white dark:bg-[#121212] p-4 md:p-5 rounded-2xl border dark:border-zinc-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -312,16 +332,20 @@ export default function OrderDetail() {
             ))}
           </section>
 
-          {role === "buyer" && order.status === "pending_payment" && (
+                    {role === "buyer" && order.status === "pending_payment" && (
             <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
-              <PaymentAction
-                orderId={order._id}
-                onUpdate={() => {
-                  // Refrescar la orden
-                  fetchOrder();
-                }}
-                sellerId={order.seller._id}
-              />
+              {order.payment?.method === "crypto" ? (
+                <EscrowPaymentStatus order={order} onUpdate={fetchOrder} />
+              ) : (
+                <PaymentAction
+                  orderId={order._id}
+                  onUpdate={() => {
+                    // Refrescar la orden
+                    fetchOrder();
+                  }}
+                  sellerId={order.seller._id}
+                />
+              )}
             </section>
           )}
                                         {role === "seller" && order.status === "verifying_payment" && (
@@ -514,7 +538,161 @@ export default function OrderDetail() {
               {order.shippingAddress.city}, {order.shippingAddress.province}
             </p>
           </section>
-        </div> */}
+                </div> */}
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// TARJETA DE ESTADO DE PAGO CON CRIPTO (Escrow).
+// Se muestra al comprador cuando la orden se pagó con criptomonedas.
+// Reemplaza al PaymentAction (datos bancarios del vendedor), que NO
+// aplica para pagos en cripto.
+// ──────────────────────────────────────────────────────────────
+function EscrowPaymentStatus({ order, onUpdate }) {
+  const { getAccessToken } = usePrivy();
+  const [checking, setChecking] = useState(false);
+  const isDark = document.documentElement.classList.contains("dark");
+
+    const payment = order.payment || {};
+  // El escrow está fondeado cuando el sub-estado de pago lo indica (on-chain
+  // confirmado por el backend) o el status de la orden ya está pagado.
+  const isFunded =
+    payment.status === "funded" ||
+    ["paid", "shipped", "completed"].includes(order.status);
+  // Monto retenido en USDT: usamos lo que configuró el backend en el escrow.
+  const totalUsdt =
+    payment.amountUsdRetained ||
+    (order.financials?.totalUsd || 0) + (order.financials?.shippingCostUsd || 0);
+
+    // Lee on-chain el estado del escrow (GET /escrow-status) y refresca la orden
+  // para traer el estado más reciente del fondeo.
+  const checkFunding = async () => {
+    setChecking(true);
+    try {
+      const token = await getAccessToken();
+      const { data } = await axios.get(
+        `${import.meta.env.VITE_SERVER_URL}/api/order/${order._id}/escrow-status`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (data.success) {
+        // Refrescamos la orden para reflejar el estado on-chain del escrow.
+        onUpdate();
+      }
+    } catch (err) {
+      console.error(err);
+      Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: err?.response?.data?.message || "No se pudo verificar el escrow.",
+        confirmButtonColor: "#F26722",
+        background: isDark ? "#121212" : "#ffffff",
+        color: isDark ? "#f3f4f6" : "#1f2937",
+      });
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div className="bg-[#F26722]/5 border-2 border-[#F26722] p-6 rounded-[2.5rem] shadow-sm">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="bg-[#F26722] p-2 rounded-xl text-white shadow-lg shadow-[#F26722]/20">
+          <ShieldCheck size={20} />
+        </div>
+        <h3 className="font-black uppercase tracking-tight dark:text-white italic">
+          Pago con Criptomonedas
+        </h3>
+      </div>
+
+      <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-6 font-medium leading-relaxed">
+        Esta compra se abona con USDT. Tus fondos quedaron retenidos en el
+        contrato escrow de Mercado Nero y se liberarán al vendedor recién cuando
+        confirmes la recepción del pedido.
+      </p>
+
+      <div className="bg-white dark:bg-[#252525] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 mb-6">
+        <h4 className="text-xs font-black uppercase text-center tracking-widest text-[#F26722] mb-4">
+          Detalle del Escrow
+        </h4>
+        <div className="space-y-3 md:px-[25%]">
+          <div className="flex justify-between items-center flex-col sm:flex-row">
+            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Token</span>
+            <span className="text-sm font-medium dark:text-white">{payment.token || "USDT"}</span>
+          </div>
+          <div className="flex justify-between items-center flex-col sm:flex-row">
+            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Monto retenido</span>
+            <span className="text-sm font-mono font-bold text-[#F26722]">
+              {totalUsdt > 0 ? totalUsdt.toFixed(2) : "—"} USDT
+            </span>
+          </div>
+                    <div className="flex justify-between items-center flex-col sm:flex-row">
+            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Contrato</span>
+                        <button
+              onClick={() => {
+                const addr = import.meta.env.VITE_ESCROW_CONTRACT_ADDRESS || "";
+                if (navigator.clipboard) {
+                  navigator.clipboard.writeText(addr);
+                }
+                Swal.fire({
+                  icon: "success",
+                  title: "Dirección copiada",
+                  text: "Contrato escrow copiado al portapapeles.",
+                  confirmButtonColor: "#F26722",
+                  toast: true,
+                  position: "top-end",
+                  timer: 2200,
+                  showConfirmButton: false,
+                });
+              }}
+              className="text-sm font-mono text-[#3483fa] hover:underline truncate max-w-[160px]"
+            >
+              {import.meta.env.VITE_ESCROW_CONTRACT_ADDRESS
+                ? import.meta.env.VITE_ESCROW_CONTRACT_ADDRESS.slice(0, 8) + "..." + import.meta.env.VITE_ESCROW_CONTRACT_ADDRESS.slice(-4)
+                : "—"}
+            </button>
+          </div>
+          <div className="flex justify-between items-center flex-col sm:flex-row">
+            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Estado del depósito</span>
+            <span
+              className={`text-sm font-bold ${
+                isFunded
+                  ? "text-emerald-500"
+                  : "text-amber-500"
+              }`}
+            >
+              {isFunded ? "✓ Fondeado" : "En espera de fondeo"}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {!isFunded && (
+        <button
+          onClick={checkFunding}
+          disabled={checking}
+          className="w-full group relative overflow-hidden py-4 bg-zinc-900 dark:bg-white text-white dark:text-black rounded-2xl font-black uppercase tracking-widest transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-50"
+        >
+          <div className="flex items-center justify-center gap-2 relative z-10">
+            {checking ? (
+              <>
+                <LoadingSpinner size="sm" />
+                Verificando...
+              </>
+            ) : (
+              <>
+                <CheckCircle size={18} />
+                Verificar fondeo del escrow
+              </>
+            )}
+          </div>
+        </button>
+      )}
+
+      <div className="mt-4 flex items-center justify-center gap-2 text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
+        <ShieldCheck size={12} />
+        Tu pago está protegido en el contrato escrow
       </div>
     </div>
   );

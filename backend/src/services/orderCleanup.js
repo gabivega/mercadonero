@@ -4,6 +4,8 @@ import Order from "../models/Order.js";
 import User from "../models/User.js"; // 👈 Necesitamos buscar al vendedor para saber su wallet
 import { transitionToStatus } from "./orderHelpers.js";
 import { cancelVendorCollateral } from "./blockchainServices.js"; // 👈 Importamos el servicio
+import { expireCollateralHold } from "./collateralHoldService.js"; // 👈 Expiración de holds de colateral
+import { verifyOrderFunded } from "./escrowServices.js"; // 👈 Verificamos fondeo on-chain de escrow crypto
 
 // Se ejecuta cada 15 minutos (según tu schedule)
 const startOrderCleanup = () => {
@@ -27,8 +29,28 @@ const startOrderCleanup = () => {
         return;
       }
 
-      for (const order of expiredOrders) {
+            for (const order of expiredOrders) {
         try {
+          // ═══════════════════════════════════════════════════════
+          // GUARDIA PARA PAGO CRIPTO:
+          // Si la orden es de pago en criptomonedas, primero verificamos
+          // on-chain si el comprador YA fondeó el escrow (aunque no haya
+          // reportado el txHash al backend). En ese caso la orden NO debe
+          // expirar: los USDT están retenidos en el contrato y esperan la
+          // confirmación del comprador.
+          // ═══════════════════════════════════════════════════════
+          if (order.payment?.method === "crypto") {
+            const fundedCheck = await verifyOrderFunded(order._id.toString());
+            if (fundedCheck.success && fundedCheck.funded) {
+              console.log(
+                `[Cron] Orden crypto ${order._id} YA está fondeada on-chain (aunque no reportada). No se expira; queda al flujo de confirmación del comprador.`,
+              );
+              continue;
+            }
+            // Si el escrow NO está fondeado on-chain (comprador no abonó),
+            // la orden puede expirar normalmente. (Cae al flujo de abajo.)
+          }
+
           console.log(`[Cron] Procesando expiración para la orden: ${order._id}`);
 
           // 1. Buscar la wallet del vendedor de la orden
@@ -61,11 +83,33 @@ const startOrderCleanup = () => {
             $inc: { "accounting.expiredOrdersAsBuyer": 1 },
           });
 
-          console.log(`[Cron] Orden ${order._id} expirada y colateral devuelto al vendedor con éxito.`);
+                    console.log(`[Cron] Orden ${order._id} expirada y colateral devuelto al vendedor con éxito.`);
 
         } catch (orderError) {
           console.error(`[Cron Error] Error individual procesando orden ${order._id}:`, orderError);
         }
+      }
+
+      // ---------------------------------------------------------------
+      // EXPIRACIÓN DE HOLDS DE COLATERAL ("awaiting_collateral")
+      // Órdenes que quedaron esperando que el vendedor deposite colateral y
+      // cuyo plazo (15 min) ya venció. No hay colateral on-chain congelado en
+      // este estado, así que solo se marca la orden expirada y se registra la
+      // penalización al vendedor (vía expireCollateralHold).
+      // ---------------------------------------------------------------
+      const expiredHolds = await Order.find({
+        status: "awaiting_collateral",
+        "collateralHold.status": "pending",
+        "collateralHold.expiresAt": { $lt: new Date() },
+      });
+
+      for (const holdOrder of expiredHolds) {
+        await expireCollateralHold(holdOrder).catch((err) =>
+          console.error(`[Cron Error] Falló expirar hold ${holdOrder._id}:`, err),
+        );
+      }
+      if (expiredHolds.length > 0) {
+        console.log(`[Cron] ${expiredHolds.length} hold(s) de colateral vencidos y expirados.`);
       }
     } catch (error) {
       console.error("Error crítico en el cleanup de órdenes:", error);

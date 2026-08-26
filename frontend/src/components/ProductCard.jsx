@@ -13,14 +13,20 @@ export default function ProductCard({ product }) {
     navigate(`/product/${product._id}`);
   };
 
-    const handleAddToCart = (e) => {
+        const handleAddToCart = (e) => {
     e.stopPropagation();
-    // Normalizamos el producto antes de guardarlo en el carrito para unificar
-    // el formato con ProductDetail: seller y sellerId siempre como string plano.
+    // Normalizamos el producto antes de guardarlo en el carrito:
+    // - sellerId SIEMPRE plano (id) para agrupar órdenes por vendedor.
+    // - seller conserva el objeto poblado (con shop.name/username) SI viene,
+    //   para que el carrito pueda mostrar el nombre de la tienda.
+    const sellerObj =
+      product.seller && typeof product.seller === "object"
+        ? product.seller
+        : null;
     const normalizedProduct = {
       ...product,
       sellerId: product.seller?._id || product.seller,
-      seller: product.seller?._id || product.seller, // Siempre plano
+      seller: sellerObj || product.seller?._id || product.seller,
     };
     addToCart(normalizedProduct);
 
@@ -154,8 +160,11 @@ export default function ProductCard({ product }) {
         </div>
                 <div className="flex items-center gap-2 mt-1">
           {(() => {
-            const sellerId = product.seller?._id || product.seller;
-            const sellerName = product.sellerName || product.seller?.username;
+                        const sellerId = product.seller?._id || product.seller;
+            const sellerName =
+              product.seller?.shop?.name ||
+              product.sellerName || // fallback para productos viejos sin populate
+              product.seller?.username;
             if (sellerName && sellerId) {
               return (
                 <a

@@ -153,7 +153,7 @@ export default function UserProfilePage() {
 
             <div className="flex-1 text-center sm:text-left">
               <h1 className="text-2xl sm:text-3xl font-black italic uppercase tracking-tighter text-gray-900 dark:text-white leading-none">
-                {user.name || user.username || "Nero"}
+                {user.shop?.name || user.name || user.username || "Nero"}
               </h1>
               <p className="text-[#3483fa] font-bold text-sm uppercase tracking-widest mt-1">
                 @{user.username}
@@ -167,7 +167,7 @@ export default function UserProfilePage() {
                   </span>
                 ) : (
                   <span className="flex items-center gap-1 px-2.5 py-1 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 rounded-full font-bold uppercase tracking-wide">
-                    Usuario
+                    Usuario no verificado
                   </span>
                 )}
 
