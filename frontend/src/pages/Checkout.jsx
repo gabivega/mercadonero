@@ -18,9 +18,13 @@ import { useUserStore } from "../store/useUserStore";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import AuthOnboarding from "../components/AuthOnboarding";
 import { useSyncUser } from "../Utils/userSync";
+
+
+
 import LoadingSpinner from "../components/LoadingSpinner";
 import CryptoPaymentModal from "../components/CryptoPaymentModal";
 import DepositUsdtModal from "../components/DepositUsdtModal";
+import { getAuthenticatedWallet } from "../Utils/walletSelector";
 
 export default function Checkout() {
   const { sellerId } = useParams();
@@ -51,7 +55,7 @@ const [selectedAddress, setSelectedAddress] = useState(null);
     "function balanceOf(address account) external view returns (uint256)",
   ];
 
-  const activeWallet = wallets?.[0];
+  const activeWallet = getAuthenticatedWallet(wallets, user?.wallet?.address);
 
   // Convierte ARS → USDT usando una API pública de cotización del dólar cripto.
   // Devuelve { usdRate, usdtAmount } o null si falla.
@@ -335,9 +339,12 @@ const step1 = await Swal.fire({
               ${shippingTotal === 0 ? 'GRATIS' : `$${shippingTotal.toLocaleString()}`}
             </span>
           </p>
-          <p style="margin: 8px 0 0 0; display: flex; justify-content: space-between; font-size: 1.1rem; border-top: 1px solid ${isDark ? "#3f3f46" : "#e5e7eb"}; pt-2">
+                    <p style="margin: 8px 0 0 0; display: flex; justify-content: space-between; font-size: 1.1rem; border-top: 1px solid ${isDark ? "#3f3f46" : "#e5e7eb"}; pt-2">
             <b>Total Final:</b>
             <span style="color: #3483fa; font-weight: 900;">$${finalTotal.toLocaleString()}</span>
+          </p>
+          <p style="margin: 8px 0 0 0; font-size: 0.85rem; color: #10b981; display: flex; align-items: center; gap: 4px;">
+            ⚡ <span>Ganás <b>2.5%</b> de cashback en <b>USDT</b> sobre tus productos (se acredita al completar la compra).</span>
           </p>
         </div>
         <p style="margin: 10px 0 0 0; font-size: 0.85rem;">👤 <b>Vendedor:</b> ${sellerName}</p>
@@ -353,7 +360,7 @@ const step1 = await Swal.fire({
 
       <div style="background-color: ${isDark ? "#1e1b4b" : "#eff6ff"}; border: 1px solid ${isDark ? "#312e81" : "#bfdbfe"}; padding: 12px; border-radius: 8px; margin-top: 15px;">
         <p style="margin: 0; font-weight: 600; color: ${isDark ? "#93c5fd" : "#1e40af"}; font-size: 0.85rem;">
-          ⏱️ Tienes 60 minutos para realizar y notificar el pago. De lo contrario, la orden se cancelará automáticamente.
+          ⏱️ Tienes 60 minutos para realizar y notificar el pago. De lo contrario, la orden se cancelará automáticamente y podrías ser penalizado.
         </p>
       </div>
     </div>
@@ -537,7 +544,8 @@ const step1 = await Swal.fire({
   // ════════════════════════════════════════════════════════════
   const handleCryptoConfirm = async ({ isDark }) => {
         // ── 1ª VALIDACIÓN: wallet conectada ──
-    const wallet = wallets?.find((w) => w.connected) || wallets?.[0];
+        // Usamos SIEMPRE la embedded wallet del usuario autenticado.
+        const wallet = getAuthenticatedWallet(wallets, user?.wallet?.address);
 
     // La wallet está conectada si existe y tiene dirección.
     if (!wallet || !wallet.address) {
@@ -864,7 +872,7 @@ if (!authenticated ||  !dbUser ) {
                     Pagar con Criptomonedas
                   </p>
                   <p className="text-xs text-gray-500">
-                      "Pagarás con USDT desde tu wallet. Fondos 100% protegidos en el contrato."                     
+                      Pagarás con USDT desde tu wallet. Fondos 100% protegidos en el contrato.                    
                   </p>
                 </div>
               </div>

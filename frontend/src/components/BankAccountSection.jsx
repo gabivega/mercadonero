@@ -15,8 +15,14 @@ const BankAccountsSection = ({ bankAccounts, getAccessToken, profile, setProfile
     isDefault: false
   });
 
-  const handleChange = (e) => {
+    const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
+    // CBU/CVU: solo dígitos y máximo 23 caracteres.
+    if (name === 'cbuCvu') {
+      const digits = value.replace(/\D/g, '').slice(0, 23);
+      setFormData(prev => ({ ...prev, cbuCvu: digits }));
+      return;
+    }
     setFormData(prev => ({
       ...prev,
       [name]: type === 'checkbox' ? checked : value
@@ -37,10 +43,10 @@ const BankAccountsSection = ({ bankAccounts, getAccessToken, profile, setProfile
     } else if (formData.cuitCuil.length < 10) {
       errors.push('CUIT/CUIL inválido (mínimo 10 caracteres)');
     }
-    if (!formData.cbuCvu.trim()) {
+        if (!formData.cbuCvu.trim()) {
       errors.push('El CBU/CVU es requerido');
-    } else if (formData.cbuCvu.length !== 22) {
-      errors.push('El CBU/CVU debe tener exactamente 22 dígitos');
+    } else if (formData.cbuCvu.length !== 22 && formData.cbuCvu.length !== 23) {
+      errors.push('El CBU/CVU debe tener 22 (CBU) o 23 (CVU) dígitos');
     }
     if (!formData.alias.trim()) {
       errors.push('El alias es requerido');
@@ -86,11 +92,37 @@ const BankAccountsSection = ({ bankAccounts, getAccessToken, profile, setProfile
     }
   };
 
-  const handleDelete = async (index) => {
+    const handleDelete = async (index) => {
     const updatedAccounts = bankAccounts.filter((_, i) => i !== index);
-    // Aquí llamarías a tu lógica de updateProfile similar al submit...
-    setProfile({ ...profile, bankAccounts: updatedAccounts });
-    // Fetch al back para persistir...
+
+    // Confirmación antes de borrar (los datos bancarios son sensibles).
+    Swal.fire({
+      title: "¿Eliminar esta cuenta?",
+      text: "Al eliminarla dejarás de recibir pagos en esta cuenta. Podés agregar otra después.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#ef4444",
+      cancelButtonColor: "#6b7280",
+      confirmButtonText: "Sí, eliminar",
+      cancelButtonText: "Cancelar",
+    }).then(async (result) => {
+      if (!result.isConfirmed) return;
+
+      try {
+        // Persistimos el borrado en el backend (mismo flujo que agregar).
+        await handleSaveProfile({ bankAccounts: updatedAccounts });
+        // Actualizamos el estado local solo tras guardar con éxito.
+        setProfile({ ...profile, bankAccounts: updatedAccounts });
+      } catch (error) {
+        console.error("Error eliminando cuenta bancaria:", error);
+        Swal.fire({
+          icon: "error",
+          title: "Error",
+          text: "No se pudo eliminar la cuenta bancaria. Intentá de nuevo.",
+          confirmButtonColor: "#3b82f6",
+        });
+      }
+    });
   };
 
   return (
@@ -175,14 +207,15 @@ const BankAccountsSection = ({ bankAccounts, getAccessToken, profile, setProfile
               <option value="Cuenta Corriente">Cuenta Corriente</option>
             </select>
           </div>
-          <div className="space-y-2 md:col-span-2">
-            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">CBU / CVU (22 dígitos)</label>
+                    <div className="space-y-2 md:col-span-2">
+            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">CBU / CVU (22 o 23 dígitos)</label>
             <input 
               name="cbuCvu" 
               required 
               value={formData.cbuCvu} 
               onChange={handleChange} 
-              maxLength={22} 
+              maxLength={23} 
+              inputMode="numeric" 
               placeholder="00000031000..." 
               className="input-nero w-full" 
             />

@@ -127,11 +127,13 @@ const handleOpenModal = (order) => {
   
         // Devuelve un texto si la orden tiene una solicitud de cancelación
     // pendiente que requiere intervención del admin (para detectarla fácil).
-    const detectPendingCancellation = (order) => {
+        const detectPendingCancellation = (order) => {
       const pendingRelease =
         order.releaseRequest?.exists && order.releaseRequest.status === 'pending';
       const pendingRefund =
         order.pendingRequest?.exists && order.pendingRequest.status === 'pending';
+      const dispute = order.dispute?.exists && order.dispute.status === 'open';
+      if (dispute) return `⚖️ Disputa: ${order.dispute.issueType || 'problema'}`;
       if (pendingRelease) return 'Cancelación solicitada (admin)';
       if (pendingRefund) return 'Reembolso en proceso';
       return null;

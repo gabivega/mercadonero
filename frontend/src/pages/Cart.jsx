@@ -10,6 +10,7 @@ import {
   Store,
   ChevronRight,
 } from "lucide-react";
+import CashbackBadge from "../components/CashbackBadge";
 
 
 export default function Cart() {
@@ -146,6 +147,15 @@ export default function Cart() {
                               Envío gratis
                             </p>
                           ) : null}
+
+                          {/* Cashback (reintegro en USDT) considerando cantidad */}
+                          <CashbackBadge
+                            priceArs={
+                              (item.sale?.price > 0
+                                ? item.sale.price
+                                : item.price) * item.quantity
+                            }
+                          />
                         </div>
 
                         <div className="flex items-center justify-between mt-4">

@@ -29,6 +29,7 @@ import CancelOrderAction from "../../components/CancelOrderAction";
 import LoadingSpinner from "../../components/LoadingSpinner";
 import OrderRatings from "../../components/OrderRatings";
 import CollateralHoldCard from "../../components/CollateralHoldCard";
+import CashbackBadge from "../../components/CashbackBadge";
 
 export default function OrderDetail() {
     const { id } = useParams();
@@ -136,10 +137,37 @@ export default function OrderDetail() {
     role = "seller";
   }
 
-  // ID de la otra parte (vendedor o comprador) según tu rol
+    // ID de la otra parte (vendedor o comprador) según tu rol
   const otherUserId = role === "seller"
     ? (order.buyer?._id || order.buyer)
     : (order.seller?._id || order.seller);
+
+  // Datos de la contraparte para navegar a su perfil público (/user/:id).
+  // Puede venir poblado (objeto con _id) o como simple id string.
+  const goToProfile = (uid) => {
+    if (!uid) return;
+    if (typeof uid === "string") navigate(`/user/${uid}`);
+    else if (uid._id) navigate(`/user/${uid._id}`);
+  };
+
+  const isMeSeller = role === "seller";
+  const counterpartyRaw = isMeSeller ? order.buyer : order.seller;
+  const counterpartyId = otherUserId; // ya calculado como id de la contraparte
+  const counterpartyName = isMeSeller
+    ? `${order.buyer?.firstName || ""} ${order.buyer?.lastName || ""}`.trim() ||
+      order.buyer?.username ||
+      order.buyer ||
+      "Usuario"
+    : order.seller?.shop?.name || order.seller?.username || "Usuario";
+  const counterpartyAvatar = isMeSeller
+    ? order.buyer?.avatar ||
+      `https://ui-avatars.com/api/?name=${encodeURIComponent(counterpartyName)}&background=random`
+    : order.seller?.shop?.logo ||
+      `https://ui-avatars.com/api/?name=${encodeURIComponent(counterpartyName)}&background=random`;
+  const counterpartyShop = isMeSeller
+    ? null
+    : order.seller?.shop?.name || null;
+
 
   const handleStartChat = async () => {
     if (!otherUserId || startingChat) return;
@@ -183,7 +211,13 @@ export default function OrderDetail() {
     { id: "completed", label: "Completado", icon: <Package size={20} /> },
   ];
 
-        const currentStepIndex = steps.findIndex((s) => s.id === order.status);
+                const currentStepIndex = steps.findIndex((s) => s.id === order.status);
+
+    // Total de productos en ARS de esta orden (para estimar el cashback).
+    const orderProductsTotal = (order.itemsSnapshot || []).reduce(
+      (acc, it) => acc + (Number(it.price) || 0) * (Number(it.quantity) || 1),
+      0,
+    );
 
     return (
     <div className="max-w-5xl mx-auto p-4 md:p-8 space-y-8">
@@ -264,28 +298,54 @@ export default function OrderDetail() {
         <CollateralHoldCard order={order} role={role} onUpdate={fetchOrder} />
       )}
 
-            {/* Botón para comunicarse con la otra parte */}
-      <section className="bg-white dark:bg-[#121212] p-4 md:p-5 rounded-2xl border dark:border-zinc-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <div>
+                        {/* Botón para comunicarse con la otra parte + acceso a su perfil */}
+      <section className="bg-white dark:bg-[#121212] p-4 md:p-5 rounded-2xl border dark:border-zinc-800 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          {/* Avatar + nombre de la contraparte → lleva a su perfil público */}
+          <button
+            onClick={() => goToProfile(counterpartyRaw)}
+            disabled={!counterpartyId}
+            className="shrink-0 group flex items-center gap-3 rounded-xl disabled:cursor-not-allowed"
+            title="Ver el perfil de esta persona"
+          >
+            <img
+              src={counterpartyAvatar}
+              alt={counterpartyName}
+              className="w-11 h-11 rounded-full object-cover border-2 border-zinc-200 dark:border-zinc-700 group-hover:ring-2 group-hover:ring-[#3483fa]/50 transition-all"
+            />
+            <div className="text-left min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-0.5">
+                {role === "seller" ? "Comprador de esta venta" : "Vendedor de tu compra"}
+              </p>
+              <p className="font-bold text-sm dark:text-white truncate group-hover:text-[#3483fa] group-hover:underline capitalize transition-colors">
+                {counterpartyName}
+              </p>
+              {counterpartyShop && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                  Tienda {counterpartyShop}
+                </p>
+              )}
+            </div>
+          </button>
+        </div>
+
+        <div className="flex flex-col items-start lg:items-end gap-2 shrink-0">
           <h3 className="font-bold text-base dark:text-white">
             ¿Necesitás hablar con {role === "seller" ? "el comprador" : "el vendedor"}?
           </h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Coordiná el envío o resolvé dudas sobre esta compra/venta.
-          </p>
+          <button
+            onClick={handleStartChat}
+            disabled={startingChat}
+            className="flex items-center gap-2 bg-[#3483fa] hover:bg-blue-600 text-white px-4 py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50 transition-colors"
+          >
+            <MessageSquare size={18} />
+            {startingChat
+              ? "Abriendo chat..."
+              : role === "seller"
+                ? "Enviar mensaje al comprador"
+                : "Enviar mensaje al vendedor"}
+          </button>
         </div>
-        <button
-          onClick={handleStartChat}
-          disabled={startingChat}
-          className="flex items-center gap-2 bg-[#3483fa] hover:bg-blue-600 text-white px-4 py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50 transition-colors flex-shrink-0"
-        >
-          <MessageSquare size={18} />
-          {startingChat
-            ? "Abriendo chat..."
-            : role === "seller"
-              ? "Enviar mensaje al comprador"
-              : "Enviar mensaje al vendedor"}
-        </button>
       </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-1 gap-8">
@@ -296,12 +356,16 @@ export default function OrderDetail() {
             {/* Encabezado: título a la izquierda y, para el comprador, los
                 "3 puntitos" (menú de cancelar) a la derecha, ya que en esa
                 posición quedan integrados y no sueltos entre tarjetas. */}
-            <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-lg">Productos en esta orden</h3>
-              {role === "buyer" &&
+              {((role === "buyer" &&
                 !order.pendingRequest?.exists &&
                 (order.status === "pending_payment" ||
-                  order.status === "verifying_payment") && (
+                  order.status === "verifying_payment")) ||
+                (role === "seller" &&
+                  order.status === "paid" &&
+                  order.payment?.method !== "crypto" &&
+                  !order.pendingRequest?.exists)) && (
                   <CancelOrderAction
                     order={order}
                     role={role}
@@ -309,7 +373,7 @@ export default function OrderDetail() {
                   />
                 )}
             </div>
-            {order.itemsSnapshot.map((item, idx) => (
+                        {order.itemsSnapshot.map((item, idx) => (
               <div
                 key={idx}
                 className="flex gap-4 border-b dark:border-zinc-800 py-4 last:border-0"
@@ -330,6 +394,16 @@ export default function OrderDetail() {
                 </div>
               </div>
             ))}
+
+            {/* Cashback estimado (solo comprador, mientras la orden está activa) */}
+            {role === "buyer" &&
+              ["pending_payment", "verifying_payment", "paid", "shipped"].includes(
+                order.status,
+              ) && (
+                <div className="pt-3">
+                  <CashbackBadge priceArs={orderProductsTotal} />
+                </div>
+              )}
           </section>
 
                     {role === "buyer" && order.status === "pending_payment" && (
@@ -348,9 +422,10 @@ export default function OrderDetail() {
               )}
             </section>
           )}
-                                        {role === "seller" && order.status === "verifying_payment" && (
+                                                                                {role === "seller" && (order.status === "verifying_payment" || order.status === "pending_payment") && (
             <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
               <ConfirmPaymentAction
+                order={order}
                 orderId={order._id}
                 onUpdate={() => {
                   // Refrescar la orden
@@ -390,7 +465,7 @@ export default function OrderDetail() {
             />
           )}
 
-          {role === "seller" && order.status === "paid" && (
+                    {role === "seller" && order.status === "paid" && !order.pendingRequest?.exists && (
             <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
               <ShippingForm
                 orderId={order._id}

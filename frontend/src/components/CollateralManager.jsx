@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { useWallets } from "@privy-io/react-auth";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { ethers } from "ethers";
 import LoadingSpinner from "./LoadingSpinner";
 import {CreditCard} from 'lucide-react'
+import { getAuthenticatedWallet } from "../Utils/walletSelector";
 
 // DIRECCIONES DE TU CONFIGURACIÓN (Asegurate de que sean las mismas)
 const CONTRACT_ADDRESS = import.meta.env.VITE_COLLATERAL_CONTRACT_ADDRESS;
@@ -20,8 +21,10 @@ const COLLATERAL_POOL_ABI = [
 ];
 
 export default function CollateralManager() {
+  const { user } = usePrivy();
   const { wallets } = useWallets();
-  const activeWallet = wallets[0];
+  // SIEMPRE la embedded wallet del usuario autenticado (no `wallets[0]`).
+  const activeWallet = getAuthenticatedWallet(wallets, user?.wallet?.address);
 
   // Estados para los saldos de la Blockchain
   const [balances, setBalances] = useState({ total: "0.0", locked: "0.0", available: "0.0" });

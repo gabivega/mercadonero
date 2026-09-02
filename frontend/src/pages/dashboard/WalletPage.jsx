@@ -10,6 +10,8 @@ import Swal from 'sweetalert2';
 import CollateralManager from '../../components/CollateralManager';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { useUserStore } from '../../store/useUserStore';
+import { getAuthenticatedWallet } from '../../Utils/walletSelector';
+
 
 const TESTNET_TOKENS = [
   { 
@@ -190,10 +192,13 @@ export default function WalletPage() {
     }
   };
 
-  const handleSend = async () => {
+    const handleSend = async () => {
     try {
       setIsSending(true);
-      const wallet = wallets[0];
+      // Usamos SIEMPRE la embedded wallet del usuario autenticado
+      // (no `wallets[0]` que puede apuntar a otra wallet y causar
+      // "User is not part of a key quorum").
+      const wallet = getAuthenticatedWallet(wallets, user?.wallet?.address);
       if (!wallet) return;
 
       await wallet.switchChain(bscTestnet.id);
@@ -205,11 +210,6 @@ export default function WalletPage() {
 
       const amountInWei = parseUnits(sendForm.amount, selectedToken.decimals);
       
-      const nextNonce = await publicClient.getTransactionCount({
-        address: wallet.address,
-        blockTag: 'pending',
-      });
-
       let hash;
 
       if (selectedToken.symbol === 'BNB') {
@@ -217,7 +217,6 @@ export default function WalletPage() {
           account: wallet.address,
           to: sendForm.to,
           value: amountInWei,
-          nonce: nextNonce,
         });
       } else {
         hash = await walletClient.writeContract({
@@ -226,7 +225,6 @@ export default function WalletPage() {
           functionName: 'transfer',
           args: [sendForm.to, amountInWei],
           account: wallet.address,
-          nonce: nextNonce,
         });
       }
       // ... existing code ...
@@ -310,10 +308,14 @@ export default function WalletPage() {
           </p>
         </div>
 
-        <div className="p-4 bg-amber-50 dark:bg-amber-950/20 rounded-2xl border border-amber-200 dark:border-amber-900/30 text-left flex items-start gap-3">
+        <div className="p-4 bg-amber-50 dark:bg-amber-950/20 rounded-2xl border border-amber-200 dark:border-amber-900/30 text-left flex flex-col items-start gap-3">
           <Sparkles className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" size={18} />
           <p className="text-xs text-amber-800 dark:text-amber-300">
             Sin frases de recuperación ni instalaciones extras. Tu billetera estará resguardada de forma segura mediante tu cuenta de acceso.
+          </p>
+          <p className="text-xs text-amber-800 dark:text-amber-300 italic">
+            *No somos custodios de los fondos de tu billetera, no tenemos acceso a tus claves privadas. Es tu responsabilidad mantener tu cuenta segura y no compartir tus credenciales con nadie.
+            Para mas informacion sobre tu billetera, vista nuestra pagina de <a href="/ayuda" className="underline hover:text-amber-600 dark:hover:text-amber-400">ayuda</a>
           </p>
         </div>
 

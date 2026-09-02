@@ -1,10 +1,11 @@
 import React, { useState } from "react";
-import { useWallets } from "@privy-io/react-auth";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { ethers } from "ethers";
 import axios from "axios";
 import { X, Wallet, ShieldCheck, AlertTriangle, CheckCircle2, ArrowRight } from "lucide-react";
 import LoadingSpinner from "./LoadingSpinner";
 import { bscTestnet } from "viem/chains";
+import { getAuthenticatedWallet } from "../Utils/walletSelector";
 
 // ── CONFIGURACIÓN (debe coincidir con el backend y el deploy) ──
 const ESCROW_CONTRACT_ADDRESS = import.meta.env.VITE_ESCROW_CONTRACT_ADDRESS;
@@ -40,8 +41,10 @@ export default function CryptoPaymentModal({
   onSuccess,
   getAccessToken,
 }) {
+  const { user } = usePrivy();
   const { wallets } = useWallets();
-  const activeWallet = wallets?.[0];
+  // SIEMPRE la embedded wallet del usuario autenticado (no `wallets[0]`).
+  const activeWallet = getAuthenticatedWallet(wallets, user?.wallet?.address);
 
   const [selectedToken, setSelectedToken] = useState("USDT");
   const [loading, setLoading] = useState(false);

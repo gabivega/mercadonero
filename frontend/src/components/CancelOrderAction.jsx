@@ -64,6 +64,26 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
     });
   };
 
+  // Spinner de carga a pantalla completa mientras se procesa la operación.
+  // Evita que el usuario cierre o toque otra cosa mientras espera la respuesta
+  // del servidor (la pantalla quedaba "congelada" sin feedback).
+  const showProcessing = (message = 'Procesando solicitud...') => {
+    Swal.fire({
+      ...swalBase,
+      title: message,
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      allowEnterKey: false,
+      showConfirmButton: false,
+      didOpen: () => {
+        Swal.showLoading();
+      },
+    });
+  };
+  const closeProcessing = () => {
+    if (Swal.isVisible()) Swal.close();
+  };
+
   // ══════════════════════════════════════════════
   // FLUJO COMPRADOR
   // ══════════════════════════════════════════════
@@ -135,11 +155,13 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
     if (!confirm.isConfirmed) return;
 
     setLoading(true);
+    showProcessing('Cancelando y liberando la garantía...');
     try {
       const data = await callApi(`/api/order/${order._id}/cancel`, {
         paidStatus: 'not_paid',
         reason: 'Cancelación sin pago',
       });
+      closeProcessing();
       await Swal.fire({
         ...swalBase,
         icon: 'success',
@@ -148,6 +170,7 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
       });
       onUpdate(data.order);
     } catch (err) {
+      closeProcessing();
       handleApiError(err, 'No se pudo cancelar la orden.');
     } finally {
       setLoading(false);
@@ -192,12 +215,14 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
     if (!bank) return;
 
     setLoading(true);
+    showProcessing('Registrando la solicitud de reembolso...');
     try {
       const data = await callApi(`/api/order/${order._id}/cancel`, {
         paidStatus: 'paid',
         reason: 'Cancelación con pago - reembolso solicitado',
         refundBankAccount: bank,
       });
+      closeProcessing();
       await Swal.fire({
         ...swalBase,
         icon: 'success',
@@ -206,6 +231,7 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
       });
       onUpdate(data.order);
     } catch (err) {
+      closeProcessing();
       handleApiError(err, 'No se pudo registrar la solicitud.');
     } finally {
       setLoading(false);
@@ -228,10 +254,12 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
     if (!confirm.isConfirmed) return;
 
     setLoading(true);
+    showProcessing('Confirmando y liberando la garantía...');
     try {
       const data = await callApi(
         `/api/order/${order._id}/buyer-confirms-refund-received`,
       );
+      closeProcessing();
       await Swal.fire({
         ...swalBase,
         icon: 'success',
@@ -240,6 +268,7 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
       });
       onUpdate(data.order);
     } catch (err) {
+      closeProcessing();
       handleApiError(err, 'No se pudo confirmar la recepción.');
     } finally {
       setLoading(false);
@@ -262,10 +291,12 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
     if (!confirm.isConfirmed) return;
 
     setLoading(true);
+    showProcessing('Confirmando el reembolso...');
     try {
       const data = await callApi(
         `/api/order/${order._id}/vendor-confirms-refund`,
       );
+      closeProcessing();
       await Swal.fire({
         ...swalBase,
         icon: 'success',
@@ -274,6 +305,7 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
       });
       onUpdate(data.order);
     } catch (err) {
+      closeProcessing();
       handleApiError(err, 'No se pudo confirmar el reembolso.');
     } finally {
       setLoading(false);
@@ -305,10 +337,12 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
     if (reason === null || reason === undefined) return;
 
     setLoading(true);
+    showProcessing('Enviando la solicitud...');
     try {
       const data = await callApi(`/api/order/${order._id}/request-admin-release`, {
         reason,
       });
+      closeProcessing();
       await Swal.fire({
         ...swalBase,
         icon: 'success',
@@ -317,7 +351,65 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
       });
       onUpdate(data.order);
     } catch (err) {
+      closeProcessing();
       handleApiError(err, 'No se pudo enviar la solicitud.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ══════════════════════════════════════════════
+  // VENDEDOR: cancela una orden ya PAGADA (transferencia bancaria).
+  // Para evitar que el vendedor libere su garantía sin control, cuando la
+  // orden ya está pagada el vendedor NO puede liberar la garantía por sí mismo:
+  // registramos una solicitud de reembolso (pendingRequest con initiator
+  // 'seller'). El vendedor deberá devolver el dinero al comprador y éste
+  // confirmar la recepción recién para que la garantía sea liberada.
+  // ══════════════════════════════════════════════
+  const handleVendorInitiateCancel = async () => {
+    const confirm = await Swal.fire({
+      ...swalBase,
+      icon: 'warning',
+      title: '¿Cancelar esta venta?',
+      html: `
+        <p style="text-align:left; font-size:14px; font-weight:600; margin:0 0 10px;
+             color:${isDark ? '#a1a1aa' : '#52525b'}">
+          La orden ya está <b>pagada</b>. Para cancelarla deberás:
+        </p>
+        <ol style="text-align:left; font-size:13px; margin:0 0 8px 18px;
+            color:${isDark ? '#a1a1aa' : '#52525b'}; line-height:1.6;">
+          <li>Devolver el dinero al comprador (reembolso).</li>
+          <li>Confirmar que reembolsaste.</li>
+          <li>Que el comprador confirme haberlo recibido.</li>
+        </ol>
+        <p style="text-align:left; font-size:13px; margin:0; color:#ef4444; font-weight:600;">
+          Tu garantía se liberará recién cuando el comprador confirme la recepción del reintegro.
+        </p>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'SÍ, CANCELAR',
+      cancelButtonText: 'VOLVER',
+    });
+    if (!confirm.isConfirmed) return;
+
+    setLoading(true);
+    showProcessing('Registrando la cancelación...');
+    try {
+      const data = await callApi(`/api/order/${order._id}/cancel`, {
+        paidStatus: 'paid',
+        reason: 'Cancelación iniciada por el vendedor con la orden pagada',
+      });
+      closeProcessing();
+      await Swal.fire({
+        ...swalBase,
+        icon: 'success',
+        title: 'Cancelación en proceso',
+        text: 'Se notificó al comprador. Deberás devolverle el dinero y él confirmará la recepción para que tu garantía sea liberada.',
+      });
+      onUpdate(data.order);
+    } catch (err) {
+      closeProcessing();
+      handleApiError(err, 'No se pudo iniciar la cancelación.');
     } finally {
       setLoading(false);
     }
@@ -367,6 +459,9 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
 
     // --- VENDEDOR con reembolso en curso ---
     const vendorEsperaComprador = pendingStatus === 'refunded_by_vendor';
+    // La cancelación puede haber sido iniciada por el COMPRADOR o por el
+    // VENDEDOR. El mensaje debe reflejar quién la inició para que sea claro.
+    const iniciadaPorVendedor = order.pendingRequest?.initiator === 'seller';
     return (
       <div className="bg-amber-500/10 border-2 border-amber-500/60 p-6 rounded-[2.5rem]">
         <div className="flex items-center gap-3 mb-3">
@@ -374,8 +469,13 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
           <h3 className="font-black uppercase italic dark:text-white">Reembolso pendiente</h3>
         </div>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          El comprador solicitó cancelar con pago. Devolvele el dinero y confirmá
-          que lo reembolsaste para continuar.
+          {iniciadaPorVendedor ? (
+            <>Iniciaste la cancelación de esta venta porque está pagada. Devolvele
+            el dinero al comprador y confirmá que lo reembolsaste para continuar.</>
+          ) : (
+            <>El comprador solicitó cancelar con pago. Devolvele el dinero y confirmá
+            que lo reembolsaste para continuar.</>
+          )}
         </p>
         {order.pendingRequest?.refundBankAccount && (
           <div className="bg-white dark:bg-zinc-900 rounded-2xl p-4 border border-zinc-100 dark:border-zinc-800 my-4">
@@ -468,6 +568,54 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
                     <XCircle size={16} />
                   )}
                   Cancelar compra
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Vendedor con la orden YA PAGADA (transferencia bancaria): mostramos los
+  // "3 puntitos" discretos (como el comprador) para que pueda cancelar la venta
+  // y reembolsar. Las órdenes cripto se cancelan devolviendo el escrow, por lo
+  // que acá solo consideramos el flujo bancario.
+  if (!iAmBuyer && status === 'paid' && order.payment?.method !== 'crypto') {
+    return (
+      <div className="flex justify-end">
+        <div className="relative">
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            disabled={loading}
+            className="p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-500 dark:text-zinc-400"
+            aria-label="Más opciones"
+          >
+            <MoreVertical size={20} />
+          </button>
+
+          {menuOpen && (
+            <>
+              {/* Fondo invisible para cerrar al hacer clic afuera */}
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setMenuOpen(false)}
+              />
+              <div className="absolute right-0 mt-1 z-20 w-64 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl overflow-hidden">
+                <button
+                  onClick={async () => {
+                    setMenuOpen(false);
+                    await handleVendorInitiateCancel();
+                  }}
+                  disabled={loading}
+                  className="w-full flex items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                >
+                  {loading ? (
+                    <LoadingSpinner size="sm" />
+                  ) : (
+                    <XCircle size={16} />
+                  )}
+                  Cancelar venta y reembolsar
                 </button>
               </div>
             </>

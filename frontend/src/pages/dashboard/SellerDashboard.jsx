@@ -14,8 +14,9 @@ import {
   ExternalLink,
   Search,
   ChevronLeft,
-  ChevronRight,
+    ChevronRight,
   Store,
+  AlertTriangle,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
@@ -274,8 +275,30 @@ export default function SellerDashboard() {
       </div>
     );
 
-  return (
+    return (
     <div className="w-full max-w-6xl mx-auto p-4 md:p-6 space-y-6 md:space-y-8">
+
+      {/* 🔒 AVISO: SIN WALLET NO PUEDE PUBLICAR RCELAB/SEGUIR PUBLICANDO */}
+      {dbUser && !dbUser.walletAddress && (
+        <div className="flex items-start gap-3 p-4 rounded-2xl border border-amber-300/60 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10">
+          <AlertTriangle className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" size={20} />
+          <div>
+            <p className="font-bold text-sm text-amber-800 dark:text-amber-300">
+              Vinculá una wallet Web3 para recibir tus pagos
+            </p>
+            <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5 leading-relaxed">
+              Para publicar productos y cobrar en USDT necesitás una billetera vinculada (la garantía se gestiona on-chain). Los productos que publiques sin wallet no podrán venderse ni mostrarse. Activá tu billetera desde{" "}
+              <span
+                className="underline font-semibold cursor-pointer hover:text-amber-900 dark:hover:text-amber-200"
+                onClick={() => navigate("/billetera")}
+              >
+                Mi Billetera
+              </span>.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div className="w-full md:w-auto">

@@ -4,6 +4,7 @@ import { useCartStore } from "../store/useCartStore";
 import { useUserStore } from "../store/useUserStore";
 import noImage from "../assets/img/no-image.png";
 import Swal from "sweetalert2";
+import CashbackBadge from "./CashbackBadge";
 
 export default function ProductCard({ product }) {
   const navigate = useNavigate();
@@ -229,13 +230,23 @@ export default function ProductCard({ product }) {
           <div className="flex-grow"></div>
         )}
 
-        {/* Free Shipping Badge */}
-                {product.listingType == "product" ? (
-          <div className="h-5">
-            {product.shipping?.free === true && (
-              <div className="text-xs text-green-600 dark:text-green-400 font-semibold">
-                Envío gratis
-              </div>
+                {/* Envío / Condición / Cashback */}
+        {product.listingType == "product" ? (
+          <div className="flex items-center gap-2 h-5">
+            <div>
+              {product.shipping?.free === true && (
+                <div className="text-xs text-green-600 dark:text-green-400 font-semibold">
+                  Envío gratis
+                </div>
+              )}
+            </div>
+            {/* Condición compartiendo renglón con el envío (ahorra espacio) */}
+            {product.condition && product.condition !== "Nuevo" && (
+              <span className="text-xs font-medium text-gray-600 dark:text-gray-400 inline-block bg-gray-100 dark:bg-zinc-700 px-2 py-[2px] rounded">
+                {product.condition === "new" && "Nuevo"}
+                {product.condition === "used" && "Usado"}
+                {product.condition === "refurbished" && "Reacondicionado"}
+              </span>
             )}
           </div>
         ) : (
@@ -253,8 +264,16 @@ export default function ProductCard({ product }) {
           </div>
         )}
 
-        {/* Rating and Sold Info */}
+                {/* Cashback (reintegro en USDT)
+            ⚠️ OCULTO temporalmente: todos los productos tienen el mismo % (2.5%)
+            por defecto, así que el badge resultaba repetitivo en todas las tarjetas.
+            Se habilitará cuando el cashback sea variable (configurado por vendedor).
+        {product.listingType === "product" && (
+          <CashbackBadge priceArs={product.sale?.price || product.price} />
+        )}
+        */}
 
+        {/* Rating and Sold Info */}
         <div className="h-5">
           {product.rating > 0 && (
             <div className="text-[0.7rem] text-yellow-500">
@@ -263,20 +282,8 @@ export default function ProductCard({ product }) {
             </div>
           )}
         </div>
-
-        {/* Condition Badge */}
-        {product.listingType === "product" &&
-          product.condition &&
-          product.condition !== "Nuevo" && (
-            <div className="h-5">
-              <span className="text-xs font-medium text-gray-600 dark:text-gray-400 inline-block bg-gray-100 dark:bg-zinc-700 px-2 py-[2px] rounded">
-                {product.condition === "new" && "Nuevo"}
-                {product.condition === "used" && "Usado"}
-                {product.condition === "refurbished" && "Reacondicionado"}
-              </span>
-            </div>
-          )}
       </div>
     </div>
   );
 }
+

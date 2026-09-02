@@ -20,6 +20,7 @@ import ProductReviews from "../components/ProductReviews"; // Opiniones del prod
 import { useCartStore } from "../store/useCartStore";
 import LoadingSpinner from "../components/LoadingSpinner";
 import Swal from "sweetalert2";
+import CashbackBadge from "../components/CashbackBadge";
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -375,6 +376,14 @@ export default function ProductDetail() {
                   Ver medios de pago
                 </p> */}
               </div>
+
+              {/* Cashback (reintegro en USDT) — solo productos de pago; los
+                  clasificados (autos/inmuebles/servicios) no generan reintegro */}
+              {product.listingType === "product" && (
+                <CashbackBadge
+                  priceArs={product.sale?.active ? product.sale.price : product.price}
+                />
+              )}
 
               {/* Envío y Ubicación */}
               <div className="space-y-3 py-2">

@@ -30,6 +30,9 @@ const notificationSchema = new mongoose.Schema(
         "question_answered", // El vendedor respondió una pregunta
         // ── Flujo de garantías / cancelaciones / reembolsos ──
         "rating_reminder", // Recordatorio de calificar (producto/vendedor/comprador)
+        "collateral_hold_requested", // El vendedor debe depositar garantía (orden en espera)
+        "order_activated", // La orden pasó de "awaiting_collateral" a activa (vendedor depositó)
+        "order_disputed", // El comprador reportó un problema y se abrió una disputa
         "order_refund_requested", // Comprador pidió cancelar con reembolso
         "order_refund_paid_by_vendor", // Vendedor confirmó que reembolsó
         "order_refund_received", // Comprador confirmó recibir el reintegro

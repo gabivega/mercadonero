@@ -4,8 +4,8 @@ Features-
 **contabilizar cantidad de ordenes realizadas/compras y ordenes canceladas (penalizar o implementar sistema)**
 puntuar luego de orden completada
 **pagina de tienda con listado de productos**
-habilitar rating de producto, comprador y vendedor
-revisar si url de checkout está bien asi
+habilitar rating de producto, comprador y vendedor *** LISTO
+revisar si url de checkout está bien asi ***LISTO
 descontar stock del producto tras ingreso de orden
 cuando se completa la orden y el comprador coloca como "recibida" deberia refrescar la pagina o redirigir a mis ordenes
 hacer poner de nuevo el botn de cancelar orden en pagina de vendedor y comprador. en lado comprador habilitar el "tuve un problema con el producto" una vez recibido
@@ -13,4 +13,25 @@ ver tema referidos!!!
 si el vendedor cancela, no puede calificar al comprador, y viceversa
 cuando comprador marca la orden como recibida, no hay spinner de carga mientras cierra la operacion
 pagina de perfil no guarda edicion de datos de usuario
-agregar onboarding vendedor
+agregar onboarding vendedor *** LISTO, FALTA PROBAR 
+
+============00000000=============
+Revision 27/8
+SI pones como metodo de pago crypto, sin tener wallet no podes salir del modal de swal
+Mejorar spinner al confirmar orden: queda solo dentro del boton de confirmar
+Banner de referidos cambiar por cashback
+ordenes de compra con crypto no expiran
+en las notificaciones el comprador figura como "undefined"
+En el detalle de la orden no se menciona el metodo de pago, en la notificacion si
+Una orden en espera de colateral, no muestra notificacion, si envia un mail
+Orden en espera de garantia, vendedor deposita y no se procesa. aviso "No se pudo activar la orden. Revisá que hayas depositado la garantía (USDT) y reintentá."
+agregar carga de comprobante al notificar un pago (comprador)
+si comprador notifica un pago, pero vendedor no lo recibe, no puede notificar. agregar un boton de "no recibi la transferencia" y ver como resolver
+Cuando el paquete es despachado, comprador no tiene ninguna forma de avisar que nunca lo recibió. habilitar un botn de "no recibi el paquete" (dentro del componente poner 3 puntitos)
+si recibe el paquete y tuvo un problema, agregar en modal de swal "Tuve un problema" y agregar flujo para describir situacion
+En el detalle de la orden vendedor debería poder clickear el nombre del comprador e ir a su perfil
+Orden a la cual le faltaba garantía, expira luego de 15 minutos, pero en eld etalle muestra "Orden Expirada por falta de pago en el plazo establecido de 60 minutos."
+Se muestra listado un producto de vendedor que no tiene wallet generada *** LISTO: bloqueo al publicar (requireSellerOnboarding) + ocultar de listados/detalle los productos de pago de vendedores sin wallet
+agregar % al lado del rating de usuario
+la notificacion sobre reseña funciona pero dice "ingresa a la orden para ver la reseña" y no se puede ver en la pagina de orden
+cuando comprador no quiere esperar el deposito en garantia y cancela, el vendedor no se entera ni por notificacion ni por mail.

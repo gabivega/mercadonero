@@ -1,6 +1,6 @@
 import express from 'express';
 const router = express.Router();
-import { createOrder, getMyOrders, markAsPaid, getOrderById, updateOrder, cancelOrder, vendorConfirmsRefund, buyerConfirmsRefundReceived, requestAdminRelease, retryCollateral, cancelCollateralHold, confirmEscrowFunding, getEscrowStatus, cancelCryptoOrder } from '../controllers/orderController.js';
+import { createOrder, getMyOrders, markAsPaid, getOrderById, updateOrder, cancelOrder, vendorConfirmsRefund, buyerConfirmsRefundReceived, requestAdminRelease, retryCollateral, cancelCollateralHold, confirmEscrowFunding, getEscrowStatus, cancelCryptoOrder, openDispute } from '../controllers/orderController.js';
 import verifyPrivyToken from '../middleware/auth.js';
 import attachUser from '../middleware/attachUser.js';
 
@@ -27,5 +27,7 @@ router.patch('/:orderId/vendor-confirms-refund', verifyPrivyToken, attachUser, v
 router.patch('/:orderId/buyer-confirms-refund-received', verifyPrivyToken, attachUser, buyerConfirmsRefundReceived);
 // Vendedor solicita liberación manual al admin
 router.patch('/:orderId/request-admin-release', verifyPrivyToken, attachUser, requestAdminRelease);
+// Comprador abre una disputa cuando el pedido va en camino pero llegó mal
+router.post('/:orderId/dispute', verifyPrivyToken, attachUser, openDispute);
 
 export default router;

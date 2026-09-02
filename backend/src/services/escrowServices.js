@@ -229,4 +229,40 @@ export async function cancelOrderEscrow(orderId) {
   }
 }
 
+/**
+ * ACCIÓN ADMIN: ACTUALIZAR EL FEE GLOBAL DEL CONTRATO (puntos base).
+ * Solo el admin puede hacerlo (el backend firma con la wallet admin).
+ * Luego de la tx, verifica on-chain que el fee cambió realmente.
+ */
+export async function setEscrowFeeBps(newFeeBps) {
+  try {
+    console.log(`[Escrow] Solicitando actualización de fee a ${newFeeBps} bps...`);
+
+    const tx = await escrowContract.setFeeBps(newFeeBps);
+    console.log(`[Escrow] Tx de actualización de fee enviada: ${tx.hash}`);
+    const receipt = await tx.wait();
+    console.log(`[Escrow] Fee actualizado en bloque: ${receipt.blockNumber}`);
+
+    // Verificación real on-chain.
+    const readBack = await getFeeBps();
+    if (!readBack.success || readBack.feeBps !== Number(newFeeBps)) {
+      console.warn(
+        `[Escrow] ⚠️ La tx ${tx.hash} se minó pero el fee sigue en ${readBack.feeBps} bps.`,
+      );
+      return {
+        success: false,
+        txHash: tx.hash,
+        currentFeeBps: readBack.feeBps,
+        error:
+          "La transacción se minó pero el fee on-chain no cambió. Se requiere intervención manual.",
+      };
+    }
+
+    return { success: true, txHash: tx.hash, feeBps: Number(newFeeBps) };
+  } catch (error) {
+    console.error("[Escrow Error] Fallo al actualizar fee:", error.reason || error.message);
+    return { success: false, error: error.reason || error.message };
+  }
+}
+
 export { ESCROW_FEE_BPS };

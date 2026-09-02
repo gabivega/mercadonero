@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { usePrivy } from '@privy-io/react-auth';
 import axios from 'axios';
 import Swal from 'sweetalert2';
@@ -37,6 +38,7 @@ const categoryMap = new Map(
 
 export const ImportSection = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const navigate = useNavigate();
   const { getAccessToken } = usePrivy();
 
   // ── ONBOARDING VENDEDOR ──
@@ -363,9 +365,32 @@ export const ImportSection = () => {
           confirmButtonColor: '#2563eb',
           customClass: { popup: 'rounded-3xl border border-gray-800' },
         });
-      } catch (error) {
+            } catch (error) {
         console.error(error);
-        const errorMsg = error.response?.data?.message || error.message;
+        const data = error.response?.data;
+        const errorMsg = data?.message || error.message;
+
+        // Si el backend bloquea la publicación porque el vendedor no tiene
+        // wallet Web3, lo invitamos a crear/activar su billetera en "Mi Billetera".
+        if (data?.blocked === "wallet") {
+          Swal.fire({
+            title: "Necesitás una wallet para vender",
+            text: errorMsg,
+            icon: "warning",
+            background: "#1A1A1A",
+            color: "#ffffff",
+            confirmButtonColor: "#2563eb",
+            confirmButtonText: "Ir a Mi Billetera",
+            customClass: { popup: "rounded-3xl border border-gray-800" },
+                    }).then((result) => {
+            if (result.isConfirmed) {
+              navigate("/billetera");
+            }
+          });
+          setIsBulkSubmitting(false);
+          return;
+        }
+
         Swal.fire({
           title: 'Error al importar',
           text: errorMsg,

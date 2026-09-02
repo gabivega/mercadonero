@@ -155,10 +155,58 @@ export async function resolveCollateralHold(orderId) {
     };
   }
 
-  const seller = await order.populate("seller", "walletAddress");
+  // Buscamos al vendedor directamente por su ID (más robusto que populate:
+  // garantiza traer el walletAddress vigente desde la colección User).
+  const seller = await User.findById(order.seller);
 
-  // El objeto ya está marcado fulfilled; si algo falla, lo revertimos.
+  if (!seller) {
+    await Order.findByIdAndUpdate(order._id, {
+      $set: { "collateralHold.status": "pending" },
+    });
+    return { success: false, retryable: true, error: "No se encontró el vendedor de la orden." };
+  }
+  if (!seller.walletAddress) {
+    await Order.findByIdAndUpdate(order._id, {
+      $set: { "collateralHold.status": "pending" },
+    });
+    return {
+      success: false,
+      retryable: true,
+      insufficientFunds: true,
+      error:
+        "Tu cuenta no tiene una billetera Web3 vinculada (walletAddress vacía). " +
+        "Activá tu billetera desde 'Mi Billetera' y asegurate de depositar la garantía desde ESA misma billetera, luego reintentá.",
+    };
+  }
+
   const amountToLock = order.financials.totalUsd + order.financials.shippingCostUsd;
+
+  // ─────────────────────────────────────────────────────────────
+  // VERIFICACIÓN PREVIA de saldo on-chain del vendedor.
+  // Consultamos cuánto colateral tiene realmente disponible en la wallet
+  // REGISTRADA (seller.walletAddress) antes de intentar el lock. Esto:
+  //   - Detecta si el vendedor depositó desde OTRA wallet distinta a la que
+  //     quedó asociada a su cuenta (caso frecuente con Privy / varias wallets).
+  //   - Devuelve un mensaje claro con el monto faltante y sugiere revisar la
+  //     wallet correcta, en vez del genérico "Revisá que hayas depositado".
+  // ─────────────────────────────────────────────────────────────
+  const onChainInfo = await getVendorCollateral(seller.walletAddress);
+  const availableOnChain = onChainInfo.success ? onChainInfo.available : 0;
+
+  if (availableOnChain < amountToLock) {
+    // Revertimos el "fulfilled" para que el hold siga esperando.
+    await Order.findByIdAndUpdate(order._id, {
+      $set: { "collateralHold.status": "pending" },
+    });
+    return {
+      success: false,
+      retryable: true,
+      insufficientFunds: true,
+      error: onChainInfo.success
+        ? `No se detectó saldo suficiente en tu garantía. Necesitás US$ ${amountToLock.toFixed(2)} congelables y tu billetera registrada tiene US$ ${availableOnChain.toFixed(2)} disponibles. Verificá que hayas depositado el USDT en la MISMA billetera asociada a tu cuenta y reintentá.`
+        : "No se pudo leer tu saldo de garantía on-chain. Reintentá en unos segundos.",
+    };
+  }
 
   const blockchainResult = await lockVendorCollateral(
     order._id.toString(),

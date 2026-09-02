@@ -23,8 +23,9 @@ import {
   Plus,
   X,
   ArrowRight,
-  Truck,
+    Truck,
   ArrowLeft,
+  AlertTriangle,
 } from "lucide-react";
 import HowToSell from "../../components/HowToSell.jsx";
 
@@ -159,9 +160,32 @@ export default function CreateProduct() {
       } else {
         throw new Error(data.message || "Error al publicar");
       }
-    } catch (error) {
+        } catch (error) {
       console.error("Error en la publicación:", error);
-      const errorMsg = error.response?.data?.message || error.message;
+      const data = error.response?.data;
+      const errorMsg = data?.message || error.message;
+
+      // Si el backend bloquea la publicación porque el vendedor no tiene wallet
+      // Web3, lo invitamos a crear/activar su billetera en "Mi Billetera".
+      if (data?.blocked === "wallet") {
+        Swal.fire({
+          title: "Necesitás una wallet para vender",
+          text: errorMsg,
+          icon: "warning",
+          background: "#1A1A1A",
+          color: "#ffffff",
+          confirmButtonColor: "#2563eb",
+          confirmButtonText: "Ir a Mi Billetera",
+          customClass: { popup: "rounded-3xl border border-gray-800" },
+                }).then((result) => {
+          if (result.isConfirmed) {
+            navigate("/billetera");
+          }
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
       showError("Error: " + errorMsg);
     } finally {
       setIsSubmitting(false);
@@ -189,7 +213,7 @@ export default function CreateProduct() {
 
         <div className="space-y-4">
           <button
-            onClick={()=> setIsLoginOpen(true)}
+            // onClick={()=> setIsLoginOpen(true)}
             onClick={login}
             className="group flex items-center gap-3 px-8 py-4 bg-[#F26722] text-white rounded-2xl font-black uppercase tracking-[0.2em] text-sm hover:scale-105 active:scale-95 transition-all shadow-lg shadow-[#F26722]/20"
           >
@@ -214,11 +238,32 @@ export default function CreateProduct() {
     );
   }
 
-  // Si está autenticado y no hay formType, mostramos el selector
+    // Si está autenticado y no hay formType, mostramos el selector
   if (!formType) {
     return (
       <DashboardLayout>
-        <div className="max-w-4xl mx-auto p-6">
+        <div className="max-w-4xl mx-auto p-6 space-y-6">
+          {/* 🔒 AVISO: SIN WALLET NO PUEDE PUBLICAR PRODUCTOS DE PAGO */}
+          {dbUser && !dbUser.walletAddress && (
+            <div className="flex items-start gap-3 p-4 rounded-2xl border border-amber-300/60 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10">
+              <AlertTriangle className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" size={20} />
+              <div>
+                <p className="font-bold text-sm text-amber-800 dark:text-amber-300">
+                  Vinculá una wallet Web3 antes de publicar
+                </p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5 leading-relaxed">
+                  Para publicar <b>Productos</b> y recibir los pagos (USDT) necesitás una billetera vinculada (la garantía se gestiona on-chain). Los clasificados (vehículos, inmuebles, servicios) no lo requieren. Activá tu billetera desde{" "}
+                  <span
+                    className="underline font-semibold cursor-pointer hover:text-amber-900 dark:hover:text-amber-200"
+                    onClick={() => navigate("/billetera")}
+                  >
+                    Mi Billetera
+                  </span>{" "}
+                  antes de cargar la publicación para no perder tu trabajo.
+                </p>
+              </div>
+            </div>
+          )}
           <ListingTypeSelector onSelect={setFormType} />
         </div>
       </DashboardLayout>
@@ -226,9 +271,32 @@ export default function CreateProduct() {
   }
 
   // Si está autenticado y hay formType, mostramos el formulario
-  return (
+    return (
     <DashboardLayout>
       <div className="max-w-4xl mx-auto p-6 space-y-10">
+
+        {/* 🔒 AVISO: SIN WALLET NO SE PUEDE PUBLICAR PRODUCTOS DE PAGO */}
+        {dbUser && !dbUser.walletAddress && (
+          <div className="flex items-start gap-3 p-4 rounded-2xl border border-amber-300/60 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10">
+            <AlertTriangle className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" size={20} />
+            <div>
+              <p className="font-bold text-sm text-amber-800 dark:text-amber-300">
+                Vinculá una wallet Web3 antes de publicar
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5 leading-relaxed">
+                Para publicar productos y recibir los pagos (USDT) necesitás una billetera vinculada, ya que la garantía se gestiona de forma segura on-chain. Activá tu billetera desde{" "}
+                <span
+                  className="underline font-semibold cursor-pointer hover:text-amber-900 dark:hover:text-amber-200"
+                  onClick={() => navigate("/billetera")}
+                >
+                  Mi Billetera
+                </span>{" "}
+                antes de cargar la publicación para no perder tu trabajo.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* HEADER */}
         <header>
           <h2 className="text-3xl font-black dark:text-white flex items-center gap-3">

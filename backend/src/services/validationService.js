@@ -129,7 +129,7 @@ export const validateCUIT = (cuit) => {
   else expected = 11 - remainder;
 
   if (expected !== checkDigit) {
-    return { valid: false, reason: "El dígito verificador del CUIT/CUIL no es válido. Revisá que lo hayas escrito bien." };
+    return { valid: false, reason: "El CUIT ingresado no es válido. Revisa e intenta nuevamente." };
   }
 
   return { valid: true };

@@ -1,10 +1,14 @@
 import React, { useState } from "react";
-import { useWallets } from "@privy-io/react-auth";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { ethers } from "ethers";
+import { getAuthenticatedWallet } from "../Utils/walletSelector";
 
-// REEMPLAZA ESTOS DATOS CON LOS TUYOS
-const CONTRACT_ADDRESS = "0x49fB72b9783e8DD934233C9155CdEA45eC17822D";
-const USDT_TESTNET_ADDRESS = "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd"; 
+// Contrato nuevo NeroCollateral (fianza de vendedores, B SC Testnet)
+// Dirección: deployada desde la wallet admin del backend.
+// NOTA: mejor usar import.meta.env.VITE_COLLATERAL_CONTRACT_ADDRESS (como
+// CollateralManager.jsx) para no hardcodear. Se deja el valor por defecto.
+const CONTRACT_ADDRESS = import.meta.env.VITE_COLLATERAL_CONTRACT_ADDRESS || "0xD45f0E57C501A8fa234F5d9357b30F7cf7B46E5d";
+const USDT_TESTNET_ADDRESS = "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd";  
 
 // ABIs mínimos para interactuar desde el Front
 const ERC20_ABI = [
@@ -17,13 +21,14 @@ const COLLATERAL_POOL_ABI = [
 ];
 
 export default function DepositCollateral() {
+  const { user } = usePrivy();
   const { wallets } = useWallets();
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
 
-  // Obtener la billetera activa de Privy
-  const activeWallet = wallets[0]; 
+  // Obtener la billetera del usuario autenticado (no `wallets[0]`)
+  const activeWallet = getAuthenticatedWallet(wallets, user?.wallet?.address); 
 
   const handleDeposit = async (e) => {
     e.preventDefault();

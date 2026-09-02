@@ -366,11 +366,21 @@ export const getProducts = async (req, res) => {
       productsQuery.sort(sortOptions);
     }
 
-    // Ejecutamos la query. Populate del vendedor para traer shop.name/username
+        // Ejecutamos la query. Populate del vendedor para traer shop.name/username
     // y poder mostrar el nombre de la tienda en las tarjetas de producto.
-    let products = await productsQuery
-      .populate("seller", "username name shop isVerified")
-      .exec();
+        let products = await productsQuery
+          .populate("seller", "username name shop isVerified walletAddress")
+          .exec();
+
+        // 🔒 OCULTAR PRODUCTOS DE PAGO DE VENDEDORES SIN WALLET: el escrow/colateral
+    // necesita la wallet del vendedor para gestionar los pagos de forma segura.
+    // Si el vendedor no tiene wallet, su producto de pago no puede venderse.
+    // (El middleware requireSellerOnboarding ya impide publicar nuevos sin
+    // wallet; acá cubrimos los ya existentes). Los clasificados (listingType
+    // !== "product") no usan escrow y se mantienen visibles.
+    products = products.filter(
+      (p) => p.listingType !== "product" || (p.seller && p.seller.walletAddress),
+    );
 
     // 🔥 SI ES SECCIÓN DE OFERTAS, BARAJAMOS EL ARRAY (Algoritmo Fisher-Yates)
     if (isRandom && products.length > 0) {
@@ -403,20 +413,29 @@ export const getProductById = async (req, res) => {
     const { id } = req.params;
     console.log("GetproductbyId id: ", id);
 
-
-
-
-        const product = await Product.findById(id).populate(
+    const product = await Product.findById(id).populate(
       "seller",
-      "username name shop isVerified shopName",
+      "username name shop isVerified shopName walletAddress",
     ); // Traemos data del vendedor
 
     // Validamos que el producto exista Y que esté activo
     if (!product || product.status !== "active") {
-      return res.status(404).json({ 
-        message: "Esta publicación ya no está disponible o ha sido pausada." 
+      return res.status(404).json({
+        message: "Esta publicación ya no está disponible o ha sido pausada.",
       });
     }
+
+    // 🔒 Un producto de pago (escrow) cuyo vendedor no tiene wallet Web3 NO
+    // puede venderse: lo tratamos como no disponible para el comprador.
+    // (El middleware requireSellerOnboarding ya impide publicar productos
+    // nuevos sin wallet; acá cubrimos los ya existentes). Los clasificados
+    // (listingType !== "product") no usan escrow y se mantienen.
+    if (product.listingType === "product" && !product.seller?.walletAddress) {
+      return res.status(404).json({
+        message: "Esta publicación no está disponible por el momento.",
+      });
+    }
+
     await Product.updateOne({ _id: id }, { $inc: { views: 1 } });
 
     // Opcional: Para que el frontend que hace la petición vea la visita actual reflejada de una,

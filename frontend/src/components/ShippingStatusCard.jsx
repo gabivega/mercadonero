@@ -1,13 +1,23 @@
 import React, { useState } from 'react';
-import { Truck, ExternalLink, Package, Clock, ShieldCheck, CheckCircle } from 'lucide-react';
+import { Truck, ExternalLink, Package, Clock, ShieldCheck, CheckCircle, AlertTriangle } from 'lucide-react';
 import Swal from 'sweetalert2';
 import axios from 'axios';
 import { usePrivy } from '@privy-io/react-auth';
 
 export default function ShippingStatusCard({ order, role, onUpdate }) {
-  const { status, shippingDetails } = order;
+    const { status, shippingDetails } = order;
   const [loading, setLoading] = useState(false);
+  const [disputing, setDisputing] = useState(false);
   const { getAccessToken } = usePrivy();
+
+  // Opciones predeterminadas de problema que puede reportar el comprador.
+  const ISSUE_OPTIONS = [
+    { value: 'producto_equivocado', label: 'Llegó un producto equivocado' },
+    { value: 'producto_danado', label: 'Llegó dañado o en mal estado' },
+    { value: 'incompleto', label: 'Llegó incompleto (faltan productos)' },
+    { value: 'no_recibido', label: 'Nunca recibí el paquete' },
+    { value: 'otro', label: 'Otro problema' },
+  ];
 
   // console.log("status", status)
   // console.log("shippingDetail", shippingDetails)
@@ -106,12 +116,98 @@ export default function ShippingStatusCard({ order, role, onUpdate }) {
           // dispara el incentivo + scroll a las calificaciones.
           onUpdate?.();
         }
-      } catch (error) {
+            } catch (error) {
         // Swal.fire('Error', 'No se pudo completar la orden.', 'error');
         console.error(error);
       } finally {
         setLoading(false);
       }
+    }
+  };
+
+  // El comprador reporta un problema con el pedido recibido. Se abre una
+  // disputa: el colateral del vendedor queda retenido y el admin decide.
+  const handleReportIssue = async () => {
+    const isDark = document.documentElement.classList.contains('dark');
+    const optionsHtml = ISSUE_OPTIONS.map(
+      (o, i) =>
+        `<button type="button" data-value="${o.value}" class="swal-issue-opt" style="display:block;width:100%;text-align:left;padding:12px 14px;margin:4px 0;border:1px solid ${isDark ? '#3f3f46' : '#e5e7eb'};border-radius:12px;background:${isDark ? '#18181b' : '#fff'};color:${isDark ? '#f3f4f6' : '#1f2937'};font-weight:600;font-size:14px;cursor:pointer;">${o.label}</button>`,
+    ).join('');
+
+    const { value: issueType } = await Swal.fire({
+      title: '<span class="font-black uppercase italic">¿Qué pasó con tu pedido?</span>',
+      html: `<p style="text-align:left;font-size:13px;color:${isDark ? '#a1a1aa' : '#52525b'};margin-bottom:8px;">Seleccioná el problema. Al abrir una disputa, la garantía del vendedor queda retenida y el admin lo resolverá.</p>${optionsHtml}`,
+      focusConfirm: false,
+      showConfirmButton: false,
+      showCancelButton: true,
+      cancelButtonText: 'CANCELAR',
+      background: isDark ? '#18181b' : '#fff',
+      color: isDark ? '#fff' : '#000',
+      customClass: {
+        popup: 'rounded-[2.5rem] border-2 border-red-500/20',
+        cancelButton: 'rounded-2xl font-bold uppercase tracking-widest px-6',
+      },
+      didOpen: () => {
+        document.querySelectorAll('.swal-issue-opt').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            Swal.close();
+            const value = btn.getAttribute('data-value');
+            const label =
+              ISSUE_OPTIONS.find((o) => o.value === value)?.label || value;
+            continueDispute(value, label, isDark);
+          });
+        });
+      },
+    });
+    if (issueType) {
+      continueDispute(issueType, issueType, isDark);
+    }
+  };
+
+  const continueDispute = async (issueType, label, isDark) => {
+    // Confirmación de seguridad antes de abrir la disputa.
+    const confirm = await Swal.fire({
+      title: '<span class="font-black uppercase italic">Abilitar disputa</span>',
+      text: `Confirmá que querés abrir una disputa por: "${label}". Esto retiene la garantía del vendedor hasta que el admin resuelva.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#18181b',
+      confirmButtonText: 'SÍ, ABRIR DISPUTA',
+      cancelButtonText: 'CANCELAR',
+      background: isDark ? '#18181b' : '#fff',
+      color: isDark ? '#fff' : '#000',
+      customClass: { popup: 'rounded-[2.5rem] border-2 border-red-500/20' },
+    });
+    if (!confirm.isConfirmed) return;
+
+    setDisputing(true);
+    const token = await getAccessToken();
+    try {
+      const { data } = await axios.post(
+        `${import.meta.env.VITE_SERVER_URL}/api/order/${order._id}/dispute`,
+        { issueType: label },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (data.success) {
+        await Swal.fire({
+          title: '¡DISPUTA ABIERTA!',
+          text: 'Tu problema quedó registrado. El admin revisará el caso y la garantía del vendedor queda retenida hasta la resolución.',
+          icon: 'success',
+          confirmButtonColor: '#F26722',
+          customClass: { popup: 'rounded-[2.5rem]' },
+        });
+        onUpdate?.();
+      }
+    } catch (error) {
+      console.error(error);
+      Swal.fire(
+        'Error',
+        error?.response?.data?.message || 'No se pudo abrir la disputa.',
+        'error',
+      );
+    } finally {
+      setDisputing(false);
     }
   };
 
@@ -157,13 +253,24 @@ export default function ShippingStatusCard({ order, role, onUpdate }) {
               </div>
             </div>
           )}
-          {/* SECCIÓN DE ACCIÓN PARA EL COMPRADOR */}
-          {status === 'shipped' && role === "buyer" && (
+                    {/* SECCIÓN DE ACCIÓN PARA EL COMPRADOR */}
+          {order.dispute?.exists && (
+            <div className="mt-6 p-4 bg-red-50/60 dark:bg-red-950/30 rounded-3xl border-2 border-red-300/50 dark:border-red-500/40">
+              <p className="text-xs font-black uppercase tracking-widest text-red-600 dark:text-red-400 mb-1">
+                ⚖️ Disputa en curso
+              </p>
+              <p className="text-sm font-medium text-zinc-600 dark:text-zinc-300">
+                Registraste: <span className="font-bold text-red-600 dark:text-red-400">{order.dispute.issueType}</span>.
+                La garantía del vendedor quedó retenida. El admin revisará el caso y te contactará con la resolución.
+              </p>
+            </div>
+          )}
+          {status === 'shipped' && role === "buyer" && !order.dispute?.exists && (
             <div className="mt-6 p-4 bg-white/50 dark:bg-black/20 rounded-3xl border border-black/5">
               <p className="text-xs font-bold uppercase text-zinc-500 mb-3 text-center">
                 ¿Ya tienes el paquete contigo?
               </p>
-              <button
+                            <button
                 onClick={handleConfirmArrival}
                 disabled={loading}
                 className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black uppercase tracking-widest transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20"
@@ -172,6 +279,25 @@ export default function ShippingStatusCard({ order, role, onUpdate }) {
               </button>
               <p className="mt-2 text-[9px] text-center text-zinc-400 font-medium">
                 Al confirmar que recibiste todo en orden, se termina la proteccion de la compra.
+              </p>
+
+              <div className="my-4 flex items-center gap-3">
+                <div className="flex-1 h-px bg-black/10 dark:bg-white/10" />
+                <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">¿Tuviste un problema?</span>
+                <div className="flex-1 h-px bg-black/10 dark:bg-white/10" />
+              </div>
+
+              <button
+                onClick={handleReportIssue}
+                disabled={disputing}
+                className="w-full py-3.5 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20 border-2 border-red-300/60 dark:border-red-500/40 rounded-2xl font-black uppercase tracking-widest transition-all hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-2"
+              >
+                {disputing
+                  ? 'Abriendo disputa...'
+                  : <><AlertTriangle size={18} /> Tuve un problema</>}
+              </button>
+              <p className="mt-2 text-[9px] text-center text-zinc-400 font-medium">
+                No confirmes la recepción si el pedido llegó mal. Abrí una disputa y el admin lo resolverá.
               </p>
             </div>
           )}

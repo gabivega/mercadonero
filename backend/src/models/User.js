@@ -114,7 +114,11 @@ const userSchema = new Schema(
         bankName: { type: String, required: true },
         accountType: {
           type: String,
-          enum: ["Caja de Ahorros", "Cuenta Corriente"],
+          // Coexisten dos convenciones: el perfil (BankAccountSection) guarda
+          // "Caja de Ahorros"/"Cuenta Corriente", y el onboarding de vendedor
+          // guarda "CBU"/"CVU" según la cantidad de dígitos. Se aceptan las
+          // cuatro para tener una única fuente de verdad en bankAccounts.
+          enum: ["Caja de Ahorros", "Cuenta Corriente", "CBU", "CVU"],
           default: "Caja de Ahorros",
         },
         holderName: { type: String, required: true }, // Titular

@@ -79,25 +79,52 @@ export const completeSellerOnboarding = async (req, res) => {
     if (phone) updates.phone = phone;
     if (firstName && lastName && dni && phone) updates.profileCompleted = true;
 
-    const shopBankAccount = {
+            // ── CUENTA BANCARIA ─────────────────────────────────────────────
+    // 🎯 FUENTE DE VERDAD ÚNICA: `bankAccounts` del objeto raíz del usuario.
+    // El perfil (BankAccountSection) administra estas cuentas para compradores
+    // Y vendedores. Acá guardamos la cuenta del onboarding en ese MISMO array,
+    // con el MISMO formato que usa el perfil (cbuCvu, cuitCuil, alias), para no
+    // mantener dos colecciones duplicadas (bankAccounts vs shop.bankAccounts)
+    // que se desincronizan y generan bugs al mostrar los datos del vendedor.
+    const newBankAccount = {
       bankName,
       accountType: accountTypeValue,
-      cbu: cbuCvu,
-      cuit: cuitCuil,
+      cbuCvu: cbuCvuClean,
+      cuitCuil: String(cuitCuil || "").replace(/[\s-]/g, ""),
       holderName,
+      // El alias es opcional en el onboarding; lo persistimos si vino.
+      ...(alias ? { alias } : {}),
       isDefault: true,
       titularVerified: checkTitular,
     };
 
+    // Evitamos cuentas duplicadas: si ya existe una con el mismo CBU/CVU, la
+    // actualizamos; si no, la agregamos al array.
+    const currentAccounts = Array.isArray(user.bankAccounts) ? user.bankAccounts : [];
+    const existingIdx = currentAccounts.findIndex(
+      (a) => String(a.cbuCvu || a.cbu || "") === String(newBankAccount.cbuCvu),
+    );
+
+    let bankAccounts;
+    if (existingIdx >= 0) {
+      bankAccounts = currentAccounts.slice();
+      bankAccounts[existingIdx] = { ...bankAccounts[existingIdx], ...newBankAccount };
+    } else {
+      bankAccounts = [...currentAccounts, newBankAccount];
+    }
+    updates.bankAccounts = bankAccounts;
+
     updates["shop.active"] = true;
     updates["shop.name"] = shopName.trim();
     if (shopDescription) updates["shop.description"] = shopDescription.trim();
-        updates["shop.location"] = { city, province };
+    updates["shop.location"] = { city, province };
     if (zipCode) updates["shop.location"].zipCode = zipCode.trim();
     if (taxCondition && ["Monotributista", "Responsable Inscripto", "Exento", "Consumidor Final"].includes(taxCondition)) {
       updates["shop.taxCondition"] = taxCondition;
     }
-    updates["shop.bankAccounts"] = [shopBankAccount];
+    // 💣 Eliminamos cualquier cuenta previa en shop.bankAccounts para apuntar
+    // todo a la fuente de verdad única (user.bankAccounts).
+    updates["shop.bankAccounts"] = [];
     updates.isSeller = true;
 
     const updatedUser = await User.findByIdAndUpdate(userId, { $set: updates }, { new: true, runValidators: true });
@@ -307,35 +334,65 @@ export const getPublicUserProfile = async (req, res) => {
 export const getBankAccounts = async (req, res) => {
   try {
     const { sellerId } = req.params;
-    
-    const seller = await User.findById(sellerId).select('bankAccounts');
-    
+
+        // Traemos tanto las cuentas de la raíz (fuente de verdad única: perfil,
+    // gestionado por BankAccountSection para compradores Y vendedores) como
+    // las del shop (solo como fallback de migración para vendedores antiguos).
+    const seller = await User.findById(sellerId).select(
+      "bankAccounts shop.bankAccounts",
+    );
+
     if (!seller) {
       return res.status(404).json({
         success: false,
-        message: 'Vendedor no encontrado'
+        message: "Vendedor no encontrado",
       });
     }
-    
-    // Buscar la cuenta bancaria default
-    const defaultAccount = seller.bankAccounts?.find(acc => acc.isDefault) || seller.bankAccounts?.[0];
-    
-    if (!defaultAccount) {
+
+    // 1) PRIORIDAD (fuente de verdad): user.bankAccounts.
+    let rawAccount =
+      seller.bankAccounts?.find((acc) => acc.isDefault) ||
+      seller.bankAccounts?.[0];
+
+    // 2) Fallback SOLO de migración: vendedores que cargaron la cuenta en el
+    //    antiguo shop.bankAccounts. Se normalizan los campos (cbu→cbuCvu,
+    //    cuit→cuitCuil). A futuro, cuando no queden cuentas en shop, esto se
+    //    puede eliminar.
+    if (!rawAccount) {
+      rawAccount =
+        seller.shop?.bankAccounts?.find((acc) => acc.isDefault) ||
+        seller.shop?.bankAccounts?.[0];
+    }
+
+    if (!rawAccount) {
       return res.status(404).json({
         success: false,
-        message: 'El vendedor no tiene cuentas bancarias configuradas'
+        message: "El vendedor no tiene cuentas bancarias configuradas",
       });
     }
-    
+
+    // Normalizamos los nombres de campo al formato que espera el frontend
+    // (PaymentAction / Checkout): holderName, cbuCvu, cuitCuil, alias, bankName.
+    const bankAccount = {
+      bankName: rawAccount.bankName || "",
+      holderName: rawAccount.holderName || "",
+      // user.bankAccounts usa `cbuCvu`; el viejo shop usaba `cbu`.
+      cbuCvu: rawAccount.cbuCvu || rawAccount.cbu || "",
+      cuitCuil: rawAccount.cuitCuil || rawAccount.cuit || "",
+      alias: rawAccount.alias || "",
+      accountType: rawAccount.accountType || "",
+      isDefault: rawAccount.isDefault ?? false,
+    };
+
     res.json({
       success: true,
-      bankAccount: defaultAccount
+      bankAccount,
     });
   } catch (error) {
-    console.error('Error al obtener cuentas bancarias:', error);
+    console.error("Error al obtener cuentas bancarias:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al obtener cuentas bancarias'
+      message: "Error al obtener cuentas bancarias",
     });
   }
 };

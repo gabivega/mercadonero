@@ -49,6 +49,19 @@ export async function getOrderLock(orderId) {
  * (total depositado y cuánto tiene congelado en garantía).
  */
 export async function getVendorCollateral(vendorAddress) {
+  // Guard robusto: si la wallet está vacía o no es válida, devolvemos un fallo
+  // limpio en vez del error críptico de ethers ("unsupported addressable
+  // value... value=null"), que no aporta nada útil en el diagnóstico.
+  if (!vendorAddress || typeof vendorAddress !== "string") {
+    console.error(
+      "[Blockchain Error] getVendorCollateral recibió una wallet inválida/null:",
+      vendorAddress,
+    );
+    return {
+      success: false,
+      error: "La billetera del vendedor no está vinculada (walletAddress vacía).",
+    };
+  }
   try {
     const data = await poolContract.vendors(vendorAddress);
     const totalCollateral = parseFloat(ethers.formatUnits(data.totalCollateral, 18));
@@ -137,6 +150,25 @@ export async function releaseVendorCollateral(orderId, vendorAddress, montoOrden
     return { success: true, txHash: tx.hash, verifiedReleased: true };
   } catch (error) {
     console.error("[Blockchain Error] Fallo al liberar colateral:", error.reason || error.message);
+    return { success: false, error: error.reason || error.message };
+  }
+}
+
+/**
+ * ACCIÓN 4: ABRIR DISPUTA (Solo admin / solo si el COMPRADOR reporta un problema).
+ * Congela la liberación del colateral on-chain: la orden entra en disputa y el
+ * contrato queda reteniendo el saldo hasta que el admin la resuelva.
+ */
+export async function triggerOrderDispute(orderId) {
+  try {
+    console.log(`[Blockchain] Solicitando apertura de disputa para Orden: ${orderId}...`);
+    const tx = await poolContract.triggerDispute(orderId);
+    console.log(`[Blockchain] Tx de disputa enviada: ${tx.hash}`);
+    const receipt = await tx.wait();
+    console.log(`[Blockchain] Disputa registrada en bloque: ${receipt.blockNumber}`);
+    return { success: true, txHash: tx.hash };
+  } catch (error) {
+    console.error("[Blockchain Error] Fallo al abrir disputa:", error.reason || error.message);
     return { success: false, error: error.reason || error.message };
   }
 }

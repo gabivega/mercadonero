@@ -246,6 +246,29 @@ const orderSchema = new Schema(
     },
 
     // ────────────────────────────────────────────────
+    // DISPUTA (comprador reporta un problema con el pedido despachado)
+    // Cuando el comprador abre una disputa, la garantía del vendedor queda
+    // retenida y el admin debe resolverla manualmente. Mientras exists=true,
+    // el comprador NO puede marcar la orden como recibida.
+    // ────────────────────────────────────────────────
+    dispute: {
+      exists: { type: Boolean, default: false },
+      raisedBy: { type: Schema.Types.ObjectId, ref: "User" },
+      issueType: { type: String, default: "" },
+      description: { type: String, default: "" },
+      status: {
+        type: String,
+        enum: ["open", "resolved_refund", "resolved_release", "dismissed"],
+        default: "open",
+      },
+      txHash: { type: String, default: "" },
+      resolvedBy: { type: Schema.Types.ObjectId, ref: "User" },
+      resolution: { type: String, default: "" },
+      createdAt: { type: Date, default: Date.now },
+      resolvedAt: { type: Date, default: null },
+    },
+
+    // ────────────────────────────────────────────────
     // CANCELACIONES / DEVOLUCIONES / RECLAMOS
     // Registro de acciones anti-abuso. Cada evento de
     // cancelación/reembolso/reclamo se anota acá con su
@@ -264,6 +287,7 @@ const orderSchema = new Schema(
             "claim", // Reclamo del comprador (post-envío)
             "return_request", // Devolución post-despacho
             "admin_intervention", // Intervención del admin
+            "dispute_opened", // Comprador reportó un problema → se abre disputa
           ],
           required: true,
         },

@@ -12,10 +12,14 @@ import {
   Calendar,
   MapPin,
   Tag,
+  ThumbsUp,
+  ThumbsDown,
+  MessageSquare,
 } from "lucide-react";
 import axios from "axios";
 import ProductCard from "../components/ProductCard";
 import LoadingSpinner from "../components/LoadingSpinner";
+import genericProfile from "../assets/img/generic-profile.png";
 
 const BASE = import.meta.env.VITE_SERVER_URL;
 
@@ -26,6 +30,12 @@ export default function UserProfilePage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+
+  // Reseñas recibidas por el usuario (como vendedor y como comprador)
+  const [reviews, setReviews] = useState([]);
+  const [tab, setTab] = useState("all"); // "all" | "seller" | "buyer"
+  const [reviewsLoading, setReviewsLoading] = useState(true);
+  const [reviewsError, setReviewsError] = useState(false);
 
   const fetchProfile = async () => {
     setLoading(true);
@@ -42,8 +52,26 @@ export default function UserProfilePage() {
     }
   };
 
+  const fetchReviews = async () => {
+    setReviewsLoading(true);
+    setReviewsError(false);
+    try {
+      const { data: res } = await axios.get(`${BASE}/api/review/user/${id}`);
+      if (res?.success) {
+        setReviews(res.reviews || []);
+      }
+    } catch (e) {
+      console.error("Error cargando reseñas:", e);
+      setReviewsError(true);
+    } finally {
+      setReviewsLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchProfile();
+    fetchReviews();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const formatMemberSince = (date) => {
@@ -117,6 +145,84 @@ export default function UserProfilePage() {
     )}&background=random`;
   const hasProducts = data.products?.length > 0;
 
+  // Estilo visual de la puntuación/reputación (0-100, en %) según el valor:
+  //   hasta 50%  → rojo   (baja)
+  //   51 a 80%   → ámbar  (media)
+  //   81 en adel → verde  (excelente)
+  const ratingVisual = (value) => {
+    if (!value || value <= 0) return null;
+    const v = Math.min(100, Number(value));
+    if (v <= 50)
+      return {
+        text: "Reputación baja",
+        cls: "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400",
+        numText: "text-red-600 dark:text-red-400",
+        bar: "bg-red-500",
+      };
+    if (v <= 80)
+      return {
+        text: "Buena reputación",
+        cls: "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400",
+        numText: "text-amber-600 dark:text-amber-400",
+        bar: "bg-amber-500",
+      };
+    return {
+      text: "Excelente reputación",
+      cls: "bg-green-50 text-green-600 dark:bg-green-500/10 dark:text-green-400",
+      numText: "text-green-600 dark:text-green-400",
+      bar: "bg-green-500",
+    };
+  };
+  const mainRating = ratingVisual(metrics?.rating);
+
+  // Formateo de fecha de reseñas
+  const formatReviewDate = (iso) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    return d.toLocaleDateString("es-AR", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  };
+
+  // Separa las reseñas en las que fue calificado como vendedor vs comprador.
+  const sellerReviews = reviews.filter((r) => r.type === "seller_rating");
+  const buyerReviews = reviews.filter((r) => r.type === "buyer_rating");
+
+  const isSellerTab = tab === "seller";
+  const isBuyerTab = tab === "buyer";
+
+  const visibleReviews = tab === "seller" ? sellerReviews : tab === "buyer" ? buyerReviews : reviews;
+
+  // Métricas de recomendación para cada rol (en %).
+  const pct = (list) => {
+    if (!list.length) return null;
+    const positives = list.filter((r) => r.recommends).length;
+    return Math.round((positives / list.length) * 100);
+  };
+  const sellerPositive = sellerReviews.filter((r) => r.recommends).length;
+  const buyerPositive = buyerReviews.filter((r) => r.recommends).length;
+
+  const summary = [
+    {
+      key: "seller",
+      label: "Como vendedor",
+      count: sellerReviews.length,
+      positive: sellerPositive,
+      pct: pct(sellerReviews),
+      icon: <Store className="w-5 h-5" />,
+    },
+    {
+      key: "buyer",
+      label: "Como comprador",
+      count: buyerReviews.length,
+      positive: buyerPositive,
+      pct: pct(buyerReviews),
+      icon: <ShoppingCart className="w-5 h-5" />,
+    },
+  ];
+
   return (
     <div className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a] pb-20 transition-colors">
       {/* Top bar */}
@@ -183,13 +289,31 @@ export default function UserProfilePage() {
                   </span>
                 )}
 
-                {/* Rating */}
-                {metrics?.rating > 0 && (
-                  <span className="flex items-center gap-1 text-yellow-500 font-bold">
-                    <Star size={13} className="fill-yellow-500" /> {metrics.rating}
+                {/* Rating (reputación en %) con color según el valor */}
+                {mainRating && (
+                  <span
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full font-bold uppercase tracking-wide ${mainRating.cls}`}
+                    title={`${mainRating.text}: ${metrics.rating}% de recomendaciones positivas`}
+                  >
+                    <Star size={13} className="fill-current" /> {metrics.rating}%
                   </span>
                 )}
               </div>
+
+              {/* Barra de satisfacción (solo si hay rating) */}
+              {mainRating && (
+                <div className="mt-4 flex items-center gap-3">
+                  <div className="flex-1 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${mainRating.bar}`}
+                      style={{ width: `${Math.min(100, Number(metrics.rating))}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                    {mainRating.text}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Botón de bloqueo (solo renderizado, lógica pendiente) */}
@@ -224,6 +348,207 @@ export default function UserProfilePage() {
             </div>
           ))}
         </div>
+      </section>
+
+      {/* Reseñas recibidas (como vendedor / como comprador) */}
+      <section className="max-w-5xl mx-auto px-4 mt-10">
+        <div className="flex items-center gap-4 mb-6">
+          <h2 className="text-xl font-black italic uppercase tracking-tighter dark:text-white flex items-center gap-2">
+            <MessageSquare className="w-5 h-5 text-[#3483fa]" /> Reseñas recibidas
+          </h2>
+          <div className="h-[2px] flex-1 bg-gray-300/50 dark:bg-zinc-800" />
+          {reviews.length > 0 && (
+            <span className="text-xs font-black uppercase tracking-widest text-gray-400">
+              {reviews.length} {reviews.length === 1 ? "reseña" : "reseñas"}
+            </span>
+          )}
+        </div>
+
+        {reviewsLoading ? (
+          <div className="py-16 text-center bg-white dark:bg-[#121212] border dark:border-zinc-800 rounded-3xl flex items-center justify-center">
+            <LoadingSpinner size="md" text="Cargando reseñas..." />
+          </div>
+        ) : reviewsError || reviews.length === 0 ? (
+          <div className="py-16 text-center bg-white dark:bg-[#121212] border dark:border-zinc-800 rounded-3xl">
+            <MessageSquare className="w-12 h-12 mx-auto mb-3 text-gray-300 dark:text-zinc-700" />
+            <p className="text-gray-500 dark:text-gray-400 font-medium">
+              {reviewsError
+                ? "No pudimos cargar las reseñas de este usuario."
+                : "Este usuario todavía no recibió reseñas."}
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Resumen por rol */}
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              {summary.map((s) => {
+                const active =
+                  (s.key === "seller" && isSellerTab) ||
+                  (s.key === "buyer" && isBuyerTab);
+                const rv = s.pct !== null ? ratingVisual(s.pct) : null;
+                return (
+                  <button
+                    key={s.key}
+                    onClick={() => setTab(s.key)}
+                    className={`text-left bg-white dark:bg-[#121212] border rounded-2xl p-5 transition-colors ${
+                      active
+                        ? "border-[#3483fa] ring-2 ring-[#3483fa]/30"
+                        : "border dark:border-zinc-800 hover:border-[#3483fa]/50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                          s.label === "Como vendedor"
+                            ? "bg-[#F26722]/10 text-[#F26722]"
+                            : "bg-[#3483fa]/10 text-[#3483fa]"
+                        }`}
+                      >
+                        {s.icon}
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                        {s.count} {s.count === 1 ? "reseña" : "reseñas"}
+                      </span>
+                    </div>
+                    <p className="mt-3 font-bold text-sm dark:text-white">{s.label}</p>
+                    <p
+                      className={`text-2xl font-black italic uppercase tracking-tight ${
+                        rv ? rv.numText : "dark:text-white"
+                      }`}
+                    >
+                      {s.pct !== null ? `${s.pct}%` : "—"}
+                    </p>
+                    {/* Mini barra de satisfacción */}
+                    {rv && (
+                      <div className="mt-2 h-1 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${rv.bar}`}
+                          style={{ width: `${s.pct}%` }}
+                        />
+                      </div>
+                    )}
+                    <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                      {s.pct !== null
+                        ? `${s.positive} ${s.positive === 1 ? "recomienda" : "recomiendan"}`
+                        : "Sin reseñas"}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Filtros */}
+            <div className="flex flex-wrap items-center gap-2 mb-6">
+              {[
+                { key: "all", label: "Todas" },
+                { key: "seller", label: "Como vendedor" },
+                { key: "buyer", label: "Como comprador" },
+              ].map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+                    tab === t.key
+                      ? "bg-[#3483fa] text-white"
+                      : "bg-white dark:bg-[#121212] border dark:border-zinc-800 text-gray-600 dark:text-gray-300 hover:border-[#3483fa]/50"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Listado de reseñas */}
+            {visibleReviews.length === 0 ? (
+              <div className="py-12 text-center bg-white dark:bg-[#121212] border dark:border-zinc-800 rounded-3xl">
+                <p className="text-gray-500 dark:text-gray-400 font-medium">
+                  No hay reseñas en esta categoría.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {visibleReviews.map((review) => {
+                  const authorId = review.author?._id;
+                  const authorName =
+                    review.author?.name ||
+                    review.author?.username ||
+                    "Usuario";
+                  const isSellerType = review.type === "seller_rating";
+                  const isPositive = review.recommends !== false;
+                  return (
+                    <article
+                      key={review._id}
+                      className="bg-white dark:bg-[#121212] border dark:border-zinc-800 rounded-2xl p-5"
+                    >
+                      <div className="flex items-start gap-3">
+                        <Link
+                          to={`/user/${authorId}`}
+                          className="shrink-0 group"
+                        >
+                          <img
+                            src={review.author?.avatar || genericProfile}
+                            alt={authorName}
+                            className="w-11 h-11 rounded-full object-cover border border-gray-200 dark:border-zinc-700 group-hover:ring-2 group-hover:ring-[#3483fa]/50 transition-all"
+                          />
+                        </Link>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Link
+                              to={`/user/${authorId}`}
+                              className="text-sm font-bold dark:text-white truncate capitalize hover:text-[#3483fa] hover:underline"
+                              title={`Ver el perfil de ${authorName}`}
+                            >
+                              {authorName}
+                            </Link>
+                            <span
+                              className={`text-[10px] font-black uppercase tracking-wide px-2 py-0.5 rounded-full ${
+                                isSellerType
+                                  ? "bg-[#F26722]/10 text-[#F26722]"
+                                  : "bg-[#3483fa]/10 text-[#3483fa]"
+                              }`}
+                            >
+                              {isSellerType ? "la calificó como vendedor" : "la calificó como comprador"}
+                            </span>
+                          </div>
+
+                          {/* Recomendación 👍 / 👎 */}
+                          <div className="mt-2">
+                            <span
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${
+                                isPositive
+                                  ? "bg-green-50 dark:bg-green-900/10 text-green-600"
+                                  : "bg-red-50 dark:bg-red-900/10 text-red-500"
+                              }`}
+                            >
+                              {isPositive ? (
+                                <>
+                                  <ThumbsUp size={14} /> Lo recomienda
+                                </>
+                              ) : (
+                                <>
+                                  <ThumbsDown size={14} /> No lo recomienda
+                                </>
+                              )}
+                            </span>
+                          </div>
+
+                          {review.comment && (
+                            <p className="mt-3 text-sm text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-line">
+                              {review.comment}
+                            </p>
+                          )}
+                        </div>
+                        <span className="shrink-0 text-[11px] text-gray-400 capitalize">
+                          {formatReviewDate(review.createdAt)}
+                        </span>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
       </section>
 
       {/* Productos */}

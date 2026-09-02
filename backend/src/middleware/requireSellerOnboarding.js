@@ -35,20 +35,41 @@ export default async function requireSellerOnboarding(req, res, next) {
     }
 
     // 2. Comprobar el onboarding vendedor del usuario autenticado.
-    const user = await User.findById(req.user._id).select("shop.active shop.bankAccounts");
+    //    La fuente de verdad de cuentas bancarias es user.bankAccounts (el
+    //    perfil), no shop.bankAccounts. Se mantiene shop como fallback de
+    //    migración para vendedores antiguos.
+    const user = await User.findById(req.user._id).select(
+      "shop.active bankAccounts shop.bankAccounts walletAddress",
+    );
     if (!user) {
       return res.status(404).json({ success: false, message: "Usuario no encontrado." });
     }
 
     const shopActive = Boolean(user.shop?.active);
-    const hasBankAccount = Array.isArray(user.shop?.bankAccounts) && user.shop.bankAccounts.length > 0;
+    const hasBankAccount =
+      Array.isArray(user.bankAccounts) && user.bankAccounts.length > 0;
+    const hasLegacyShopBank =
+      Array.isArray(user.shop?.bankAccounts) && user.shop.bankAccounts.length > 0;
 
-    if (!shopActive || !hasBankAccount) {
+    if (!shopActive || (!hasBankAccount && !hasLegacyShopBank)) {
       return res.status(403).json({
         success: false,
         blocked: "onboarding",
         message:
           "Para poder publicar necesitamos que completes algunos datos. No compartiremos tus datos con nadie, ofrecemos una plataforma segura para todos los usuarios.",
+      });
+    }
+
+    // 3. WALLET WEB3: el vendedor debe tener una wallet vinculada. La garantía
+    //    (colateral) se gestiona on-chain con la wallet del vendedor, y sin ella
+    //    el comprador no puede finalizar la compra. Lo exigimos ANTES de publicar
+    //    para evitar el error "El vendedor no tiene una wallet válida".
+    if (!user.walletAddress) {
+      return res.status(403).json({
+        success: false,
+        blocked: "wallet",
+        message:
+          "Para publicar y recibir pagos necesitás tener una wallet Web3 vinculada. Creá o conectá tu billetera desde 'Mi Billetera' y volvé a intentar.",
       });
     }
 

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { useWallets } from "@privy-io/react-auth";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { X, Copy, Check, Wallet, ExternalLink, ShieldCheck, Store } from "lucide-react";
+import { getAuthenticatedWallet } from "../Utils/walletSelector";
 
 /**
  * MODAL DE DEPÓSITO USDT.
@@ -9,8 +10,10 @@ import { X, Copy, Check, Wallet, ExternalLink, ShieldCheck, Store } from "lucide
  * depósito (copiable) y le ofrece el acceso a proveedores de cripto.
  */
 export default function DepositUsdtModal({ onClose }) {
+  const { user } = usePrivy();
   const { wallets } = useWallets();
-  const activeWallet = wallets?.find((w) => w.connected) || wallets?.[0];
+  // SIEMPRE la embedded wallet del usuario autenticado (no `wallets?.[0]`).
+  const activeWallet = getAuthenticatedWallet(wallets, user?.wallet?.address);
   const [copied, setCopied] = useState(false);
   const [copiedRecharge, setCopiedRecharge] = useState(false);
 

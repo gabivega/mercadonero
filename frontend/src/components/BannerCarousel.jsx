@@ -45,8 +45,8 @@ const desktopBanners = [
   },
  {
   image: '/assets/img/banner-desktop/referral.webp', // Tu nueva imagen
-  title: "Compartí y Ganá en Comunidad",
-  subtitle: "Recomendá productos seleccionados y ganá reintegros para vos y tus seguidores. 100% automatizado por Smart Contracts.",
+  title: "Cashback en USDT",
+  subtitle: "Obtené un 2.5% en USDT de reintegro en todas tus compras.",
   button: "Unirse como Creador",
   overlay: "bg-black/60", 
   url: "/referidos", // O la ruta que le hayas asignado a la pestaña de creadores

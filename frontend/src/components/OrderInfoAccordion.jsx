@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   ChevronDown, 
   ChevronUp, 
@@ -8,12 +9,14 @@ import {
   Truck, 
   Calendar, 
   Hash,
-  Tag
+  Tag,
+  ExternalLink,
 } from 'lucide-react';
 
 const OrderInfoAccordion = ({ order, role }) => {
   const [isOpen, setIsOpen] = useState(false);
   const isSeller = role === 'seller';
+  const navigate = useNavigate();
 
   // Helper para formatear fechas
   const formatDate = (date) => date ? new Date(date).toLocaleString() : '---';
@@ -33,8 +36,8 @@ if (!order) {
   expired: 'Expirado',
 };
 
-  // Helper para las filas de datos
-  const InfoRow = ({ icon: Icon, label, value }) => (
+    // Helper para las filas de datos
+  const InfoRow = ({ icon: Icon, label, value, linkId }) => (
     <div className="flex items-start gap-3 py-3 border-b border-zinc-100 dark:border-zinc-800 last:border-0">
       <div className="mt-1 text-zinc-400">
         <Icon size={16} />
@@ -43,9 +46,23 @@ if (!order) {
         <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-0.5">
           {label}
         </p>
-        <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200 break-all">
-          {value || 'No especificado'}
-        </p>
+        {linkId ? (
+          <button
+            onClick={() => navigate(`/user/${linkId}`)}
+            className="group inline-flex items-center gap-1.5 text-sm font-bold text-[#3483fa] hover:underline capitalize dark:text-blue-400"
+            title="Ver perfil público de esta persona"
+          >
+            {value || 'No especificado'}
+            <ExternalLink
+              size={13}
+              className="text-zinc-400 group-hover:text-[#3483fa]"
+            />
+          </button>
+        ) : (
+          <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200 break-all">
+            {value || 'No especificado'}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -77,10 +94,11 @@ if (!order) {
             <div className="flex flex-col">
               <InfoRow icon={Hash} label="ID de Orden" value={order._id} />
               <InfoRow icon={Tag} label="Estado Actual" value={STATUS_MAP[order.status] || order.status} />
-              <InfoRow 
+                            <InfoRow 
                 icon={User} 
                 label={isSeller ? "Comprador" : "Vendedor"} 
                 value={isSeller ? order.buyer?.firstName + " " + order.buyer?.lastName : order.seller?.username} 
+                linkId={isSeller ? (order.buyer?._id || order.buyer) : (order.seller?._id || order.seller)}
               />
              { isSeller && <InfoRow 
                 icon={User} 
