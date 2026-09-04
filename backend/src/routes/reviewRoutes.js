@@ -15,8 +15,11 @@ router.post("/product", verifyPrivyToken, attachUser, createProductReview);
 router.post("/user", verifyPrivyToken, attachUser, createUserReview);
 router.get("/order/:orderId", verifyPrivyToken, attachUser, getOrderReviews);
 
-// Rutas públicas (para mostrar ratings en el detalle de producto y perfil)
+// Reseñas de un producto (públicas, para el detalle de producto)
 router.get("/product/:productId", getProductReviews);
-router.get("/user/:userId", getUserReviews);
+
+// Reseñas recibidas por un usuario (requiere sesión: solo usuarios
+// registrados pueden ver el perfil de otro usuario y sus reseñas)
+router.get("/user/:userId", verifyPrivyToken, getUserReviews);
 
 export default router;

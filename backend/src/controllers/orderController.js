@@ -1,4 +1,4 @@
-import Order from "../models/Order.js";
+﻿import Order from "../models/Order.js";
 import Product from "../models/Product.js";
 import { calculateOrderFinancials } from "../../../frontend/src/Utils/OrderUtils.js";
 import {
@@ -14,6 +14,7 @@ import User from "../models/User.js";
 import { ethers } from "ethers";
 import {
   sendOrderCreatedToBuyer,
+  sendOrderCreatedToBuyerEscrow,
   sendOrderCreatedToVendor,
   sendPaymentConfirmedToVendor,
   sendShippingDetailsToBuyer,
@@ -232,28 +233,33 @@ const createOrder = async (req, res) => {
 
       const savedCryptoOrder = await newOrderCrypto.save();
 
-      // Notificaciones (comprador y vendedor)
-      sendOrderCreatedToBuyer({
+      // Notificaciones (comprador y vendedor).
+      // Al comprador va un mail específico de escrow (NO de transferencia
+      // bancaria): no le mostramos CBU/alias/titular ni instrucciones para
+      // transferir, porque en cripto el pago se hace firmando el fondeo del
+      // escrow desde su billetera.
+      sendOrderCreatedToBuyerEscrow({
         buyerEmail: buyer.email,
         orderId: savedCryptoOrder._id,
-        amount: savedCryptoOrder.totalAmount,
         products: savedCryptoOrder.itemsSnapshot,
-        seller: seller.username,
-      }).catch((err) => console.error("Falló notificación a comprador:", err));
+        amountUsdt: (
+          financials.totalUsd + financials.shippingCostUsd
+        ).toFixed(2),
+      }).catch((err) => console.error("Falló notificación escrow a comprador:", err));
 
       sendOrderCreatedToVendor({
         vendorEmail: seller.email,
         orderId: savedCryptoOrder._id,
         amount: savedCryptoOrder.totalAmount,
         products: savedCryptoOrder.itemsSnapshot,
-        buyerName: buyer.name,
+        buyerName: buyer.firstName || buyer.username || "El comprador",
       }).catch((err) => console.error("Falló notificación a vendedor:", err));
 
       createNotification({
         recipient: sellerId,
         type: "order_created",
         title: "¡Nueva orden de compra (cripto)!",
-        message: `${buyer.name} inició la orden #${savedCryptoOrder._id.toString().slice(-6).toUpperCase()} y abonará en USDT.`,
+        message: `${buyer.firstName || buyer.username || "El comprador"} inició la orden #${savedCryptoOrder._id.toString().slice(-6).toUpperCase()} y abonará en USDT.`,
         data: { orderId: savedCryptoOrder._id, totalAmount: savedCryptoOrder.totalAmount },
       }).catch((err) => console.error("Falló notif in-app a vendedor:", err));
 
@@ -378,14 +384,14 @@ const createOrder = async (req, res) => {
         orderId: newOrder._id,
         amount: newOrder.totalAmount,
         products: newOrder.itemsSnapshot,
-        buyerName: buyer.name,
+        buyerName: buyer.firstName || buyer.username || "El comprador",
       }).catch((err) => console.error("Falló notificación a vendedor:", err));
 
       createNotification({
         recipient: sellerId,
         type: "order_created",
         title: "¡Nueva orden de compra!",
-        message: `${buyer.name} inició la orden #${newOrder._id.toString().slice(-6).toUpperCase()}.`,
+        message: `${buyer.firstName || buyer.username || "El comprador"} inició la orden #${newOrder._id.toString().slice(-6).toUpperCase()}.`,
         data: { orderId: newOrder._id, totalAmount: newOrder.totalAmount },
       }).catch((err) => console.error("Falló notif in-app a vendedor:", err));
 
@@ -431,7 +437,7 @@ const createOrder = async (req, res) => {
       recipient: sellerId,
       type: "collateral_hold_requested",
       title: "¡Tenés una venta en espera por falta de garantía!",
-      message: `${buyer.name} quiere comprarte, pero no tenés saldo libre de garantía. Depositá USDT en los próximos ${Math.round(
+      message: `${buyer.firstName || buyer.username || "El comprador"} quiere comprarte, pero no tenés saldo libre de garantía. Depositá USDT en los próximos ${Math.round(
         COLLATERAL_HOLD_CONFIG.HOLD_MS / 60000,
       )} minutos para no perder la venta (orden #${newOrder._id
         .toString()
@@ -448,7 +454,7 @@ const createOrder = async (req, res) => {
         orderId: newOrder._id,
         amount: amountToLock,
         products: newOrder.itemsSnapshot || [],
-        buyerName: buyer.name || buyer.firstName || "El comprador",
+        buyerName: buyer.firstName || buyer.username || buyer.email || "El comprador",
         minutesLeft: Math.round(COLLATERAL_HOLD_CONFIG.HOLD_MS / 60000),
       }).catch((err) =>
         console.error("Falló email de garantía al vendedor:", err),
@@ -515,14 +521,16 @@ const markAsPaid = async (req, res) => {
   try {
     const { orderId } = req.params;
 
-    // Buscamos la orden y solo actualizamos el status
+        // Buscamos la orden y solo actualizamos el status. Guardamos también el
+    // instante de la notificación del comprador (verifying_payment), que es la
+    // base de tiempo para la futura disputa del vendedor por pago no recibido.
     const updatedOrder = await Order.findByIdAndUpdate(
       orderId,
-      { status: "verifying_payment" },
+      { status: "verifying_payment", verifyingPaymentNotifiedAt: new Date() },
       { new: true }, // Para que devuelva la orden ya actualizada
     );
 
-    if (!updatedOrder) {
+        if (!updatedOrder) {
       return res
         .status(404)
         .json({ success: false, message: "Orden no encontrada" });
@@ -578,6 +586,46 @@ const executeBlockchainRelease = async (order, sellerAddress, montoOrden) => {
 
   return blockchainResult.txHash;
 };
+/**
+ * HELPER de liberación idempotente para CANCELACIONES (0% fee).
+ * Antes de golpear la blockchain consultamos el lock real on-chain: si la
+ * orden ya no tiene saldo congelado (lock=0) o no se puede leer, NO
+ * reenviamos la tx (el contrato la rechazaría con "No hay saldo bloqueado",
+ * que era justo la causa por la que órdenes quedaban trabadas y el sistema
+ * devolvía "No se pudo liberar el colateral"). En ese caso solo registramos la
+ * acción en la DB sin re-intentar la cadena.
+ *
+ * Devuelve: { success, skipped, txHash, error }
+ *  - skipped = true  → ya estaba liberado, no se envió tx on-chain.
+ *  - skipped = false → se envió y confirmó la liberación (0% fee).
+ */
+const releaseCollateralOnCancelIdempotent = async (order, sellerAddress) => {
+  // Lectura del estado real del lock en el contrato.
+  const lockState = await getOrderLock(order._id.toString());
+  const alreadyReleased =
+    !lockState.success || (lockState.success && lockState.lockUsd === 0);
+
+  if (alreadyReleased) {
+    console.log(
+      `[Cancel Idempotent] Orden ${order._id} ya figura liberada on-chain (lock ${
+        lockState.success ? `= ${lockState.lockUsd}` : "ilegible: " + (lockState.error || "s/n")
+      } USDT). No se reenvía tx on-chain; solo se reconcilia la DB.`,
+    );
+    return { success: true, skipped: true, txHash: order.releaseTxHash || "" };
+  }
+
+  // Hay saldo congelado real → ejecutamos la liberación sin comisión.
+  const bc = await cancelVendorCollateral(order._id.toString(), sellerAddress);
+  if (!bc.success) {
+    console.error(
+      `[Cancel Idempotent] Fallo al liberar colateral de la orden ${order._id}:`,
+      bc.error,
+    );
+    return { success: false, error: bc.error };
+  }
+  return { success: true, skipped: false, txHash: bc.txHash };
+};
+
 const updateOrder = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -613,7 +661,12 @@ const updateOrder = async (req, res) => {
         order.paymentProof = updates.paymentProof;
       }
 
-      order.status = "verifying_payment";
+            order.status = "verifying_payment";
+      // Momento exacto en que el comprador notificó el pago. Marco inamovible
+      // usado para habilitar (tras la ventana de espera) la disputa del
+      // vendedor por "el pago no ingresó". No depende de updatedAt porque la
+      // orden podría actualizarse luego y correría la cuenta.
+      order.verifyingPaymentNotifiedAt = new Date();
       // Registramos quién hizo el cambio para auditoría interna
       console.log(
         `Orden ${orderId} marcada como verificando pago por comprador ${userId}`,
@@ -1124,8 +1177,9 @@ const cancelOrder = async (req, res) => {
        Esto evita preguntarle genéricamente si pagó: si declara haber pagado
        en 'pending_payment', lo notificamos en el sistema.
        ════════════════════════════════════════════════════════════════ */
-    if (order.status === "pending_payment" && paidStatus === "paid") {
+        if (order.status === "pending_payment" && paidStatus === "paid") {
       order.status = "verifying_payment";
+      order.verifyingPaymentNotifiedAt = order.verifyingPaymentNotifiedAt || new Date();
       order.paymentVerifiedAt = new Date();
       order.statusHistory.push({
         status: "verifying_payment",
@@ -1159,7 +1213,7 @@ const cancelOrder = async (req, res) => {
        haber abonado. Es seguro liberar la garantía al vendedor y cancelar.
        ════════════════════════════════════════════════════════════════ */
     if (order.status === "pending_payment" && paidStatus !== "paid") {
-      const seller = await User.findById(order.seller);
+            const seller = await User.findById(order.seller);
       if (!seller || !seller.walletAddress) {
         return res.status(400).json({
           success: false,
@@ -1168,14 +1222,21 @@ const cancelOrder = async (req, res) => {
         });
       }
 
-      const blockchainResult = await cancelVendorCollateral(
-        order._id.toString(),
+      // Liberación idempotente: si on-chain el lock ya no existe (liberado de
+      // verdad o ilegible), NO reenviamos la tx (evita que la cancelación
+      // quede trabada con "No se pudo liberar el colateral"). Solo se registra.
+      const blockchainResult = await releaseCollateralOnCancelIdempotent(
+        order,
         seller.walletAddress,
       );
       if (!blockchainResult.success) {
         return res.status(500).json({
           success: false,
-          message: "No se pudo liberar el colateral en la blockchain.",
+          message:
+            blockchainResult.error === "No hay saldo bloqueado" ||
+            blockchainResult.error?.includes("No hay saldo")
+              ? "La orden ya estaba liberada on-chain, no se requiere acción on-chain."
+              : "No se pudo liberar el colateral en la blockchain.",
           error: blockchainResult.error,
         });
       }
@@ -1435,15 +1496,22 @@ const buyerConfirmsRefundReceived = async (req, res) => {
       });
     }
 
-    // Liberar colateral (0% fee)
-    const blockchainResult = await cancelVendorCollateral(
-      order._id.toString(),
+        // Liberar colateral (0% fee) de forma IDEMPOTENTE: si on-chain el lock ya
+    // fue liberado (o no se puede leer), no reenviamos la tx —evita que la
+    // confirmación del reintegro quede trabada con "No se pudo liberar el
+    // colateral" cuando de hecho ya no hay saldo congelado—.
+    const blockchainResult = await releaseCollateralOnCancelIdempotent(
+      order,
       seller.walletAddress,
     );
     if (!blockchainResult.success) {
       return res.status(500).json({
         success: false,
-        message: "No se pudo liberar el colateral en la blockchain.",
+        message:
+          blockchainResult.error === "No hay saldo bloqueado" ||
+          blockchainResult.error?.includes("No hay saldo")
+            ? "La orden ya estaba liberada on-chain, no se requiere acción on-chain."
+            : "No se pudo liberar el colateral en la blockchain.",
         error: blockchainResult.error,
       });
     }
@@ -2780,28 +2848,95 @@ const openDispute = async (req, res) => {
     const { issueType, description } = req.body;
     const userId = req.user._id.toString();
 
-    const order = await Order.findById(orderId);
+        const order = await Order.findById(orderId);
     if (!order) return res.status(404).json({ message: "Orden no encontrada" });
 
-    if (order.buyer.toString() !== userId) {
+    const isBuyer = order.buyer.toString() === userId;
+    const isSeller = order.seller.toString() === userId;
+    if (!isBuyer && !isSeller) {
       return res
         .status(403)
-        .json({ message: "Solo el comprador de la orden puede abrir una disputa." });
+        .json({ message: "No tenés permisos para abrir una disputa en esta orden." });
     }
 
-    // Solo se puede disputar mientras el pedido está despachado/en curso.
-    if (!["shipped"].includes(order.status)) {
+    // ─────────────────────────────────────────────────────────────────────
+    // DISPUTA POR PAGO NO RECIBIDO (VENDEDOR)
+    // El vendedor lo habilita SOLO mientras la orden está en 'verifying_payment'
+    // (el comprador notificó que pagó, pero el vendedor asegura que no le llegó)
+    // y pasado un plazo de espera desde dicha notificación. Es el caso que este
+    // nuevo flujo trae: el comprador podría haberlo "marcado como pago" sin
+    // transferir realmente. Solo aplica a transferencia bancaria (en crypto el
+    // dinero está retenido en el escrow y se gestiona distinto).
+    // ─────────────────────────────────────────────────────────────────────
+    const PAYMENT_DISPUTE_WAIT_MINUTES = 30; // Ventana de espera (configurable)
+
+    if (isSeller && !isBuyer) {
+      if (order.status !== "verifying_payment") {
+        return res.status(400).json({
+          success: false,
+          message: `No se puede reportar pago no recibido en el estado actual (${order.status}). Esperá a que el comprador notifique el pago.`,
+        });
+      }
+      if (order.payment?.method === "crypto") {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Las órdenes con pago en criptomonedas retienen los USDT en el escrow y no aplican al reporte de pago no recibido.",
+        });
+      }
+      if (order.dispute?.exists) {
+        return res.status(400).json({
+          success: false,
+          message: "Ya hay una disputa abierta en esta orden. El admin la resolverá.",
+        });
+      }
+
+      // Fecha en que se notificó: usamos la marca dedicada si existe; si la
+      // orden es antigua (creada antes de este cambio) caemos a updatedAt,
+      // que en 'verifying_payment' quedó congelado a esa notificación.
+      const notifiedAt = [
+        order.verifyingPaymentNotifiedAt,
+        order.statusHistory?.find?.((s) => s.status === "verifying_payment")
+          ?.changedAt,
+        order.updatedAt,
+      ].find(Boolean);
+      if (!notifiedAt) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "No se pudo determinar cuándo el comprador notificó el pago. Contactá a soporte.",
+        });
+      }
+      const elapsedMs = Date.now() - new Date(notifiedAt).getTime();
+      const waitMs = PAYMENT_DISPUTE_WAIT_MINUTES * 60 * 1000;
+      if (elapsedMs < waitMs) {
+        const remainingMin = Math.ceil((waitMs - elapsedMs) / 60000);
+        return res.status(409).json({
+          success: false,
+          code: "WAIT_WINDOW",
+          remainingMinutes: remainingMin,
+          message: `Aún no podés reportar que el pago no ingresó. Esperá ${remainingMin} min + para recién marcarlo como no pagado por el comprador.`,
+        });
+      }
+    } else if (!["shipped"].includes(order.status)) {
+      // Flujo del COMPRADOR (problema con el pedido despachado): solo en camino.
       return res.status(400).json({
         success: false,
         message: `No se puede abrir una disputa en el estado actual (${order.status}). Solo mientras el pedido está en camino.`,
       });
     }
+
     if (order.dispute?.exists) {
       return res.status(400).json({
         success: false,
-        message: "Ya hay una disputa abierta en esta orden. El admin la resolverá.",
+        message: order.dispute.status === "open"
+          ? "Ya hay una disputa abierta en esta orden. El admin la resolverá."
+          : "Esta orden ya tuvo una disputa resuelta.",
       });
     }
+
+    // Quién abre la disputa (define issueType por defecto y textos).
+    const initiator = isSeller ? "seller" : "buyer";
 
     // Se congela la liberación del colateral on-chain (si hay saldo bloqueado).
     // Si el contrato no tiene lock (ej. orden crypto), igualmente marcamos la
@@ -2814,73 +2949,116 @@ const openDispute = async (req, res) => {
       console.warn("[Dispute] No se pudo congelar on-chain (posible escrow):", bcErr.message);
     }
 
+        // Issue por defecto según quién abre la disputa.
+    const defaultIssue = isSeller
+      ? "El vendedor reporta que el pago del comprador no ingresó."
+      : "El comprador reportó un problema con el pedido (sin especificar).";
+    const resolvedIssue =
+      issueType || defaultIssue;
+    const defaultReason = isSeller
+      ? "El comprador notificó el pago pero el vendedor declara no haberlo recibido."
+      : "Producto incorrecto, dañado o no recibido.";
+
     order.dispute = {
       exists: true,
-      raisedBy: order.buyer,
-      issueType:
-        issueType ||
-        "El comprador reportó un problema con el pedido (sin especificar).",
+      raisedBy: isSeller ? order.seller : order.buyer,
+      issueType: resolvedIssue,
       description: description || "",
       status: "open",
       txHash: txHash || "",
       createdAt: new Date(),
     };
-    order.orderActions.push({
+        order.orderActions.push({
       type: "dispute_opened",
-      initiator: "buyer",
-      paidStatus: "paid",
-      status: "open",
-      reason: issueType || "Producto incorrecto, dañado o no recibido.",
-      description: description || "",
-      disputeTxHash: txHash || undefined,
-      createdBy: order.buyer,
+      initiator,
+      // La disputa (comprador reportando un problema o vendedor reportando
+      // "el pago no ingresó") quedó registrada y queda "open" a nivel del
+      // subdocumento `dispute`, no aquí. En `orderActions` el enum de `status`
+      // es pending/approved/rejected/completed/declined → usamos "completed"
+      // porque la acción (abrir disputa) ya se ejecutó.
+            paidStatus: "paid",
+      status: "completed",
+      reason: resolvedIssue || defaultReason,
+      createdBy: isSeller ? order.seller : order.buyer,
     });
     await order.save();
 
-    // Notificar al admin (in-app + mail si existe).
+        // ─────────────────────────────────────────────────────────────────────
+    // NOTIFICACIONES
+    // ─────────────────────────────────────────────────────────────────────
     const adminId = process.env.ADMIN_PRIVY_ID;
-    const adminUser = adminId ? await User.findOne({ privyDid: adminId }) : null;
+    const adminUser = adminId
+      ? await User.findOne({ privyDid: adminId })
+      : null;
     const buyer = await User.findById(order.buyer);
     const seller = await User.findById(order.seller);
+
     if (adminUser) {
+      const issuerLabel = isSeller ? "El vendedor" : "El comprador";
       createNotification({
         recipient: adminUser._id,
         type: "order_disputed",
         title: "Disputa abierta en una orden",
-        message: `El comprador abrió una disputa en la orden #${order._id
+        message: `${issuerLabel} abrió una disputa en la orden #${order._id
           .toString()
           .slice(-6)
-          .toUpperCase()} (${issueType || "problema con el pedido"}). El colateral queda retenido hasta resolver.`,
+          .toUpperCase()} (${resolvedIssue}). El colateral queda retenido hasta resolver.`,
+        data: { orderId: order._id, issueType: resolvedIssue },
+      }).catch(() => {});
+    }
+
+    if (isSeller) {
+      // Disputa iniciada por el VENDEDOR (pago no recibido).
+      createNotification({
+        recipient: order.seller,
+        type: "order_disputed",
+        title: "Reporte de pago no recibido registrado",
+        message: `Registramos tu reporte de la orden #${order._id
+          .toString()
+          .slice(-6)
+          .toUpperCase()}: el pago del comprador no ingresó. El admin revisará el caso y te contactará.`,
+        data: { orderId: order._id },
+      }).catch(() => {});
+      createNotification({
+        recipient: order.buyer,
+        type: "order_disputed",
+        title: "Tu compra fue marcada como no pagada",
+        message: `El vendedor reportó que el pago de la orden #${order._id
+          .toString()
+          .slice(-6)
+          .toUpperCase()} no le llegó. Si realizaste la transferencia, tené el comprobante a mano: el admin te contactará.`,
+        data: { orderId: order._id },
+      }).catch(() => {});
+    } else {
+      // Disputa iniciada por el COMPRADOR (problema con el pedido recibido).
+      createNotification({
+        recipient: order.buyer,
+        type: "order_disputed",
+        title: "Disputa abierta",
+        message: `Registramos tu problema en la orden #${order._id
+          .toString()
+          .slice(-6)
+          .toUpperCase()}. El admin la revisará. Mientras tanto los fondos del vendedor quedan retenidos.`,
+        data: { orderId: order._id },
+      }).catch(() => {});
+      createNotification({
+        recipient: order.seller,
+        type: "order_disputed",
+        title: "Tu venta fue disputada",
+        message: `El comprador reportó un problema con la orden #${order._id
+          .toString()
+          .slice(-6)
+          .toUpperCase()}. Tu garantía queda retenida hasta que el admin resuelva la disputa.`,
         data: { orderId: order._id },
       }).catch(() => {});
     }
 
-    // Notificar al comprador y al vendedor.
-    createNotification({
-      recipient: order.buyer,
-      type: "order_disputed",
-      title: "Disputa abierta",
-      message: `Registramos tu problema en la orden #${order._id
-        .toString()
-        .slice(-6)
-        .toUpperCase()}. El admin la revisará. Mientras tanto los fondos del vendedor quedan retenidos.`,
-      data: { orderId: order._id },
-    }).catch(() => {});
-    createNotification({
-      recipient: order.seller,
-      type: "order_disputed",
-      title: "Tu venta fue disputada",
-      message: `El comprador reportó un problema con la orden #${order._id
-        .toString()
-        .slice(-6)
-        .toUpperCase()}. Tu garantía queda retenida hasta que el admin resuelva la disputa.`,
-      data: { orderId: order._id },
-    }).catch(() => {});
-
     return res.status(200).json({
       success: true,
-      message:
-        "Disputa registrada. El admin revisará el caso y la garantía del vendedor queda retenida hasta la resolución.",
+      message: isSeller
+        ? "Reporte de pago no recibido registrado. El admin revisará el caso y te contactará con la resolución."
+        : "Disputa registrada. El admin revisará el caso y la garantía del vendedor queda retenida hasta la resolución.",
+      dispute: order.dispute,
       order,
     });
   } catch (error) {

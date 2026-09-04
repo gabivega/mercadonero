@@ -27,9 +27,11 @@ import { Link, useNavigate } from "react-router-dom";
 import { usePrivy } from "@privy-io/react-auth";
 import { useCartStore } from "../store/useCartStore";
 import { useUserStore } from "../store/useUserStore";
+import { useFavoritesStore } from "../store/useFavoritesStore";
 import { useSyncUser } from "../Utils/userSync";
 import { useNotificationStore } from "../store/useNotificationStore";
 import { useNotifications } from "../Utils/useNotifications";
+import { useFavorites } from "../Utils/useFavorites";
 
 // Asset Imports
 import darkLogo from "../assets/img/logo-white.png";
@@ -128,12 +130,21 @@ export default function Header() {
   }, []);
 
   const { syncUser } = useSyncUser(setDbUser);
+  const { loadFavorites } = useFavorites();
 
   useEffect(() => {
     if (ready && authenticated && user) {
     syncUser();
   }
   }, [ready, authenticated, user, setDbUser, user?.wallet?.address]);
+
+  // Carga los favoritos del usuario logueado (permite pintar el corazón
+  // relleno en todas las ProductCard de forma consistente).
+  useEffect(() => {
+    if (ready && authenticated) {
+      loadFavorites();
+    }
+  }, [ready, authenticated, loadFavorites]);
 
 
   const handleToggleTheme = () => {
@@ -149,9 +160,10 @@ export default function Header() {
     // }
   };
 
-  const handleLogout = async () => {
+    const handleLogout = async () => {
     clearCart();
     clearUser();
+    useFavoritesStore.getState().clearFavorites();
     try {
       await logout();
       navigate("/", { replace: true });
@@ -266,7 +278,10 @@ export default function Header() {
             <div className="hidden lg:flex items-center gap-2">
               {ready && authenticated ? (
                 <>
-                  <IconButton icon={Heart} onClick={() => {}} />
+                  <IconButton
+                    icon={Heart}
+                    onClick={() => navigate("/favoritos")}
+                  />
                   <div
                     className="relative"
                     onMouseEnter={() => setIsUserMenuOpen(true)}
@@ -318,12 +333,19 @@ export default function Header() {
                               <Bell className="w-4 h-4" />
                               Notificaciones
                             </button>
-                            <button
+                                                        <button
                               onClick={() => handleMenuClick("/compras")}
                               className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
                             >
                               <ShoppingCart className="w-4 h-4" />
                               Compras
+                            </button>
+                            <button
+                              onClick={() => handleMenuClick("/favoritos")}
+                              className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
+                            >
+                              <Heart className="w-4 h-4" />
+                              Favoritos
                             </button>
                             {isAdmin && (
                               <button
@@ -574,7 +596,7 @@ export default function Header() {
                           Perfil
                         </span>
                       </div>
-                      <div
+                                            <div
                         className="flex flex-col items-center gap-2 cursor-pointer"
                         onClick={() => handleMenuClick("/billetera")}
                       >
@@ -583,6 +605,17 @@ export default function Header() {
                         </div>
                         <span className="text-xs text-gray-500 dark:text-gray-400">
                           Billetera
+                        </span>
+                      </div>
+                      <div
+                        className="flex flex-col items-center gap-2 cursor-pointer"
+                        onClick={() => handleMenuClick("/favoritos")}
+                      >
+                        <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-red-500">
+                          <Heart className="w-6 h-6" />
+                        </div>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          Favoritos
                         </span>
                       </div>
                                             <div

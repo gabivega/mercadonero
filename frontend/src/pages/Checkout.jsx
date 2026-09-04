@@ -38,6 +38,9 @@ const addresses = dbUser?.addresses || [];
 const [selectedAddress, setSelectedAddress] = useState(null);
   const { syncUser } = useSyncUser(setDbUser);
   const [isLoading, setIsLoading] = useState(false);
+  // True sólo mientras se CREA la orden en el backend (overs crea el overlay
+  // de pantalla completa). Se apaga apenas responde la API.
+  const [isCreatingOrder, setIsCreatingOrder] = useState(false);
 
     // ── MÉTODO DE PAGO: "bank_transfer" (default) | "crypto" ──
     const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
@@ -283,7 +286,12 @@ const handleSaveBasicData = async () => {
   }
 };
 
-    const handleFinalConfirm = async () => {
+        const handleFinalConfirm = async (methodOverride) => {
+    // Método de pago efectivo. Permite forzar "bank_transfer" cuando desde el
+    // modal "Necesitás una wallet" el comprador elige "Usar transferencia",
+    // sin depender del estado (que aún no se actualizó en este mismo render).
+    const currentMethod = methodOverride || paymentMethod;
+
     if (isProfileIncomplete(dbUser)) {
       setDataModalOpen(true);
       return Swal.fire({
@@ -304,7 +312,7 @@ const handleSaveBasicData = async () => {
     // comprador tenga wallet conectada Y saldo USDT suficiente.
     // Acá validamos todo ANTES de tocar el backend.
     // ════════════════════════════════════════════════════════════
-        if (paymentMethod === "crypto") {
+                if (currentMethod === "crypto") {
       return await handleCryptoConfirm({ isDark });
     }
 
@@ -377,26 +385,29 @@ const step1 = await Swal.fire({
   width: "550px",
 });
 
-    if (step1.isConfirmed) {
+        if (step1.isConfirmed) {
       setIsLoading(true);
+      setIsCreatingOrder(true);
       try {
         // 1. CREAMOS LA ORDEN EN EL BACKEND
         const token = await getAccessToken();
                 const response = await axios.post(
           `${import.meta.env.VITE_SERVER_URL}/api/order/create`,
-          {
+                    {
             sellerId,
             items: sellerProducts.map((p) => ({
               productId: p._id,
               quantity: p.quantity,
             })),
             shippingAddress: selectedAddress,
-            paymentMethod: paymentMethod,
-            token: paymentMethod === "crypto" ? tokenChoice : undefined,
+            paymentMethod: currentMethod,
+            token: currentMethod === "crypto" ? tokenChoice : undefined,
           },
           { headers: { Authorization: `Bearer ${token}` } },
         );
 
+        // La orden ya se creó: apagamos el overlay y seguimos con el resto.
+        setIsCreatingOrder(false);
                 const newOrderId = response.data.order._id;
 
         // 💳 CASO PAGO CON CRIPTO: abrimos el modal del escrow para que el
@@ -525,8 +536,9 @@ const step1 = await Swal.fire({
           });
         }
 
-        navigate("/compras");
+                navigate("/compras");
       } catch (error) {
+        setIsCreatingOrder(false);
         const errorMsg = error.response?.data?.message || "No pudimos procesar la orden";
         Swal.fire("Error", errorMsg, "error");
       } finally {
@@ -542,13 +554,18 @@ const step1 = await Swal.fire({
   //  2) Saldo USDT suficiente para cubrir el total de la compra.
   // La orden SOLO se crea si supera ambas validaciones.
   // ════════════════════════════════════════════════════════════
-  const handleCryptoConfirm = async ({ isDark }) => {
-        // ── 1ª VALIDACIÓN: wallet conectada ──
-        // Usamos SIEMPRE la embedded wallet del usuario autenticado.
+    const handleCryptoConfirm = async ({ isDark }) => {
+        // ── 1ª VALIDACIÓN: wallet Web3 ACTIVADA ──
+        // La "billetera activada" de Mercado Nero es la embedded wallet del
+        // usuario autenticado (user.wallet.address), igual que en la vista de
+        // "Mi Billetera". Sólo existe cuando el usuario la creó explícitamente
+        // (createWallet). Un usuario logueado que todavía no activó su billetera
+        // NO puede pagar en cripto: NO se le permite crear la orden.
         const wallet = getAuthenticatedWallet(wallets, user?.wallet?.address);
+        const hasActivatedWallet = Boolean(user?.wallet?.address) && !!wallet && !!wallet.address;
 
-    // La wallet está conectada si existe y tiene dirección.
-    if (!wallet || !wallet.address) {
+    // La wallet está NO activada → mostramos la advertencia y bloqueamos.
+    if (!hasActivatedWallet) {
       return await Swal.fire({
         html: `
           <div style="text-align: left; font-size: 0.9rem; line-height: 1.5; color: ${isDark ? "#e4e4e7" : "#374151"};">
@@ -570,13 +587,18 @@ const step1 = await Swal.fire({
         background: isDark ? "#121212" : "#ffffff",
         color: isDark ? "#f3f4f6" : "#1f2937",
         reverseButtons: true,
-      }).then((result) => {
+            }).then((result) => {
         if (result.isConfirmed) {
-          navigate("/wallet");
-        } else {
+          navigate("/billetera");
+        } else if (result.dismiss === "cancel") {
+          // El comprador decidió pagar por transferencia bancaria: forzamos
+          // ese flujo pasándole el método explícito (sin depender del estado,
+          // que en este render todavía vale "crypto").
           setPaymentMethod("bank_transfer");
-          return handleFinalConfirm();
+          return handleFinalConfirm("bank_transfer");
         }
+        // Cualquier otro cierre (overlay, ESC o "X") sale sin hacer nada y el
+        // comprador queda en el checkout.
       });
     }
 
@@ -664,8 +686,9 @@ const step1 = await Swal.fire({
       return;
     }
 
-    // ── 3ª VALIDACIÓN PASADA → CREAMOS LA ORDEN Y ABRIMOS EL ESCROW ──
+        // ── 3ª VALIDACIÓN PASADA → CREAMOS LA ORDEN Y ABRIMOS EL ESCROW ──
     setIsLoading(true);
+    setIsCreatingOrder(true);
     try {
       const token = await getAccessToken();
       const response = await axios.post(
@@ -683,6 +706,9 @@ const step1 = await Swal.fire({
         { headers: { Authorization: `Bearer ${token}` } },
       );
 
+      // La orden cripto quedó creada: apagamos el overlay y abrimos el escrow.
+      setIsCreatingOrder(false);
+
       const newOrder = response.data.order;
       if (!newOrder?._id) {
         throw new Error("No se pudo crear la orden. Intentá de nuevo.");
@@ -699,7 +725,8 @@ const step1 = await Swal.fire({
         escrowContract: response.data.escrowContract,
       });
       setShowCryptoModal(true);
-    } catch (error) {
+        } catch (error) {
+      setIsCreatingOrder(false);
       const errorMsg = error?.response?.data?.message || error.message || "No pudimos procesar la orden";
       await Swal.fire({
         icon: "error",
@@ -757,7 +784,7 @@ if (!authenticated ||  !dbUser ) {
   // <LoadingSpinner message="Verificando tu perfil..." size="sm" className="flex justify-center my-auto absolute" />;
 }
 
-  if (sellerProducts.length === 0) {
+    if (sellerProducts.length === 0 && !cryptoOrder) {
     return (
       <div className="py-20 text-center">
         <h2 className="text-xl font-bold">
@@ -769,6 +796,20 @@ if (!authenticated ||  !dbUser ) {
         >
           Volver al carrito
         </button>
+      </div>
+    );
+  }
+
+  // ── PANTALLA DE CREACIÓN DE LA ORDEN ──
+  // Mientras la orden se está creando en el backend reemplazamos todo el
+  // check-out por un spinner grande y centrado (bien visible). Al terminar el
+  // POST el estado vuelve a false y React vuelve a renderizar el flujo normal.
+  if (isCreatingOrder) {
+    return (
+      <div className="bg-[#f5f5f5] dark:bg-[#0a0a0a] min-h-screen flex items-center justify-center p-6">
+        <div className="bg-white dark:bg-zinc-900 rounded-[2.5rem] border border-zinc-200 dark:border-zinc-800 shadow-sm p-12">
+          <LoadingSpinner size="lg" text="Procesando tu compra..." />
+        </div>
       </div>
     );
   }
@@ -856,33 +897,24 @@ if (!authenticated ||  !dbUser ) {
               )}
             </div>
             <div
-              onClick={() => { setPaymentMethod("crypto"); }}
-              className={`flex flex-col sm:flex-row items-center justify-between p-4 border mt-4 cursor-pointer rounded-lg ${
-                paymentMethod === "crypto"
-                  ? "border-[#F26722] bg-orange-50 dark:bg-orange-900/10"
-                  : "border-zinc-200 dark:border-zinc-700 bg-transparent"
-              }`}
+              className="flex flex-col sm:flex-row items-center justify-between p-4 border mt-4 rounded-lg opacity-60 cursor-not-allowed select-none border-zinc-200 dark:border-zinc-700 bg-transparent"
+              title="Pago con criptomonedas próximamente"
+              // onClick={() => setPaymentMethod("crypto")}  -- EN PAUSA. Descomentar al reactivar el flujo crypto.
             >
               <div className="flex items-center gap-3">
-                <div className={`w-4 h-4 rounded-full border-4 hidden md:flex ${
-                  paymentMethod === "crypto" ? "border-[#F26722]" : "border-zinc-300 dark:border-zinc-600"
-                }`}></div>
+                <div className="w-4 h-4 rounded-full border-4 border-zinc-300 dark:border-zinc-600 hidden md:flex"></div>
                 <div>
-                  <p className="font-semibold text-sm dark:text-white">
+                  <p className="font-semibold text-sm text-zinc-400 dark:text-zinc-500">
                     Pagar con Criptomonedas
                   </p>
-                  <p className="text-xs text-gray-500">
-                      Pagarás con USDT desde tu wallet. Fondos 100% protegidos en el contrato.                    
+                  <p className="text-xs text-gray-400">
+                    Pagarás con USDT desde tu wallet. Fondos 100% protegidos en el contrato.
                   </p>
                 </div>
               </div>
-                            {paymentMethod === "crypto" ? (
-                <span className="text-[10px] bg-[#F26722] text-white px-2 py-0.5 rounded font-bold">
-                  SELECCIONADO
-                </span>
-              ) : (
-                <span className="px-2 py-0.5 rounded font-bold"></span>
-              )}
+              <span className="text-[10px] bg-zinc-400 text-white px-2 py-0.5 rounded font-bold">
+                PRÓXIMAMENTE
+              </span>
             </div>
             {/* <div className="flex flex-col sm:flex-row items-center justify-between p-4 border mt-4 border-[#173768] bg-blue-50 dark:bg-blue-900/10 rounded-lg select-none">
               <div className="flex items-center gap-3">
@@ -976,25 +1008,16 @@ if (!authenticated ||  !dbUser ) {
               </div>
             </div>
 
-                        <button
-              onClick={handleFinalConfirm}
+                                                <button
+              onClick={() => handleFinalConfirm(paymentMethod)}
               disabled={isLoading || !selectedAddress || isProfileIncomplete(dbUser)}
               className={`w-full py-4 rounded-md font-bold text-white transition-all flex items-center justify-center gap-2 ${
                 selectedAddress && !isProfileIncomplete(dbUser)
                   ? "bg-[#3483fa] hover:bg-[#2968c8]"
                   : "bg-gray-300 cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-500"
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
+              }               disabled:opacity-50 disabled:cursor-not-allowed`}
             >
-              {isLoading ? (
-                <>
-                  <LoadingSpinner size="sm" />
-                  Procesando...
-                </>
-              ) : (
-                <>
-                  Confirmar compra <ChevronRight size={18} />
-                </>
-              )}
+              Confirmar compra <ChevronRight size={18} />
             </button>
             {!selectedAddress && (
               <div className="mt-2 text-red-500 text-sm">
@@ -1171,9 +1194,8 @@ if (!authenticated ||  !dbUser ) {
               /* ── PASO 2: DIRECCIÓN DE ENVÍO ── */
               <div className="p-6 space-y-5">
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                  Tus datos personales se guardaron correctamente. Ahora cargá
-                  o elegí una dirección de envío (opcional ahora, podés hacerlo
-                  en el checkout).
+                  Tus datos personales se guardaron correctamente. <br />Ahora cargá
+                  o elegí una dirección de envío.
                 </p>
 
                 <div className="max-h-72 overflow-y-auto pr-1">
@@ -1192,8 +1214,8 @@ if (!authenticated ||  !dbUser ) {
                     if ((addresses?.length || 0) === 0 && !selectedAddress) {
                       return Swal.fire({
                         icon: "info",
-                        title: "Recomendamos cargar una dirección",
-                        text: "Para confirmar la compra necesitás una dirección de envío. Podés cargarla ahora o hacerlo en el checkout.",
+                        title: "Debes cargar una dirección",
+                        text: "Para confirmar la compra necesitás una dirección de envío.",
                         confirmButtonColor: "#3483fa",
                       });
                     }
@@ -1232,16 +1254,16 @@ if (!authenticated ||  !dbUser ) {
           saldo suficiente. Le muestra su dirección (copiable) y cómo comprar
           USDT a un proveedor.
       ────────────────────────────────────── */}
-      {showDepositModal && (
-        <DepositUsdtModal
-          onClose={() => {
-            setShowDepositModal(false);
-            // Al volver, recargamos el saldo y reabrimos la confirmación para
-            // que el comprador pueda reintentar el pago una vez depositó.
-            handleFinalConfirm();
-          }}
-        />
-      )}
+            {showDepositModal && (
+                    <DepositUsdtModal
+                      onClose={() => {
+                        setShowDepositModal(false);
+                        // Al volver, recargamos el saldo y reabrimos la confirmación para
+                        // que el comprador pueda reintentar el pago una vez depositó.
+                        handleFinalConfirm();
+                      }}
+                    />
+                  )}
     </div>
   );
 }

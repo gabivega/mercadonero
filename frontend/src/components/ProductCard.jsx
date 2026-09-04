@@ -1,14 +1,20 @@
 import { useNavigate } from "react-router-dom";
 import { ShoppingCart, Heart, BadgeCheck } from "lucide-react";
+import { usePrivy } from "@privy-io/react-auth";
 import { useCartStore } from "../store/useCartStore";
-import { useUserStore } from "../store/useUserStore";
+import { useFavoritesStore } from "../store/useFavoritesStore";
+import { useFavorites } from "../Utils/useFavorites";
 import noImage from "../assets/img/no-image.png";
 import Swal from "sweetalert2";
-import CashbackBadge from "./CashbackBadge";
 
 export default function ProductCard({ product }) {
   const navigate = useNavigate();
-  const user = useUserStore((state) => state.user);
+  const { ready, authenticated } = usePrivy();
+  const { toggleFavorite } = useFavorites();
+  const favorites = useFavoritesStore((state) => state.favorites);
+  const isFavorite = favorites.some(
+    (f) => String(f._id) === String(product?._id),
+  );
   const addToCart = useCartStore((state) => state.addToCart);
   const handleCardClick = () => {
     navigate(`/product/${product._id}`);
@@ -58,37 +64,54 @@ export default function ProductCard({ product }) {
   });
   };
 
-  const handleFavorite = (e) => {
+    const showFavToast = (title, text) => {
+    const Toast = Swal.mixin({
+      toast: true,
+      position: 'bottom-end',
+      showConfirmButton: false,
+      timer: 2000,
+      timerProgressBar: true,
+      didOpen: (toast) => {
+        toast.addEventListener('mouseenter', Swal.stopTimer);
+        toast.addEventListener('mouseleave', Swal.resumeTimer);
+      },
+    });
+
+    Toast.fire({
+      icon: 'success',
+      title,
+      text: text || product.title || product.name,
+      background: document.documentElement.classList.contains('dark')
+        ? '#18181b'
+        : '#ffffff',
+      color: document.documentElement.classList.contains('dark')
+        ? '#f4f4f5'
+        : '#3f3f46',
+      iconColor: '#F26722',
+      customClass: {
+        popup:
+          'border border-gray-100 dark:border-zinc-800 rounded-xl shadow-lg font-sans mb-10',
+        title: 'text-sm font-bold text-gray-800 dark:text-zinc-100',
+        htmlContainer: 'text-xs text-gray-500 dark:text-zinc-400',
+      },
+    });
+  };
+
+  const handleFavorite = async (e) => {
     e.stopPropagation();
-    if (!user) {
+    // Si no está logueado, lo mandamos a la página principal para iniciar sesión.
+    if (!ready || !authenticated) {
+      showFavToast("Iniciá sesión", "Inicia sesión para guardar tus favoritos.");
+      navigate("/");
       return;
     }
 
-   const Toast = Swal.mixin({
-    toast: true,
-    position: 'bottom-end', // Se muestra arriba a la derecha (estilo notificación)
-    showConfirmButton: false,
-    timer: 2000, // Dura 2 segundos y se va
-    timerProgressBar: true, // Barra de tiempo visual abajo
-    didOpen: (toast) => {
-      toast.addEventListener('mouseenter', Swal.stopTimer);
-      toast.addEventListener('mouseleave', Swal.resumeTimer);
+    const { added } = await toggleFavorite(product);
+    if (added === true) {
+      showFavToast("¡Agregado a Favoritos!", product.title || product.name);
+    } else if (added === false) {
+      showFavToast("Eliminado de favoritos", product.title || product.name);
     }
-  });
-
-  Toast.fire({
-    icon: 'success',
-    title: '¡Agregado a Favoritos!',
-    text: product.title || product.name, // Muestra el nombre del producto abajo en chiquito
-    background: document.documentElement.classList.contains('dark') ? '#18181b' : '#ffffff', // Soporte Dark Mode automático (Zinc-900 o Blanco)
-    color: document.documentElement.classList.contains('dark') ? '#f4f4f5' : '#3f3f46',
-    iconColor: '#3483fa', // El azul característico que estamos usando
-    customClass: {
-      popup: 'border border-gray-100 dark:border-zinc-800 rounded-xl shadow-lg font-sans mb-10',
-      title: 'text-sm font-bold text-gray-800 dark:text-zinc-100',
-      htmlContainer: 'text-xs text-gray-500 dark:text-zinc-400'
-    }
-  });
   };
 
   // funcion para especificaciones de producto
@@ -113,7 +136,7 @@ export default function ProductCard({ product }) {
   return (
     <div
       className="poly-card poly-card--grid poly-card--xlarge bg-white dark:bg-zinc-800 rounded-lg overflow-hidden hover:shadow-lg transition-shadow flex flex-col cursor-pointer"
-      style={{ minWidthwidth: "170px", height: "360px" }}
+      style={{ minWidth: "170px", height: "340px" }}
       onClick={handleCardClick}
     >
       {/* Product Image Container */}
@@ -144,12 +167,15 @@ export default function ProductCard({ product }) {
               <ShoppingCart className="w-5 h-5" />
             </button>
           )}
-          <button
+                    <button
             onClick={handleFavorite}
             className="bg-white dark:bg-zinc-700 text-[#F26722] p-2 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-600 transition-colors"
             aria-label="favorite"
           >
-            <Heart className="w-5 h-5" />
+            <Heart
+              className="w-5 h-5"
+              fill={isFavorite ? "#F26722" : "none"}
+            />
           </button>
         </div>
       </div>
@@ -263,15 +289,6 @@ export default function ProductCard({ product }) {
             </span>
           </div>
         )}
-
-                {/* Cashback (reintegro en USDT)
-            ⚠️ OCULTO temporalmente: todos los productos tienen el mismo % (2.5%)
-            por defecto, así que el badge resultaba repetitivo en todas las tarjetas.
-            Se habilitará cuando el cashback sea variable (configurado por vendedor).
-        {product.listingType === "product" && (
-          <CashbackBadge priceArs={product.sale?.price || product.price} />
-        )}
-        */}
 
         {/* Rating and Sold Info */}
         <div className="h-5">

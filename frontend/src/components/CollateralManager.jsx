@@ -6,7 +6,7 @@ import {CreditCard} from 'lucide-react'
 import { getAuthenticatedWallet } from "../Utils/walletSelector";
 
 // DIRECCIONES DE TU CONFIGURACIÓN (Asegurate de que sean las mismas)
-const CONTRACT_ADDRESS = import.meta.env.VITE_COLLATERAL_CONTRACT_ADDRESS;
+const CONTRACT_ADDRESS = import.meta.env.VITE_COLLATERAL_CONTRACT_ADDRESS || "0xe8Af73236b5376d1256BE406249401A89a133CF3";
 const USDT_TESTNET_ADDRESS = "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd"; 
 
 // ABIs requeridos para las tres operaciones

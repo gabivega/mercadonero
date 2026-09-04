@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
+import { usePrivy } from "@privy-io/react-auth";
 import {
   ArrowLeft,
   BadgeCheck,
@@ -15,6 +16,9 @@ import {
   ThumbsUp,
   ThumbsDown,
   MessageSquare,
+  Lock,
+  User,
+  ArrowRight,
 } from "lucide-react";
 import axios from "axios";
 import ProductCard from "../components/ProductCard";
@@ -26,6 +30,7 @@ const BASE = import.meta.env.VITE_SERVER_URL;
 export default function UserProfilePage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { ready, authenticated, login, getAccessToken } = usePrivy();
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -41,7 +46,10 @@ export default function UserProfilePage() {
     setLoading(true);
     setError(false);
     try {
-      const { data: res } = await axios.get(`${BASE}/api/user/public/${id}`);
+      const token = await getAccessToken();
+      const { data: res } = await axios.get(`${BASE}/api/user/public/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (!res?.success) throw new Error("Perfil no encontrado");
       setData(res);
     } catch (e) {
@@ -56,7 +64,10 @@ export default function UserProfilePage() {
     setReviewsLoading(true);
     setReviewsError(false);
     try {
-      const { data: res } = await axios.get(`${BASE}/api/review/user/${id}`);
+      const token = await getAccessToken();
+      const { data: res } = await axios.get(`${BASE}/api/review/user/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (res?.success) {
         setReviews(res.reviews || []);
       }
@@ -68,11 +79,14 @@ export default function UserProfilePage() {
     }
   };
 
+  // Carga el perfil solo cuando ya está autenticado (y recarga si recién
+  // inicia sesión en esta misma página).
   useEffect(() => {
+    if (!ready || !authenticated) return;
     fetchProfile();
     fetchReviews();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, ready, authenticated]);
 
   const formatMemberSince = (date) => {
     if (!date) return "—";
@@ -107,6 +121,51 @@ export default function UserProfilePage() {
     },
   ];
 
+  // Mientras Privy está verificando la sesión, mostramos un estado de carga
+  if (!ready) {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center bg-[#f5f5f5] dark:bg-[#0a0a0a]">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
+
+  // Los perfiles de usuario son privados: solo pueden verlos usuarios
+  // registrados. Si no hay sesión activa, mostramos una pantalla de login
+  // en lugar del contenido del perfil.
+  if (!authenticated) {
+    return (
+      <div className="min-h-[70vh] flex flex-col items-center justify-center bg-[#f5f5f5] dark:bg-[#0a0a0a] p-6 text-center">
+        <div className="w-20 h-20 bg-[#3483fa]/10 rounded-3xl flex items-center justify-center mb-6">
+          <Lock className="w-10 h-10 text-[#3483fa]" />
+        </div>
+        <h2 className="text-3xl font-black uppercase tracking-tighter dark:text-white mb-4">
+          Perfil privado
+        </h2>
+        <p className="text-gray-500 dark:text-gray-400 max-w-md mb-8 text-lg leading-relaxed">
+          Los perfiles de usuario solo están disponibles para personas
+          registradas en Mercado Nero. Iniciá sesión para consultar
+          reputación, reseñas y publicaciones de otros usuarios.
+        </p>
+
+        <div className="space-y-4">
+          <button
+            onClick={login}
+            className="group flex items-center gap-3 px-8 py-4 bg-[#F26722] text-white rounded-2xl font-black uppercase tracking-[0.2em] text-sm hover:scale-105 active:scale-95 transition-all shadow-lg shadow-[#F26722]/20"
+          >
+            <User className="w-5 h-5" />
+            Iniciar sesión
+            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          </button>
+
+          <p className="text-sm text-gray-400 dark:text-gray-500">
+            ¿No tenés cuenta? Se crea automáticamente al iniciar sesión
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="min-h-[70vh] flex items-center justify-center bg-[#f5f5f5] dark:bg-[#0a0a0a]">
@@ -138,6 +197,24 @@ export default function UserProfilePage() {
   }
 
   const { user, metrics } = data;
+
+  // Nombre de presentación: priorizamos nombre y apellido reales (cargados en
+  // el perfil/onboarding). El username autogenerado (ej. "nero-pingjz2") no
+  // aporta nada en la página de la tienda, así que solo lo usamos como fallback.
+  const fullName = [user.firstName, user.lastName]
+    .map((v) => (typeof v === "string" ? v.trim() : ""))
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const profileName =
+    fullName || user.name || user.username || "Usuario";
+  // El shop (nombre de tienda del vendedor) se muestra como subtítulo cuando
+  // existe; el @username se omite por ser autogenerado.
+  // Solo se muestra si el usuario tiene publicaciones activas: si no tiene,
+  // es un comprador y no corresponde mostrar una "tienda".
+  const subtitle =
+    data.products?.length > 0 && user.shop?.name ? user.shop.name : "";
+
   const avatar =
     user.avatar ||
     `https://ui-avatars.com/api/?name=${encodeURIComponent(
@@ -247,7 +324,7 @@ export default function UserProfilePage() {
             <div className="relative shrink-0">
               <img
                 src={avatar}
-                alt={user.name || user.username}
+                alt={profileName}
                 className="w-28 h-28 rounded-3xl object-cover border-4 border-white dark:border-zinc-700 shadow-xl"
               />
               {user.isVerified && (
@@ -259,11 +336,13 @@ export default function UserProfilePage() {
 
             <div className="flex-1 text-center sm:text-left">
               <h1 className="text-2xl sm:text-3xl font-black italic uppercase tracking-tighter text-gray-900 dark:text-white leading-none">
-                {user.shop?.name || user.name || user.username || "Nero"}
+                {profileName}
               </h1>
-              <p className="text-[#3483fa] font-bold text-sm uppercase tracking-widest mt-1">
-                @{user.username}
-              </p>
+              {subtitle && (
+                <p className="text-[#3483fa] font-bold text-sm uppercase tracking-widest mt-1">
+                  {subtitle}
+                </p>
+              )}
 
               <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 mt-3 text-xs">
                 {/* Verificado */}

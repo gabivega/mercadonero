@@ -9,9 +9,20 @@ import LoadingSpinner from './LoadingSpinner';
  * Gestión de cancelación / garantía previa al envío.
  *
  * ── COMPRADOR ──
- *  - pending_payment: puede cancelar directo (libera garantía al vendedor).
- *  - verifying_payment: puede solicitar reembolso (la garantía se retiene hasta
- *    que reciba el reintegro y confirme).
+ *  - [POLÍTICA ACTUAL] Solo puede CANCELAR/iniciar la cancelación mientras la
+ *    orden NO está marcada como pagada, es decir únicamente en
+ *    'pending_payment'. Si declara "no pagué" → libera la garantía y cancela
+ *    directo. Si declara "sí aboné" (todavía sin notificar) → pasa por el
+ *    flujo de notificación/reembolso.
+ *  - Una vez la orden figura con el pago notificado ('verifying_payment') o
+ *    pagada ('paid'), el comprador ya no cancela desde la interfaz: debe
+ *    resolverlo por chat con el vendedor (o, en casos especiales, soporte/admin).
+ *
+ *  NOTA: el flujo histórico de "verifying_payment → reembolso directo" quedó
+ *  COMENTADO. Si en el futuro se quiere habilitar de nuevo la cancelación del
+ *  comprador cuando el pago ya fue notificado, hay que:
+ *   (1) Quitar la restricción en OrderDetail (descomentar verifying_payment), y
+ *   (2) Descomentar la llamada "await handleBuyerPaidFlow();" en handleBuyerInitiate.
  *
  * ── VENDEDOR ──
  *  - Nunca libera su garantía por sí mismo (política anti-fraude). Solo puede
@@ -136,7 +147,23 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
         await handleBuyerNotPaidFlow();
       }
     } else {
-      await handleBuyerPaidFlow();
+      // ⚠️ [POLÍTICA ACTUAL] Este componente ya NO debería renderizarse para el
+      // comprador en 'verifying_payment' (el menú de cancelar se oculta desde
+      // OrderDetail una vez que la orden está marcada como pagada). Por
+      // seguridad/contingencia (si por alguna vía llega acá con el pago ya
+      // notificado), NO iniciamos la cancelación/reembolso del comprador de
+      // forma directa: lo deriva al chat con el vendedor.
+      //
+      // Si en el futuro se quiere volver a permitir que el comprador cancele
+      // una orden cuyo pago ya está notificado (verifying_payment), volver a
+      // habilitar esta llamada:
+      // await handleBuyerPaidFlow();
+      await Swal.fire({
+        ...swalBase,
+        icon: 'info',
+        title: 'Orden con pago notificado',
+        text: 'Tu orden ya figura con el pago notificado. Estas cancelaciones se resuelven coordinando con el vendedor (chat) o, en casos especiales, con el equipo de soporte/admin. Contactá al vendedor desde la orden para acordar cómo proceder.',
+      });
     }
   };
 
@@ -533,7 +560,18 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
   // 4) Estado normal (comprador o vendedor en pending/verifying)
   // PUNTO 4: Para el comprador, el botón de cancelar queda discreto dentro de un
   // menú de "3 puntitos" en lugar de un botón grande en pantalla.
+  // ⚠️ [POLÍTICA ACTUAL] El comprador SOLO puede cancelar mientras la orden NO
+  // está marcada como pagada o con pago notificado: únicamente en
+  // 'pending_payment'. Acá ya pasamos el bloque `pending` (no hay reembolso en
+  // curso), así que si el estado no es 'pending_payment' no mostramos nada.
   if (iAmBuyer) {
+    // Guard defensivo: no renderizar cancelación del comprador una vez que
+    // notificó el pago (verifying_payment o posterior). Imposible desde
+    // OrderDetail (el menú ahí solo se muestra en pending_payment), pero lo
+    // dejamos por robustez frente a estados heredados.
+    if (status !== 'pending_payment') {
+      return null;
+    }
     return (
       <div className="flex justify-end">
         <div className="relative">

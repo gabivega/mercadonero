@@ -261,8 +261,8 @@ export const getPublicUserProfile = async (req, res) => {
     const { userId } = req.params;
 
     const user = await User.findById(userId)
-      .select(
-        "username name avatar isVerified shop rating createdAt addresses accounting",
+            .select(
+        "firstName lastName username name avatar isVerified shop rating createdAt addresses accounting",
       )
       .lean();
 
@@ -306,8 +306,10 @@ export const getPublicUserProfile = async (req, res) => {
     res.status(200).json({
       success: true,
       user: {
-        _id: user._id,
+                _id: user._id,
         username: user.username,
+        firstName: user.firstName || "",
+        lastName: user.lastName || "",
         name: user.name,
         avatar: user.avatar,
         isVerified: user.isVerified || false,
@@ -481,6 +483,98 @@ export const getUserProfile = async (req, res) => {
     res
       .status(500)
       .json({ success: false, message: "Error al obtener el perfil." });
+  }
+};
+
+// ────────────────────────────────────────────────────────────────────────
+// FAVORITOS (lista de productos guardados)
+// Se guardan como ids (ref Product) en User.favorites.
+// Los tres endpoints requieren usuario autenticado (req.user._id viene de
+// attachUser).
+// ────────────────────────────────────────────────────────────────────────
+
+// GET /api/user/favorites → devuelve los productos guardados (poblados con
+// el vendedor) para poder renderizar las ProductCard en la página.
+export const getFavorites = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const user = await User.findById(userId).select("favorites").lean();
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, message: "Usuario no encontrado." });
+
+    const products = await Product.find({
+      _id: { $in: user.favorites || [] },
+      status: { $ne: "deleted" },
+    })
+      .populate("seller", "username name shop isVerified")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({ success: true, favorites: products });
+  } catch (error) {
+    console.error("Error en getFavorites:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Error al obtener favoritos." });
+  }
+};
+
+// POST /api/user/favorites/:productId → agrega un producto a favoritos (idempotente)
+export const addFavorite = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { productId } = req.params;
+
+    const product = await Product.findById(productId).select("_id name status");
+    if (!product) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Producto no encontrado." });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { $addToSet: { favorites: productId } },
+      { new: true },
+    ).select("favorites");
+
+    res.status(200).json({
+      success: true,
+      message: "Agregado a favoritos.",
+      favorites: user.favorites,
+    });
+  } catch (error) {
+    console.error("Error en addFavorite:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Error al agregar a favoritos." });
+  }
+};
+
+// DELETE /api/user/favorites/:productId → quita un producto de favoritos
+export const removeFavorite = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { productId } = req.params;
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { $pull: { favorites: productId } },
+      { new: true },
+    ).select("favorites");
+
+    res.status(200).json({
+      success: true,
+      message: "Eliminado de favoritos.",
+      favorites: user.favorites,
+    });
+  } catch (error) {
+    console.error("Error en removeFavorite:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Error al quitar de favoritos." });
   }
 };
 

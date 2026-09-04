@@ -14,6 +14,7 @@ import MyProducts from "./pages/dashboard/MyProducts";
 import WalletPage from "./pages/dashboard/WalletPage";
 import Notifications from "./pages/dashboard/Notifications";
 import Purchases from "./pages/dashboard/Purchases";
+import Favorites from "./pages/dashboard/Favorites";
 import SellProduct from "./pages/dashboard/SellProduct";
 import Profile from "./pages/dashboard/Profile";
 import DashboardLayout from "./components/DashboardLayout";
@@ -88,6 +89,7 @@ export default function App() {
               <Route path="compras" element={<Purchases />} />
               <Route path="order/:id" element={<OrderDetail />} />
               <Route path="publicaciones" element={<SellerDashboard />} />
+              <Route path="favoritos" element={<Favorites />} />
               <Route path="historial" element={<History />} />
               <Route path="posts" element={<Posts />} />
               <Route path="mis-ordenes" element={<MyOrders />} />

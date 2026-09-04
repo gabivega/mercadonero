@@ -16,11 +16,11 @@ const TOKENS = {
     symbol: "USDT",
     decimals: 18,
   },
-  USDC: {
-    address: "0x64544969ed7EBf5f083679233325356EbE738930",
-    symbol: "USDC",
-    decimals: 18,
-  },
+  // USDC: {
+  //   address: "0x64544969ed7EBf5f083679233325356EbE738930",
+  //   symbol: "USDC",
+  //   decimals: 18,
+  // },
 };
 
 const ERC20_ABI = [
@@ -302,7 +302,7 @@ export default function CryptoPaymentModal({
               </>
             ) : (
               <>
-                Fondear Escrow <ArrowRight size={18} />
+                Pagar <ArrowRight size={18} />
               </>
             )}
           </button>

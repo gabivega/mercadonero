@@ -64,7 +64,7 @@ try {
 console.log("");
 console.log("Recordá: el backend usa CONTRACT_ADDRESS del .env del BACKEND.");
 console.log("El front usa VITE_COLLATERAL_CONTRACT_ADDRESS del .env del FRONT.");
-console.log("⚠️  Ambos deben apuntar al MISMO contrato (0xD45f0E57C501A8fa234F5d9357b30F7cf7B46E5d).");
+console.log("⚠️  Ambos deben apuntar al MISMO contrato (0xe8Af73236b5376d1256BE406249401A89a133CF3).");
 console.log("");
 console.log("También verificá que seller.walletAddress en la DB sea IGUAL a la wallet");
 console.log("de Privy que depositó la garantía (la que ve el CollateralManager).");

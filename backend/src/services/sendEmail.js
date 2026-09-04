@@ -441,6 +441,59 @@ export const sendAdminCancellationRequest = async ({
   }
 };
 
+
+/**
+ * 1b. Notificación: Nueva Orden Creada con PAGO EN CRIPTO (al Comprador).
+ * Se usa por separado de sendOrderCreatedToBuyer (transferencia bancaria): en
+ * cripto NO se mandan CBU/alias/titular ni instrucciones de transferir; el
+ * comprador debe fondear su escrow desde la plataforma firmando una tx.
+ */
+export const sendOrderCreatedToBuyerEscrow = async ({
+  buyerEmail,
+  orderId,
+  products = [],
+  amountUsdt,
+}) => {
+  try {
+    const shortOrderId = String(orderId).slice(-6).toUpperCase();
+    const productListHtml =
+      Array.isArray(products) && products.length > 0
+        ? `<ul style="margin: 10px 0; padding-left: 20px;">${products
+              .map((item) => `<li style="margin-bottom: 4px;">${item.title || item.name}</li>`)
+              .join("")}</ul>`
+        : '<p style="margin: 5px 0;">Sin detalle de productos</p>';
+
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [buyerEmail],
+      subject: `🔒 Orden #${shortOrderId} creada - Fondéa tu escrow USDT`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+          <h2 style="color: #111;">¡Tu orden en cripto fue iniciada!</h2>
+          <p>Tu compra <strong>#${shortOrderId}</strong> pagará con USDT. Tus fondos quedan <strong>100% protegidos en el contrato escrow</strong> y se liberan al vendedor recién cuando confirmes la recepción del pedido.</p>
+          <div style="background-color: #f4f4f5; padding: 15px; border-radius: 6px; margin: 15px 0;">
+            <p style="margin: 0 0 8px 0; font-size: 13px; font-weight: bold; color: #333;">Productos:</p>
+            ${productListHtml}
+          </div>
+          <div style="background-color: #fff7ed; border: 1px solid #fdba74; padding: 14px; border-radius: 6px; margin: 15px 0;">
+            <p style="margin: 0 0 6px 0; font-weight: bold; color: #9a3412;">✋ IMPORTANTE</p>
+            <p style="margin: 0 0 6px 0; font-size: 13px; color: #7c2d12;">
+              Para completar la compra ingresá a la plataforma, abrí la orden y <strong>firmá la transacción para fondear el escrow</strong> con
+              ${amountUsdt != null ? `<strong>US$ ${amountUsdt} USDT</strong>` : ""} desde tu billetera.
+            </p>
+            <p style="margin: 0; font-size: 12px; color: #9a3412;">La orden no se despacha hasta que los USDT estén depositados en el escrow.</p>
+          </div>
+        </div>
+      `,
+    });
+
+    if (error) console.error("Error enviando email de escrow al comprador:", error);
+    return { data, error };
+  } catch (err) {
+    console.error("Exception en sendOrderCreatedToBuyerEscrow:", err);
+  }
+};
+
 /**
  * 11. NOTIFICACIÓN AL VENDEDOR (Falta depósito de garantía / "awaiting_collateral")
  * Cuando un comprador inicia una orden pero el vendedor no tiene saldo de

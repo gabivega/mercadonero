@@ -3,11 +3,11 @@ import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { ethers } from "ethers";
 import { getAuthenticatedWallet } from "../Utils/walletSelector";
 
-// Contrato nuevo NeroCollateral (fianza de vendedores, B SC Testnet)
-// Dirección: deployada desde la wallet admin del backend.
-// NOTA: mejor usar import.meta.env.VITE_COLLATERAL_CONTRACT_ADDRESS (como
-// CollateralManager.jsx) para no hardcodear. Se deja el valor por defecto.
-const CONTRACT_ADDRESS = import.meta.env.VITE_COLLATERAL_CONTRACT_ADDRESS || "0xD45f0E57C501A8fa234F5d9357b30F7cf7B46E5d";
+// Contrato NeroCollateral CORREGIDO (fianza de vendedores, BSC Testnet).
+// Dirección nueva redeployada el día de hoy desde la wallet admin del backend.
+// NOTA: se usa import.meta.env.VITE_COLLATERAL_CONTRACT_ADDRESS cuando esté
+// definida en frontend/.env; el valor por defecto apunta al despliegue nuevo.
+const CONTRACT_ADDRESS = import.meta.env.VITE_COLLATERAL_CONTRACT_ADDRESS || "0xe8Af73236b5376d1256BE406249401A89a133CF3";
 const USDT_TESTNET_ADDRESS = "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd";  
 
 // ABIs mínimos para interactuar desde el Front

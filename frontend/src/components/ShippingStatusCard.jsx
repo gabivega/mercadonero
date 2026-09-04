@@ -3,12 +3,15 @@ import { Truck, ExternalLink, Package, Clock, ShieldCheck, CheckCircle, AlertTri
 import Swal from 'sweetalert2';
 import axios from 'axios';
 import { usePrivy } from '@privy-io/react-auth';
+import LoadingSpinner from './LoadingSpinner';
 
 export default function ShippingStatusCard({ order, role, onUpdate }) {
-    const { status, shippingDetails } = order;
+        const { status, shippingDetails } = order;
   const [loading, setLoading] = useState(false);
   const [disputing, setDisputing] = useState(false);
   const { getAccessToken } = usePrivy();
+
+  const isCrypto = order.payment?.method === 'crypto';
 
   // Opciones predeterminadas de problema que puede reportar el comprador.
   const ISSUE_OPTIONS = [
@@ -92,35 +95,53 @@ export default function ShippingStatusCard({ order, role, onUpdate }) {
       customClass: { popup: 'rounded-[2.5rem] border-2 border-emerald-500/20' }
     });
 
-    if (result.isConfirmed) {
+                                if (result.isConfirmed) {
       setLoading(true);
       const token = await getAccessToken();
       try {
-        const { data } = await axios.patch(`${import.meta.env.VITE_SERVER_URL}/api/order/${order._id}`, { status: 'completed' },
-          {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          }
+        // Llamada que confirma la recepción y dispara la liberación on-chain
+        // (del escrow en cripto o de la garantía en transferencia bancaria).
+        // Puede tardar unos segundos en confirmarse en la red.
+        const { data } = await axios.patch(
+          `${import.meta.env.VITE_SERVER_URL}/api/order/${order._id}`,
+          { status: 'completed' },
+          { headers: { Authorization: `Bearer ${token}` } },
         );
-        
-                if (data.success) {
+
+        setLoading(false);
+
+        if (data.success) {
           await Swal.fire({
             title: '¡ORDEN FINALIZADA!',
-            text: 'Gracias por confirmar. Mercado Nero ha procesado el cierre de la transacción.',
+            text: isCrypto
+              ? 'Gracias por confirmar. Los USDT del escrow fueron liberados al vendedor.'
+              : 'Gracias por confirmar. Se ha completado la orden.',
             icon: 'success',
             confirmButtonColor: '#F26722',
-            customClass: { popup: 'rounded-[2.5rem]' }
+            customClass: { popup: 'rounded-[2.5rem]' },
           });
-                    // Refresca la orden en el OrderDetail (oculta este botón) y
+          // Refresca la orden en el OrderDetail (oculta este botón) y
           // dispara el incentivo + scroll a las calificaciones.
           onUpdate?.();
         }
-            } catch (error) {
-        // Swal.fire('Error', 'No se pudo completar la orden.', 'error');
-        console.error(error);
-      } finally {
+      } catch (error) {
         setLoading(false);
+        // Mostramos el error real del servidor (ej. la liberación on-chain
+        // falló por la red o el escrow aún no está listo) en lugar de tragarlo.
+        const msg =
+          error?.response?.data?.message ||
+          error?.response?.data?.error ||
+          'No se pudo completar la orden. Intentá de nuevo en unos segundos.';
+        Swal.fire({
+          title: 'No se pudo procesar',
+          html: `${msg}<br/><br/><span style="font-size:12px;opacity:.7">La orden no se marcó como recibida todavía. Podés reintentar o contactar a soporte.</span>`,
+          icon: 'error',
+          confirmButtonColor: '#ef4444',
+          background: document.documentElement.classList.contains('dark') ? '#18181b' : '#fff',
+          color: document.documentElement.classList.contains('dark') ? '#fff' : '#000',
+          customClass: { popup: 'rounded-[2.5rem]' },
+        });
+        console.error(error);
       }
     }
   };
@@ -167,7 +188,7 @@ export default function ShippingStatusCard({ order, role, onUpdate }) {
   const continueDispute = async (issueType, label, isDark) => {
     // Confirmación de seguridad antes de abrir la disputa.
     const confirm = await Swal.fire({
-      title: '<span class="font-black uppercase italic">Abilitar disputa</span>',
+      title: '<span class="font-black uppercase italic">Habilitar disputa</span>',
       text: `Confirmá que querés abrir una disputa por: "${label}". Esto retiene la garantía del vendedor hasta que el admin resuelva.`,
       icon: 'warning',
       showCancelButton: true,
@@ -211,8 +232,21 @@ export default function ShippingStatusCard({ order, role, onUpdate }) {
     }
   };
 
-  return (
-    <div className={`p-6 rounded-[2.5rem] border-2 ${content.borderColor} ${content.bgColor} transition-all duration-500`}>
+    return (
+    <>
+      {loading && (
+        // Overlay de pantalla completa con spinner y mensaje claro de que la
+        // liberación (escrow/garantía) está en proceso. Puede demorar unos
+        // segundos porque se confirma on-chain.
+        <LoadingSpinner
+          fullScreen
+          text={isCrypto
+            ? 'Confirmando tu pedido: liberando los USDT del escrow al vendedor...'
+            : 'Confirmando tu pedido: liberando la garantía al vendedor...'}
+        />
+      )}
+      <div className={`p-6 rounded-[2.5rem] border-2 ${content.borderColor} ${content.bgColor} transition-all duration-500`}>
+
       <div className="flex items-start gap-4">
         <div className="p-3 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm">
           {content.icon}
@@ -300,9 +334,10 @@ export default function ShippingStatusCard({ order, role, onUpdate }) {
                 No confirmes la recepción si el pedido llegó mal. Abrí una disputa y el admin lo resolverá.
               </p>
             </div>
-          )}
+                    )}
         </div>
       </div>
     </div>
+    </>
   );
 }

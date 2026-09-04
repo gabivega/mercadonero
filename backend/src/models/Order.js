@@ -109,6 +109,12 @@ const orderSchema = new Schema(
     ],
     paymentProof: { type: String },
     paymentVerifiedAt: { type: Date }, // Cuando el vendedor da el OK al pago
+    // Momento en que el COMPRADOR notificó el pago (la orden pasó a
+    // 'verifying_payment'). Se usa para permitir al vendedor abrir una
+    // disputa por "el pago no ingresó" solo pasado un plazo (ventana de
+    // espera) desde esta marca. A diferencia de 'updatedAt', esta fecha queda
+    // congelada al momento de la notificación aunque la orden se toque luego.
+    verifyingPaymentNotifiedAt: { type: Date, default: null },
     completedAt: { type: Date }, // Cierre final (disparo de Smart Contract)
     releaseTxHash: { type: String }, // Hash de la transacción de liberación
     collateralTxHash: { type: String }, // Hash de la transacción de congelamiento del colateral
@@ -287,6 +293,7 @@ const orderSchema = new Schema(
             "claim", // Reclamo del comprador (post-envío)
             "return_request", // Devolución post-despacho
             "admin_intervention", // Intervención del admin
+            "admin_cancel", // Admin canceló la orden manualmente (sin liberar garantía)
             "dispute_opened", // Comprador reportó un problema → se abre disputa
           ],
           required: true,

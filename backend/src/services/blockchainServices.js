@@ -90,6 +90,58 @@ export async function verifyOrderReleased(orderId) {
     return { ...lock, released: false };
   }
   return { success: true, released: lock.lockUsd === 0, lockUsd: lock.lockUsd };
+  }
+
+/**
+ * DIAGNÓSTICO DE LIQUIDEZ DEL POOL.
+ * Cuando un `release` (con o sin fee) revierte con "BEP40: transfer amount
+ * exceeds balance", la causa típica es que el contrato pool NO tiene USDT real
+ * en su balance para devolver la garantía al vendedor, aunque la contabilidad
+ * interna (vendors[].totalCollateral) diga que sí la tiene (por ejemplo porque
+ * se marcó colateral sin que los tokens se hubieran depositado realmente, o el
+ * depósito entró por otra vía / token distinto).
+ *
+ * Devuelve el balance REAL de USDT en poder del contrato pool y lo contrasta
+ * con el total de garantías que el contrato cree deber (totalCollateral) para
+ * la wallet consultada.
+ */
+export async function getPoolLiquidityDiagnostic(vendorAddress) {
+  try {
+  // ABC mínimo del token ERC20 (balanceOf) para el USDT de testnet.
+  const erc20Abi = ["function balanceOf(address) view returns (uint256)"];
+  const usdt = new ethers.Contract(USDT_TESTNET_ADDRESS, erc20Abi, provider);
+  const poolBalanceWei = await usdt.balanceOf(CONTRACT_ADDRESS);
+  const poolUsdtBalance = parseFloat(ethers.formatUnits(poolBalanceWei, 18));
+  const poolUsdtBalanceWei = poolBalanceWei.toString();
+
+  let vendorTotal = null;
+  let vendorLocked = null;
+  if (vendorAddress) {
+    const data = await poolContract.vendors(vendorAddress);
+    vendorTotal = parseFloat(ethers.formatUnits(data.totalCollateral, 18));
+    vendorLocked = parseFloat(ethers.formatUnits(data.lockedCollateral, 18));
+  }
+
+  return {
+    success: true,
+    poolContract: CONTRACT_ADDRESS,
+    usdtAddress: USDT_TESTNET_ADDRESS,
+    poolUsdtBalanceWei,
+    poolUsdtBalance,
+    vendorTotalCollateral: vendorTotal,
+    vendorLockedCollateral: vendorLocked,
+    poolSuficienteParaDevolverVendor:
+      vendorTotal !== null
+        ? poolUsdtBalance >= vendorTotal
+        : null,
+  };
+  } catch (error) {
+  console.error(
+    "[Blockchain Error] Fallo al diagnosticar liquidez del pool:",
+    error.reason || error.message,
+  );
+  return { success: false, error: error.reason || error.message };
+  }
 }
 
 /**

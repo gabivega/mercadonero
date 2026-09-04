@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { 
-  User, Wallet, Bell, ShoppingBag, History, 
-    FileText, Tag, LogOut, LayoutDashboard,
+    User, Wallet, Bell, ShoppingBag, History, 
+    FileText, Tag, LogOut, LayoutDashboard, Heart,
   ChevronLeft, ChevronRight, Menu, X , Users , ShieldCheck, MessageSquare
 } from 'lucide-react';
 import { useUserStore } from '../store/useUserStore';
@@ -15,13 +15,14 @@ const Sidebar = ({ handleLogout }) => {
   const menuItems = [
     { name: 'Perfil', icon: <User size={20}/>, path: '/perfil' },
     { name: 'Billetera', icon: <Wallet size={20}/>, path: '/billetera' },
-    { name: 'Notificaciones', icon: <Bell size={20}/>, path: '/notificaciones' },
+        { name: 'Notificaciones', icon: <Bell size={20}/>, path: '/notificaciones' },
     { name: 'Mensajes', icon: <MessageSquare size={20}/>, path: '/mensajes' },
+    { name: 'Favoritos', icon: <Heart size={20}/>, path: '/favoritos' },
     { name: 'Compras', icon: <ShoppingBag size={20}/>, path: '/compras' },
     { name: 'Vender', icon: <Tag size={20}/>, path: '/vender' },
     { name: 'Posts', icon: <FileText size={20}/>, path: '/posts' },
     { name: 'Mis Publicaciones', icon: <LayoutDashboard size={20}/>, path: '/publicaciones' },
-    { name: 'Referidos', icon: <Users size={20}/>, path: '/referidos' },
+    // { name: 'Referidos', icon: <Users size={20}/>, path: '/referidos' },
     ...(isAdmin ? [{ name: 'Admin', icon: <History size={20}/>, path: '/admin' }] : [])
   ];
 

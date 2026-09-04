@@ -47,7 +47,7 @@ const desktopBanners = [
   image: '/assets/img/banner-desktop/referral.webp', // Tu nueva imagen
   title: "Cashback en USDT",
   subtitle: "Obtené un 2.5% en USDT de reintegro en todas tus compras.",
-  button: "Unirse como Creador",
+  // button: "Empezar a comprar",
   overlay: "bg-black/60", 
   url: "/referidos", // O la ruta que le hayas asignado a la pestaña de creadores
 }

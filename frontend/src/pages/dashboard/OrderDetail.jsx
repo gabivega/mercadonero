@@ -213,11 +213,29 @@ export default function OrderDetail() {
 
                 const currentStepIndex = steps.findIndex((s) => s.id === order.status);
 
-    // Total de productos en ARS de esta orden (para estimar el cashback).
+        // Total de productos en ARS de esta orden (para estimar el cashback).
     const orderProductsTotal = (order.itemsSnapshot || []).reduce(
       (acc, it) => acc + (Number(it.price) || 0) * (Number(it.quantity) || 1),
       0,
     );
+
+    // ⚠️ [POLÍTICA ACTUAL] El comprador SOLO puede cancelar mientras la orden NO
+    // está marcada como pagada (aún en 'pending_payment'). Una vez que notificó
+    // el pago ('verifying_payment') o el vendedor lo confirmó ('paid'), el
+    // comprador no cancela desde la interfaz: lo resuelve por chat con el
+    // vendedor (o, en casos especiales, soporte/admin).
+    // Si en el futuro se quiere habilitar de nuevo la cancelación del comprador
+    // en 'verifying_payment' (flujo de reembolso directo), ajustar esto.
+    const buyerCanCancelHeader =
+      role === 'buyer' &&
+      !order.pendingRequest?.exists &&
+      order.status === 'pending_payment';
+
+    const sellerCanCancelHeader =
+      role === 'seller' &&
+      order.status === 'paid' &&
+      order.payment?.method !== 'crypto' &&
+      !order.pendingRequest?.exists;
 
     return (
     <div className="max-w-5xl mx-auto p-4 md:p-8 space-y-8">
@@ -358,14 +376,7 @@ export default function OrderDetail() {
                 posición quedan integrados y no sueltos entre tarjetas. */}
                         <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-lg">Productos en esta orden</h3>
-              {((role === "buyer" &&
-                !order.pendingRequest?.exists &&
-                (order.status === "pending_payment" ||
-                  order.status === "verifying_payment")) ||
-                (role === "seller" &&
-                  order.status === "paid" &&
-                  order.payment?.method !== "crypto" &&
-                  !order.pendingRequest?.exists)) && (
+                                                        {(buyerCanCancelHeader || sellerCanCancelHeader) && (
                   <CancelOrderAction
                     order={order}
                     role={role}
