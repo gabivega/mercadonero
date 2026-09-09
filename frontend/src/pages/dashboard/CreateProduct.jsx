@@ -249,10 +249,10 @@ export default function CreateProduct() {
               <AlertTriangle className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" size={20} />
               <div>
                 <p className="font-bold text-sm text-amber-800 dark:text-amber-300">
-                  Vinculá una wallet Web3 antes de publicar
+                  Creá una wallet Web3 antes de publicar
                 </p>
                 <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5 leading-relaxed">
-                  Para publicar <b>Productos</b> y recibir los pagos (USDT) necesitás una billetera vinculada (la garantía se gestiona on-chain). Los clasificados (vehículos, inmuebles, servicios) no lo requieren. Activá tu billetera desde{" "}
+                  Para publicar <b>Productos</b> y recibir los pagos necesitás crear una billetera. Los clasificados (vehículos, inmuebles, servicios) no lo requieren. Activá tu billetera desde{" "}
                   <span
                     className="underline font-semibold cursor-pointer hover:text-amber-900 dark:hover:text-amber-200"
                     onClick={() => navigate("/billetera")}

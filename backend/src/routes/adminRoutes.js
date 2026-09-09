@@ -9,9 +9,10 @@ import {
   adminReleaseGuarantee,
   adminCancelOrder,
   adminGetCollateralStatus,
-  adminReleaseEscrow,
+    adminReleaseEscrow,
   adminCancelEscrow,
   adminUpdateEscrowFee,
+  adminResolvePaymentDispute,
 } from '../controllers/orderController.js';
 import {
   adminGetCashbackConfig,
@@ -28,6 +29,12 @@ router.get('/users/:id', verifyPrivyToken, isAdmin, getUserById);
 // Cancelación manual de la orden (solo admin). NO libera la garantía:
 // eso se resuelve aparte de forma manual con release-guarantee.
 router.patch('/orders/:orderId/cancel', verifyPrivyToken, isAdmin, adminCancelOrder);
+
+// Resolver una disputa de PAGO NO RECIBIDO (abierta por el vendedor en
+// 'verifying_payment', transferencia bancaria).
+// Body: { resolution: 'payment_received' | 'no_payment', note }.
+router.patch('/orders/:orderId/resolve-payment-dispute', verifyPrivyToken, isAdmin, adminResolvePaymentDispute);
+
 
 // Liberación manual de garantía del vendedor (solo admin)
 router.patch('/orders/:orderId/release-guarantee', verifyPrivyToken, isAdmin, adminReleaseGuarantee);

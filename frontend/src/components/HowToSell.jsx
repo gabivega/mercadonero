@@ -24,8 +24,8 @@ const [isOpen, setIsOpen] = useState(isExpanded);
     },
     {
       id: 3,
-      title: "Colocar activo en garantía",
-      detail: "Activá el sistema de custodia segura Web3. Tus fondos y productos quedan protegidos bajo contratos inteligentes descentralizados.",
+      title: "Colocar saldo en garantía",
+      detail: "Cargá USDT en tu billetera para que cuando ingrese una orden, el comprador quede protegido hasta que reciba el producto.",
       icon: ShieldCheck,
       iconColor: "text-green-500 bg-green-50 dark:bg-green-950/30",
     },

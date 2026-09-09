@@ -230,6 +230,12 @@ export async function resolveCollateralHold(orderId) {
   order.collateralHold.status = "fulfilled";
   order.collateralHold.fulfilledAt = new Date();
 
+  // Al activar la orden (colateral on-chain congelado) el comprador recién ahora
+  // tiene a la vista los datos bancarios para transferir. Le damos el plazo de
+  // pago completo desde acá (15 min) — evita expirar por el tiempo consumido en
+  // la espera de colateral y ayuda contra la triangulación de cuentas.
+  order.expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
   const savedOrder = await transitionToStatus(
     order,
     "pending_payment",

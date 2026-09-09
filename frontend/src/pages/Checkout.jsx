@@ -368,7 +368,7 @@ const step1 = await Swal.fire({
 
       <div style="background-color: ${isDark ? "#1e1b4b" : "#eff6ff"}; border: 1px solid ${isDark ? "#312e81" : "#bfdbfe"}; padding: 12px; border-radius: 8px; margin-top: 15px;">
         <p style="margin: 0; font-weight: 600; color: ${isDark ? "#93c5fd" : "#1e40af"}; font-size: 0.85rem;">
-          ⏱️ Tienes 60 minutos para realizar y notificar el pago. De lo contrario, la orden se cancelará automáticamente y podrías ser penalizado.
+          ⏱️ Tienes 15 minutos para realizar y notificar el pago. De lo contrario, la orden se cancelará automáticamente.
         </p>
       </div>
     </div>
@@ -435,23 +435,23 @@ const step1 = await Swal.fire({
           // Vaciamos el carrito: la orden ya quedó reservada/creada.
           sellerProducts.forEach((p) => removeFromCart(p._id));
           await Swal.fire({
-            title: "Compra en espera de garantía",
+            title: "Procesando tu compra",
             html: `
               <div style="text-align: left; font-size: 0.9rem; line-height: 1.5; color: ${isDark ? "#e4e4e7" : "#374151"};">
                 <p style="margin-bottom: 12px;">
-                  El vendedor necesita depositar su <b>fondo de garantía</b> para poder activar tu orden.
+                  El vendedor debe confirmar si puede garantizar la orden.
                 </p>
                 <div style="background: ${isDark ? "#1f2937" : "#fffbeb"}; border: 1px solid ${isDark ? "#92400e" : "#fcd34d"}; padding: 12px; border-radius: 10px; margin-bottom: 12px;">
                   <p style="margin: 0 0 4px 0; font-weight: 700; color: ${isDark ? "#fbbf24" : "#92400e"};">
                     ⏱️ Plazo aproximado: ${response.data.collateralHold?.minutesLeft || 15} minutos
                   </p>
                   <p style="margin: 0;">
-                    Podés esperar a que el vendedor ponga la garantía, o buscar este producto en otro vendedor.
+                    Podés esperar a que el vendedor confirme, o buscar en otra tienda.
                   </p>
                 </div>
                 <p style="font-size: 0.82rem; color: #6b7280;">
-                  No se te descontará nada hasta que el vendedor confirme su garantía. Si decide no hacerlo, la
-                  orden se cancelará sola sin costo para vos.
+                  Si el vendedor no confirma en 15 minutos, la orden se cancelará sola sin costo para vos. 
+                  No abones hasta tener la confirmacion de la plataforma.
                 </p>
               </div>
             `,
@@ -494,7 +494,7 @@ const step1 = await Swal.fire({
         </p>
       </div>
       <p>Transferí y presioná el botón de abajo para avisarle al vendedor.</p>
-      <p>Tenés 60 minutos o la orden expira automáticamente.</p>
+      <p>Tenés 15 minutos o la orden expira automáticamente.</p>
     </div>
   `,
           icon: "info",
@@ -889,7 +889,7 @@ if (!authenticated ||  !dbUser ) {
                 </div>
               </div>
                             {paymentMethod === "bank_transfer" ? (
-                <span className="text-[10px] bg-[#3483fa] text-white px-2 py-0.5 rounded font-bold">
+                <span className="text-[10px] bg-[#3483fa] text-white px-2 py-0.5 rounded font-bold mt-2">
                   SELECCIONADO
                 </span>
               ) : (
@@ -912,7 +912,7 @@ if (!authenticated ||  !dbUser ) {
                   </p>
                 </div>
               </div>
-              <span className="text-[10px] bg-zinc-400 text-white px-2 py-0.5 rounded font-bold">
+              <span className="text-[10px] bg-zinc-400 text-white px-2 py-0.5 rounded font-bold mt-2">
                 PRÓXIMAMENTE
               </span>
             </div>

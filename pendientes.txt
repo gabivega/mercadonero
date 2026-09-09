@@ -17,13 +17,13 @@ agregar onboarding vendedor *** LISTO, FALTA PROBAR
 
 ============00000000=============
 Revision 27/8
-SI pones como metodo de pago crypto, sin tener wallet no podes salir del modal de swal
-Mejorar spinner al confirmar orden: queda solo dentro del boton de confirmar
-Banner de referidos cambiar por cashback
-ordenes de compra con crypto no expiran
-en las notificaciones el comprador figura como "undefined"
-En el detalle de la orden no se menciona el metodo de pago, en la notificacion si
-Una orden en espera de colateral, no muestra notificacion, si envia un mail
+SI pones como metodo de pago crypto, sin tener wallet no podes salir del modal de swal-LISTO
+Mejorar spinner al confirmar orden: queda solo dentro del boton de confirmar- LISTO
+Banner de referidos cambiar por cashback - LISTO
+ordenes de compra con crypto no expiran 
+en las notificaciones el comprador figura como "undefined"--LISTO
+En el detalle de la orden no se menciona el metodo de pago, en la notificacion si - VER MAS ADELANTE CUANDO ESTE HABILITADO PAGO CRYPTO
+Una orden en espera de colateral, no muestra notificacion, si envia un mail- LISTO
 Orden en espera de garantia, vendedor deposita y no se procesa. aviso "No se pudo activar la orden. Revisá que hayas depositado la garantía (USDT) y reintentá."
 agregar carga de comprobante al notificar un pago (comprador)
 si comprador notifica un pago, pero vendedor no lo recibe, no puede notificar. agregar un boton de "no recibi la transferencia" y ver como resolver
@@ -35,3 +35,21 @@ Se muestra listado un producto de vendedor que no tiene wallet generada *** LIST
 agregar % al lado del rating de usuario
 la notificacion sobre reseña funciona pero dice "ingresa a la orden para ver la reseña" y no se puede ver en la pagina de orden
 cuando comprador no quiere esperar el deposito en garantia y cancela, el vendedor no se entera ni por notificacion ni por mail.
+En el flujo de las ordenes: Cuando comprador paga y vendedor confirma recepcion, no se puede cancelar la orden- revisar que hacer
+Activar que el vendedor pueda marcar el pago como recibido-LISTO
+Onboarding comprador, carga datos, quiero saltear la carga de direccion y no me deja(swal dice "Recomendamos cargar una dirección
+Para confirmar la compra necesitás una dirección de envío. Podés cargarla ahora o hacerlo en el checkout." pero no deja avanzar)
+si eleije metodo de pago criptomonedas, y no tiene wallet sale el aviso de swal de "necesitas billetera". esta correcto pero no te deja salir si presionas "usar transferencia"
+cuando se confirma y procesa la orden, colocar un spinner que ocupe toda la pantalla, no solo dentro del boton
+orden cancelada por vendedor (post pago): debería enviar mail al admin. admin puede cancelar manualmente, sale un alert (window.confirm), modificar por swal. la orden debería quedar cancelada por el propio vendedor, sin liberar garantia. tambien sale un error(Order validation failed: releaseRequest.status: `resolved_by_cancel` is not a valid enum value for path `releaseRequest.status`., orderActions.1.type: `admin_cancel` is not a valid enum value for path `type`.)
+en panel de admin de orden cancelada esta 2 veces el boton de liberar garantia
+orden cancelada por vendedor: admin libera garantía de orden "pagada" sin verificar reintegro. revisar establecido
+Product card en clasificados de vehiculos tiene un "|" antes de location. podria ser mas chica-ver si agregar 0km o usado
+product card general, tiene bastante espacio, ver si es espacio reservado para cashback o eliminar
+revisar limite de caracteres de reviews
+email de orden sin suficiente garantia (vendedor) tiene demasiados decimales
+Agregar a la parte de reintegros, un mensaje que se puede utilizar a partir de los 5 usd acumulados
+Al pagarse la orden con crypto, activar redireccion a la orden creada o a mis ordenes
+Pago con crypto: No hace falta verificar ni notificar pago, cambiar eso . Tambien eliminar el mail hacia el comprador con datos para realizar la transferencia
+ordenes canceladas por el comprador cuando esta en espera de colateral, no notifica al vendedor
+Producto se edita a "envio gratis" pero no se actualiza (da mensaje de confirmacion de guardado exitosamente)

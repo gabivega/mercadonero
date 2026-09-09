@@ -552,3 +552,112 @@ export const sendVendorCollateralHoldRequested = async ({
     console.error('Exception en sendVendorCollateralHoldRequested:', err);
   }
 };
+
+/**
+ * NOTIFICACIÓN AL COMPRADOR (El vendedor reportó "pago no recibido").
+ * Se invoca cuando el vendedor abre una disputa de pago no ingresado
+ * (transferencia bancaria). Se le pide al comprador que suba su comprobante
+ * de la transferencia para que el admin pueda resolver el caso.
+ */
+export const sendBuyerPaymentDisputeAskProof = async ({
+  buyerEmail,
+  orderId,
+  amount,
+}) => {
+  try {
+    const shortOrderId = String(orderId).slice(-6).toUpperCase();
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [buyerEmail],
+      subject: `Alerta de pago no registrado - Orden #${shortOrderId}`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+          <h2 style="color: #111;">Tu pago no fue registrado</h2>
+          <p>El vendedor de la orden <strong>#${shortOrderId}</strong> reportó que aun no recibio tu transferencia.</p>
+          <div style="background-color: #f4f4f5; padding: 15px; border-radius: 6px; margin: 15px 0;">
+            <p style="margin: 0;"><strong>Numero de orden:</strong> #${shortOrderId}</p>
+            ${amount != null ? `<p style="margin: 5px 0 0 0;"><strong>Importe:</strong> $${amount} ARS</p>` : ''}
+          </div>
+          <p style="font-size: 13px; color: #555;">
+            Si <strong>si realizaste la transferencia</strong>, ingresá a la plataforma, abri la orden y <strong>subi el comprobante</strong> (imagen o PDF) lo antes posible. Nuestro equipo lo revisara para confirmar la operacion y que se encause el envio.
+          </p>
+          <p style="font-size: 13px; color: #b45309;">
+            Aviso legal: reportar un pago sin haberlo hecho es una falta grave y puede derivar en la suspension de tu cuenta.
+          </p>
+        </div>
+      `,
+    });
+    if (error) console.error('Error email de pago no recibido al comprador:', error);
+    return { data, error };
+  } catch (err) {
+    console.error('Exception en sendBuyerPaymentDisputeAskProof:', err);
+  }
+};
+
+/**
+ * NOTIFICACIÓN AL VENDEDOR / ADMIN (El comprador subió el comprobante).
+ */
+export const sendPaymentProofUploaded = async ({
+  email,
+  orderId,
+  amount,
+  roleLabel,
+}) => {
+  try {
+    const shortOrderId = String(orderId).slice(-6).toUpperCase();
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [email],
+      subject: `Comprobante adjuntado - Orden #${shortOrderId}`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+          <h2 style="color: #111;">El comprador adjunto el comprobante</h2>
+          <p>El comprador cargo su comprobante de transferencia para la orden <strong>#${shortOrderId}</strong>${
+            roleLabel ? ` (destinatario: ${roleLabel})` : ''
+          }.</p>
+          <div style="background-color: #f4f4f5; padding: 15px; border-radius: 6px; margin: 15px 0;">
+            <p style="margin: 0;"><strong>Numero de orden:</strong> #${shortOrderId}</p>
+            ${amount != null ? `<p style="margin: 5px 0 0 0;"><strong>Importe:</strong> $${amount} ARS</p>` : ''}
+          </div>
+          <p style="font-size: 13px; color: #555;">
+            Ingresa a la plataforma y revisa el comprobante en el detalle de la orden.
+          </p>
+        </div>
+      `,
+    });
+    if (error) console.error('Error email de comprobante adjuntado:', error);
+    return { data, error };
+  } catch (err) {
+    console.error('Exception en sendPaymentProofUploaded:', err);
+  }
+};
+
+/**
+ * NOTIFICACIÓN AL COMPRADOR (Resultado de la disputa de pago no recibido a favor).
+ */
+export const sendPaymentDisputeResolvedInBuyerFavor = async ({
+  buyerEmail,
+  orderId,
+}) => {
+  try {
+    const shortOrderId = String(orderId).slice(-6).toUpperCase();
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [buyerEmail],
+      subject: `Compra confirmada - Orden #${shortOrderId}`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+          <h2 style="color: #111;">Tu pago fue validado</h2>
+          <p>Tras revisar el comprobante de la orden <strong>#${shortOrderId}</strong>, confirmamos la operacion. El vendedor sera notificado para que verifique su cuenta y continue con el envio de tu pedido.</p>
+          <p style="font-size: 13px; color: #555;">
+            Segui el estado de tu compra en la plataforma, seccion <strong>"Mis Compras"</strong>.
+          </p>
+        </div>
+      `,
+    });
+    if (error) console.error('Error email de pago validado al comprador:', error);
+    return { data, error };
+  } catch (err) {
+    console.error('Exception en sendPaymentDisputeResolvedInBuyerFavor:', err);
+  }
+};

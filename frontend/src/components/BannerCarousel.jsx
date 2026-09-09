@@ -7,7 +7,7 @@ const desktopBanners = [
   {
     image: '/assets/img/banner-desktop/cash.webp',
     title: "Vendé y cobrá por adelantado",
-    subtitle: "Mercado Nero es el único Marketplace del mundo donde podés cobrar por adelantado mientras protegemos a compradores y vendedores, gracias al poder de los contratos inteligentes.",
+    subtitle: "Mercado Nero es el único Marketplace del mundo donde podés cobrar por adelantado mientras protegemos a compradores, gracias al poder de los contratos inteligentes.",
     button: "Empezar a vender",
     url: "/vender",
     overlay: "bg-black/40" // Capa oscura intermedia

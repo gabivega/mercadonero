@@ -130,7 +130,7 @@ export default function Cart() {
                         <div>
                           <div className="flex justify-between">
                             <h3
-                              className="text-[15px] font-medium text-gray-900 dark:text-gray-100 leading-tight hover:text-[#3483fa] cursor-pointer"
+                              className="text-[15px] font-medium text-gray-900 dark:text-gray-100 leading-tight mb-2 hover:text-[#3483fa] cursor-pointer"
                               onClick={() => navigate(`/product/${item._id}`)}
                             >
                               {item.name}

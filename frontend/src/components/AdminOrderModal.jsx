@@ -344,7 +344,45 @@ const AdminOrderModal = ({ order, isOpen, onClose, onAction }) => {
             </button>
           )}
 
-          <button onClick={onClose} className="px-5 py-3 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-2xl font-bold text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors ml-auto">
+          
+          {/* RESOLUCION DE DISPUTA DE PAGO NO RECIBIDO (abierta por el vendedor).
+              El comprador pudo subir su comprobante (order.paymentProof). */}
+          {order.dispute?.exists &&
+            order.dispute.status === "open" &&
+            String(order.dispute.raisedBy) === String(order.seller?._id) &&
+            order.status === "verifying_payment" &&
+            order.payment?.method !== "crypto" && (
+            <>
+              <div className="w-full">
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-600 dark:text-amber-400 mb-2">
+                  El vendedor reporto "pago no recibido" - Resolver disputa
+                </p>
+                {order.paymentProof ? (
+                  <p className="text-[11px] text-zinc-500 mb-2">
+                    El comprador adjunto un comprobante. Revisalo antes de decidir.
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-rose-500 mb-2">
+                    El comprador aun NO adjunto comprobante.
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => onAction(order._id, 'resolve_payment_received')}
+                className="flex-1 bg-emerald-600 text-white py-3 rounded-2xl font-black italic uppercase text-xs hover:bg-emerald-700 transition-colors"
+              >
+                El pago SI se acredito (volver a verificacion)
+              </button>
+              <button
+                onClick={() => onAction(order._id, 'resolve_payment_no')}
+                className="flex-1 bg-rose-600 text-white py-3 rounded-2xl font-black italic uppercase text-xs hover:bg-rose-700 transition-colors"
+              >
+                No se acredito - Cancelar y liberar garantia
+              </button>
+            </>
+          )}
+
+<button onClick={onClose} className="px-5 py-3 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-2xl font-bold text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors ml-auto">
             Cerrar Panel
           </button>
         </div>

@@ -12,14 +12,37 @@ const startOrderCleanup = () => {
   cron.schedule("*/15 * * * *", async () => {
     console.log("🚀 Ejecutando cron job de limpieza de órdenes...");
     try {
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      // ---------------------------------------------------------------
+      // (A) SIEMPRE: expirar holds de colateral vencidos ("awaiting_collateral").
+      // Esto corre en CADA ciclo, en forma independiente de la expiración de
+      // órdenes `pending_payment`. Debe ir ANTES del bloque de pending_payment
+      // y de su `return` temprano: si no, cuando no haya pending_payment viejas
+      // el cron salía antes de llegar acá y los holds vencidos quedaban colgados
+      // como "pending" para siempre, "reservando" saldo en papel y empujando a
+      // vendedores con saldo on-chain real dentro de la espera de garantía.
+      // ---------------------------------------------------------------
+      const expiredHolds = await Order.find({
+        status: "awaiting_collateral",
+        "collateralHold.status": "pending",
+        "collateralHold.expiresAt": { $lt: new Date() },
+      });
+      for (const holdOrder of expiredHolds) {
+        await expireCollateralHold(holdOrder).catch((err) =>
+          console.error(`[Cron Error] Falló expirar hold ${holdOrder._id}:`, err),
+        );
+      }
+      if (expiredHolds.length > 0) {
+        console.log(`[Cron] ${expiredHolds.length} hold(s) de colateral vencidos y expirados.`);
+      }
+
+      // (plazo de pago gobernado por order.expiresAt = 15 min, ver createOrder)
 
             // Buscamos órdenes que sigan en 'pending_payment', tengan más de 1 hora
             // y NO tengan una solicitud de cancelación o de liberación de garantía
             // pendiente (para no interferir con flujos que requieren acción manual).
             const expiredOrders = await Order.find({
               status: "pending_payment",
-              createdAt: { $lt: oneHourAgo },
+              expiresAt: { $lt: new Date() },
               "pendingRequest.exists": { $ne: true },
               "releaseRequest.exists": { $ne: true },
             });
@@ -74,7 +97,7 @@ const startOrderCleanup = () => {
                     await transitionToStatus(
             order,
             "expired",
-            "Cancelación automática por falta de pago tras 60 minutos.",
+            "Cancelación automática por falta de pago tras 15 minutos.",
           );
 
           // PUNTO 5: registramos la expiración en el accounting del comprador
@@ -90,27 +113,6 @@ const startOrderCleanup = () => {
         }
       }
 
-      // ---------------------------------------------------------------
-      // EXPIRACIÓN DE HOLDS DE COLATERAL ("awaiting_collateral")
-      // Órdenes que quedaron esperando que el vendedor deposite colateral y
-      // cuyo plazo (15 min) ya venció. No hay colateral on-chain congelado en
-      // este estado, así que solo se marca la orden expirada y se registra la
-      // penalización al vendedor (vía expireCollateralHold).
-      // ---------------------------------------------------------------
-      const expiredHolds = await Order.find({
-        status: "awaiting_collateral",
-        "collateralHold.status": "pending",
-        "collateralHold.expiresAt": { $lt: new Date() },
-      });
-
-      for (const holdOrder of expiredHolds) {
-        await expireCollateralHold(holdOrder).catch((err) =>
-          console.error(`[Cron Error] Falló expirar hold ${holdOrder._id}:`, err),
-        );
-      }
-      if (expiredHolds.length > 0) {
-        console.log(`[Cron] ${expiredHolds.length} hold(s) de colateral vencidos y expirados.`);
-      }
     } catch (error) {
       console.error("Error crítico en el cleanup de órdenes:", error);
     }

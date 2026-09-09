@@ -140,8 +140,8 @@ export default function CollateralHoldCard({ order, role = "buyer", onUpdate }) 
       {/* Resaltado superior */}
       <div className="h-1.5 w-full bg-gradient-to-r from-amber-400 via-orange-400 to-[#F26722] -mt-6 mb-6" />
 
-      <div className="flex items-start gap-4">
-        <div className={`p-3 rounded-2xl shrink-0 ${expired ? "bg-red-50 dark:bg-red-900/20 text-red-500" : "bg-amber-50 dark:bg-amber-900/20 text-amber-500"}`}>
+      <div className="flex flex-col items-start gap-4">
+        <div className={`p-3 rounded-2xl mx-auto shrink-0 ${expired ? "bg-red-50 dark:bg-red-900/20 text-red-500" : "bg-amber-50 dark:bg-amber-900/20 text-amber-500"}`}>
           {expired ? <AlertTriangle size={26} /> : <Hourglass size={26} />}
         </div>
 
@@ -160,8 +160,8 @@ export default function CollateralHoldCard({ order, role = "buyer", onUpdate }) 
               </>
             ) : (
               <>
-                El vendedor necesita depositar su fondo de garantía para activar tu compra. Por si elegís esperar,
-                no se descontará nada hasta que el vendedor confirme. 
+                El vendedor tiene 15 minutos para depositar la proteccion de tu compra. <br/>
+                Cuando deposite, te mostraremos los datos bancarios para que realices la transferencia.
               </>
             )}
           </p>
@@ -205,9 +205,9 @@ export default function CollateralHoldCard({ order, role = "buyer", onUpdate }) 
               </>
             ) : (
               <>
-                <span className="inline-flex items-center gap-2 text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-3 py-2 rounded-lg">
+                {/* <span className="inline-flex items-center gap-2 text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-3 py-2 rounded-lg">
                   <Hourglass size={14} /> Sin cargo hasta que el vendedor confirme la garantía.
-                </span>
+                </span> */}
                 <button
                   onClick={handleCancelHold}
                   disabled={loading}

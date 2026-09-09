@@ -342,23 +342,23 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                 {/* Checkbox Envío Gratis */}
                 <label
                   className={`flex items-center gap-4 p-4 border rounded-2xl cursor-pointer transition-all ${
-                    product.shipping.freeShipping // Cambié .free por .freeShipping para ser consistente
+                    product.shipping.free // Cambié .free por .freeShipping para ser consistente
                       ? "bg-green-50 dark:bg-green-500/10 border-green-500"
                       : "bg-gray-50 dark:bg-[#252525] border-gray-200 dark:border-gray-800"
                   }`}
                 >
                   <input
                     type="checkbox"
-                    name="shipping.freeShipping" // Corregido: sin punto al final
+                    name="shipping.free" // Corregido: sin punto al final
                     className="w-5 h-5 rounded-md border-gray-300 text-green-600 focus:ring-green-500"
-                    checked={product.shipping.freeShipping}
+                    checked={product.shipping.free}
                     onChange={handleInputChange}
                   />
                   <div className="flex items-center gap-2 font-bold text-gray-700 dark:text-gray-300 uppercase text-xs">
                     <Truck
                       size={18}
                       className={
-                        product.shipping.freeShipping
+                        product.shipping.free
                           ? "text-green-500"
                           : "text-gray-400"
                       }
@@ -368,7 +368,7 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                 </label>
 
                 {/* Costo Manual */}
-                {!product.shipping.freeShipping && (
+                {!product.shipping.free && (
                   <div className="animate-in zoom-in-95 duration-200">
                     <div className="relative">
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium">

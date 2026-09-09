@@ -30,10 +30,10 @@ export default function HelpSeller() {
       content: (
         <>
           <p className="mb-2">
-            A diferencia de las plataformas tradicionales, recibís el pago por adelantado mediante una transferencia directa por parte del comprador (a tu CBU/CVU o alias bancario configurado).
+            A diferencia de las demás plataformas, recibís el pago por adelantado mediante una transferencia directa por parte del comprador (a tu CBU/CVU o alias bancario configurado).
           </p>
           <p className="mb-2">
-            La unica condicion es que previamente deposites saldo en tu wallet y "congeles" una cantidad equivalente al valor de la venta, esto funciona como una garantía para el comprador.
+            La unica diferencia es que previamente deposites saldo en tu wallet, el cual se "congela" mientras se ejecuta la orden, a modo de garantía para proteger al comprador.
           </p>
           <p>
             Una vez que verificás el ingreso del dinero en tu cuenta bancaria, tenés la obligación de confirmar la recepción en la plataforma para proceder con el despacho del producto. Tu colateral permanecerá congelado resguardando la operación hasta el final del flujo.
@@ -59,7 +59,7 @@ export default function HelpSeller() {
             Si el comprador indica que el producto llegó dañado, tiene fallas o no coincide con lo publicado, se abre un periodo de disputa y el colateral en garantía permanecerá congelado en el contrato hasta que el conflicto se resuelva.
           </p>
           <p>
-            Si se determina que el reclamo es justo, el comprador podrá requerir la devolución de su dinero. En ese caso, deberás reembolsarle la transferencia bancaria y, una vez acreditado el retorno, el sistema liberará tu colateral de vuelta a tu wallet. Cumplir con los estándares evita fricciones y bloqueos de fondos.
+            Si se determina que el reclamo es justo, el comprador podrá requerir la devolución de su dinero. En ese caso, deberás reembolsarle la transferencia bancaria y, una vez acreditado el retorno, el sistema liberará tu colateral de vuelta a tu wallet. Si no cumples con los reintegros, puedes ser suspendido definitivamente.
           </p>
         </>
       ),
@@ -85,6 +85,16 @@ export default function HelpSeller() {
         <p>
           No, nunca. Mercado Nero es una plataforma descentralizada. Nosotros no tenemos acceso a tus claves, no abrimos cuentas bancarias a tu nombre ni guardamos tus criptomonedas en nuestros servidores. Vos sos el único custodio absoluto de tus fondos. Todo el proceso de garantía ocurre directamente entre tu wallet y el contrato inteligente en la red blockchain.
           La plataforma solamente facilita la conexión entre los participantes y el contrato inteligente.
+        </p>
+      ),
+    },
+    {
+      question: "No tengo saldo en garantía, ¿puedo vender igual?",
+      icon: Wallet,
+      content: (
+        <p>
+          Si, tus productos son visibles y los compradores pueden generar ordenes. La diferencia es que se te otorgan 15 minutos para depositar el saldo en garantía o la orden expira automaticamente.
+          El comprador tambien puede decidir cancelar la orden si no quiere esperar, sin ser penalizado. Si te ingresan varias ordenes y no depositas el colateral, tu reputación se verá afectada y podés ser suspendido de la plataforma por no poder cumplir la demanda de los compradores.
         </p>
       ),
     },

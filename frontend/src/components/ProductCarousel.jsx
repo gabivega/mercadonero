@@ -54,7 +54,7 @@ const fetchProducts = async () => {
   if (!loading && products.length === 0) return null;
 
   return (
-    <section className="mb-12 px-4">
+    <section className="mb-12 px-0">
       <div className="flex items-center justify-between mb-6">
         <div className="flex flex-col">
            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-gray-900 dark:text-white leading-none">
@@ -80,7 +80,7 @@ const fetchProducts = async () => {
           </div>
         ) : (
           <>
-          <div className="relative w-full overflow-x-clip px-4 -mx-4">
+          <div className="relative w-full overflow-x-clip px-0 -mx-0">
             <Swiper
               modules={[Navigation]}
               navigation={{

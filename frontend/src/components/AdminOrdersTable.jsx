@@ -60,6 +60,29 @@ const handleOpenModal = (order) => {
       return;
     }
 
+    if (action === 'resolve_payment_received' || action === 'resolve_payment_no') {
+      const yes = action === 'resolve_payment_received';
+      if (!window.confirm(yes
+        ? '¿Confirmás que el pago SÍ se acreditó? La orden volverá a "verificación de pago" para que el vendedor confirme la recepción y despache.'
+        : '¿Confirmás que el pago NO se acreditó? Se cancelará la orden, se liberará la garantía al vendedor y se sumará una cancelación al comprador.')) return;
+      try {
+        await axios.patch(
+          `${import.meta.env.VITE_SERVER_URL}/api/admin/orders/${orderId}/resolve-payment-dispute`,
+          { resolution: yes ? 'payment_received' : 'no_payment', note: 'Resuelta desde panel admin' },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        window.alert(yes
+          ? 'Disputa resuelta a favor del comprador. La orden vuelve a verificación para que el vendedor confirme.'
+          : 'Disputa resuelta a favor del vendedor. Orden cancelada y garantía liberada.');
+        setSelectedOrder(null);
+        setIsModalOpen(false);
+        await refreshOrders(token);
+      } catch (err) {
+        window.alert(err?.response?.data?.message || 'No se pudo resolver la disputa de pago.');
+      }
+      return;
+    }
+
     if (action === 'check_collateral') {
       // Consulta el estado real del colateral on-chain para discernir entre:
       //  - lock activo (está congelado de verdad) → toca liberar

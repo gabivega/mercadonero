@@ -1,4 +1,4 @@
-﻿import Order from "../models/Order.js";
+import Order from "../models/Order.js";
 import Product from "../models/Product.js";
 import { calculateOrderFinancials } from "../../../frontend/src/Utils/OrderUtils.js";
 import {
@@ -23,8 +23,11 @@ import {
     sendRefundRequestedToVendor,
     sendOrderCancelledToBuyer,
   sendOrderCancelledToVendor,
-  sendAdminCancellationRequest,
+    sendAdminCancellationRequest,
   sendVendorCollateralHoldRequested,
+  sendBuyerPaymentDisputeAskProof,
+  sendPaymentProofUploaded,
+  sendPaymentDisputeResolvedInBuyerFavor,
 } from "../services/sendEmail.js";
 import {
   createNotification,
@@ -32,7 +35,6 @@ import {
 import { accrueCashbackForOrder } from "../services/cashbackService.js";
 import { transitionToStatus } from "../services/orderHelpers.js";
 import {
-  getVendorEffectiveAvailable,
   validateVendorHoldCapacity,
   resolveCollateralHold,
   expireCollateralHold,
@@ -158,7 +160,7 @@ const createOrder = async (req, res) => {
     console.log("[Server] Financials:", financials);
 
     // 3. Definir expiración (Parametrizable)
-    const MINUTES_TO_EXPIRATION = 60;
+    const MINUTES_TO_EXPIRATION = 15; // Plazo para pagar/notificar el pago (anti-triangulación)
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + MINUTES_TO_EXPIRATION);
 
@@ -325,12 +327,13 @@ const createOrder = async (req, res) => {
     //  - Si NO alcanza (colateral fuera) → entra a "awaiting_collateral"
     //    (se le da 15 min al vendedor para depositar, el comprador decide).
     // ────────────────────────────────────────────────────────────────
-    const effective = await getVendorEffectiveAvailable(
-      seller._id,
-      seller.walletAddress,
-    );
+    // Fuente de verdad = blockchain: available ya descuenta los locks on-chain
+    // de todas las órdenes activas. No "restamos en papel" reservas de la BD
+    // porque los holds de espera se expiran por separado y la cadena ya manda.
+    const onChainNow = await getVendorCollateral(seller.walletAddress);
+    const availableOnChain = onChainNow.success ? onChainNow.available : 0;
 
-    if (effective.effectiveAvailable >= amountToLock) {
+    if (onChainNow.success && availableOnChain >= amountToLock) {
       // ── FLUJO NORMAL: hay colateral suficiente ──
       const blockchainResult = await lockVendorCollateral(
         orderIdForBlockchain,
@@ -356,10 +359,11 @@ const createOrder = async (req, res) => {
           error:
             blockchainResult.error ||
             "Error desconocido al bloquear colateral en blockchain",
-          detail: {
+                    detail: {
             vendorWallet: seller.walletAddress,
             contractAddress: process.env.CONTRACT_ADDRESS,
             amountToLockUsd: amountToLock,
+            availableOnChain,
           },
         });
       }
@@ -437,7 +441,7 @@ const createOrder = async (req, res) => {
       recipient: sellerId,
       type: "collateral_hold_requested",
       title: "¡Tenés una venta en espera por falta de garantía!",
-      message: `${buyer.firstName || buyer.username || "El comprador"} quiere comprarte, pero no tenés saldo libre de garantía. Depositá USDT en los próximos ${Math.round(
+      message: `${buyer.firstName || buyer.username || "El comprador"} quiere comprarte, pero no tenés saldo en tu cuenta de garantía. Depositá USDT en los próximos ${Math.round(
         COLLATERAL_HOLD_CONFIG.HOLD_MS / 60000,
       )} minutos para no perder la venta (orden #${newOrder._id
         .toString()
@@ -865,8 +869,6 @@ const updateOrder = async (req, res) => {
                     cashbackErr.message,
                   );
                 }
-
-
         // D. Actualización de métricas: contadores de ventas/compras y stock vendido.
         // Se hace SÓLO acá, al completarse la orden (la venta es efectiva), para que
         // el perfil público y las unidades vendidas del producto se actualicen.
@@ -3019,16 +3021,28 @@ const openDispute = async (req, res) => {
           .toUpperCase()}: el pago del comprador no ingresó. El admin revisará el caso y te contactará.`,
         data: { orderId: order._id },
       }).catch(() => {});
-      createNotification({
+            createNotification({
         recipient: order.buyer,
         type: "order_disputed",
         title: "Tu compra fue marcada como no pagada",
         message: `El vendedor reportó que el pago de la orden #${order._id
           .toString()
           .slice(-6)
-          .toUpperCase()} no le llegó. Si realizaste la transferencia, tené el comprobante a mano: el admin te contactará.`,
+          .toUpperCase()} no le llegó. Si realizaste la transferencia, subí el comprobante para que el admin pueda validar tu pago.`,
         data: { orderId: order._id },
       }).catch(() => {});
+
+      // 💌 Email al comprador: pedirle que suba el comprobante de la
+      // transferencia para que el admin pueda resolver la disputa de pago.
+      if (buyer?.email) {
+        sendBuyerPaymentDisputeAskProof({
+          buyerEmail: buyer.email,
+          orderId: order._id,
+          amount: order.totalAmount,
+        }).catch((err) =>
+          console.error("Falló email de pago no recibido al comprador:", err),
+        );
+      }
     } else {
       // Disputa iniciada por el COMPRADOR (problema con el pedido recibido).
       createNotification({
@@ -3061,8 +3075,301 @@ const openDispute = async (req, res) => {
       dispute: order.dispute,
       order,
     });
-  } catch (error) {
+    } catch (error) {
     console.error("Error al abrir disputa:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * COMPRADOR adjunta el COMPROBANTE de su transferencia ante una disputa de
+ * "pago no recibido" (abierta por el vendedor en `verifying_payment`,
+ * transferencia bancaria).
+ *
+ * Flujo de subida: el FRONT sube el archivo directo a Cloudinary (preset
+ * unsigned "mercadonero", igual que las imágenes de producto) y acá sólo
+ * recibimos y persistimos la URL resultante + una nota. Esto mantiene el
+ * backend liviano y no tiene que interceptar/procesar binarios grandes.
+ *
+ * Validaciones: sólo el COMPRADOR de la orden, por transferencia bancaria,
+ * mientras la orden esté en `verifying_payment` y exista una disputa abierta
+ * iniciada por el VENDEDOR.
+ */
+const uploadPaymentProof = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { paymentProof, note } = req.body;
+    const userId = req.user._id.toString();
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    const isBuyer = order.buyer.toString() === userId;
+    if (!isBuyer) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Solo el comprador de la orden puede subir el comprobante." });
+    }
+    if (order.payment?.method === "crypto") {
+      return res.status(400).json({
+        success: false,
+        message: "Las órdenes en criptomonedas no requieren comprobante de transferencia bancaria.",
+      });
+    }
+    if (order.status !== "verifying_payment") {
+      return res.status(400).json({
+        success: false,
+        message: `Solo podés adjuntar el comprobante mientras la orden esté en verificación (estado actual: ${order.status}).`,
+      });
+    }
+    const sellerRaisedOpenDispute =
+      order.dispute?.exists &&
+      order.dispute.status === "open" &&
+      order.dispute.raisedBy?.toString?.() === order.seller.toString();
+    if (!sellerRaisedOpenDispute) {
+      return res.status(400).json({
+        success: false,
+        message: "Esta orden no tiene una disputa de pago no recibido abierta por el vendedor.",
+      });
+    }
+    if (!paymentProof || typeof paymentProof !== "string" || !/^https?:\/\/.+/.test(paymentProof)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Adjuntá un comprobante válido (URL de imagen o PDF subida a Cloudinary)." });
+    }
+
+    order.paymentProof = paymentProof.trim();
+    order.orderActions.push({
+      type: "claim", // reclamo / evidencia dentro de una disputa
+      initiator: "buyer",
+      paidStatus: "paid",
+      status: "completed",
+      reason: `El comprador adjuntó el comprobante de la transferencia ante el reporte de pago no recibido. ${(note || "").slice(0, 400)}`.trim(),
+      createdBy: order.buyer,
+    });
+    await order.save();
+
+    // Notificar vendedor + admin (mail e in-app).
+    const adminId = process.env.ADMIN_PRIVY_ID;
+    const adminUser = adminId ? await User.findOne({ privyDid: adminId }) : null;
+    const seller = await User.findById(order.seller);
+
+    if (seller) {
+      if (seller.email) {
+        sendPaymentProofUploaded({ email: seller.email, orderId: order._id, amount: order.totalAmount, roleLabel: "vendedor" }).catch(() => {});
+      }
+      createNotification({
+        recipient: seller._id,
+        type: "order_dispute_evidence",
+        title: "El comprador adjuntó el comprobante",
+        message: `El comprador subió el comprobante de la orden #${order._id.toString().slice(-6).toUpperCase()} por tu reporte de pago no recibido. Verificá tu cuenta y avisá si te llegó.`,
+        data: { orderId: order._id },
+      }).catch(() => {});
+    }
+    if (adminUser) {
+      if (adminUser.email) {
+        sendPaymentProofUploaded({ email: adminUser.email, orderId: order._id, amount: order.totalAmount, roleLabel: "admin" }).catch(() => {});
+      }
+      createNotification({
+        recipient: adminUser._id,
+        type: "order_dispute_evidence",
+        title: "Comprobante adjuntado",
+        message: `El comprador subió el comprobante de la orden #${order._id.toString().slice(-6).toUpperCase()} (pago no recibido). Revisalo para resolver la disputa.`,
+        data: { orderId: order._id },
+      }).catch(() => {});
+    }
+
+    return res.status(200).json({ success: true, message: "Comprobante subido correctamente.", order });
+  } catch (error) {
+    console.error("Error al subir comprobante de pago:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * ADMIN resuelve una disputa de PAGO NO RECIBIDO (abierta por el vendedor en
+ * `verifying_payment`, transferencia bancaria). Body: { resolution, note }
+ *  - 'payment_received'  → el comprobante es válido / el pago sí se acreditó.
+ *    A favor del COMPRADOR: se cierra la disputa y la orden vuelve a
+ *    `verifying_payment` para que el VENDEDOR confirme la recepción y despache.
+ *  - 'no_payment'        → el pago nunca se acreditó (no hay comprobante válido).
+ *    A favor del VENDEDOR: se cancela la orden y se le libera su colateral
+ *    on-chain. Se suma el contador de cancelaciones como comprador.
+ */
+const adminResolvePaymentDispute = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { resolution, note } = req.body;
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    if (!order.dispute?.exists || order.dispute.status !== "open") {
+      return res
+        .status(400)
+        .json({ success: false, message: "No hay una disputa abierta en esta orden." });
+    }
+    const isPaymentNotReceivedDispute =
+      order.dispute.raisedBy?.toString?.() === order.seller.toString() &&
+      order.status === "verifying_payment" &&
+      order.payment?.method !== "crypto";
+    if (!isPaymentNotReceivedDispute) {
+      return res.status(400).json({
+        success: false,
+        message: "Esta disputa no es de 'pago no recibido' iniciada por el vendedor. Usá la resolución genérica de disputas.",
+      });
+    }
+    if (!["no_payment", "payment_received"].includes(resolution)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "La resolución debe ser 'no_payment' o 'payment_received'." });
+    }
+
+    const shortId = order._id.toString().slice(-6).toUpperCase();
+    const comment = note || "";
+    const buyer = await User.findById(order.buyer);
+    const seller = await User.findById(order.seller);
+
+    // ── Resolución "sí se acreditó" → a favor del COMPRADOR ──
+    if (resolution === "payment_received") {
+      order.dispute.status = "resolved_refund"; // a favor del comprador
+      order.dispute.resolvedAt = new Date();
+      order.dispute.resolvedBy = req.user?._id || null;
+      order.dispute.resolution = comment || "El admin validó el comprobante: el pago sí se acreditó. La orden vuelve a verificación.";
+      // No forzamos el despacho: el VENDEDOR confirma de forma manual.
+      order.status = "verifying_payment";
+      order.statusHistory.push({
+        status: "verifying_payment",
+        changedAt: new Date(),
+        comment: "Disputa de pago no recibido resuelta a favor del comprador. El vendedor debe confirmar la recepción.",
+      });
+      order.orderActions.push({
+        type: "admin_intervention",
+        initiator: "admin",
+        paidStatus: "paid",
+        status: "completed",
+        reason: `Disputa de pago no recibido resuelta a favor del COMPRADOR (el pago sí se acreditó). ${comment}`.trim(),
+        createdBy: req.user?._id,
+      });
+      await order.save();
+
+      if (buyer) {
+        if (buyer.email) sendPaymentDisputeResolvedInBuyerFavor({ buyerEmail: buyer.email, orderId: order._id }).catch(() => {});
+        createNotification({
+          recipient: buyer._id,
+          type: "order_dispute_resolved",
+          title: "Tu compra fue confirmada",
+          message: `El pago de la orden #${shortId} fue validado. El vendedor fue avisado para que verifique y envíe tu pedido.`,
+          data: { orderId: order._id },
+        }).catch(() => {});
+      }
+      if (seller) {
+        createNotification({
+          recipient: seller._id,
+          type: "order_dispute_resolved",
+          title: "Disputa resuelta: el pago se acreditó",
+          message: `Ante tu reporte de la orden #${shortId}, el comprador presentó comprobante y el admin validó el pago. Verificá tu cuenta y confirmá la recepción para despachar.`,
+          data: { orderId: order._id },
+        }).catch(() => {});
+      }
+      return res.status(200).json({
+        success: true,
+        message: "Disputa resuelta a favor del comprador. La orden vuelve a verificación para que el vendedor confirme.",
+        order,
+      });
+    }
+
+    // ── Resolución "no se acreditó" → a favor del VENDEDOR ──
+    if (!seller || !seller.walletAddress) {
+      return res.status(400).json({
+        success: false,
+        message: "El vendedor no tiene wallet asociada para liberar colateral.",
+      });
+    }
+
+    // Liberación idempotente on-chain (misma lógica que la liberación manual).
+    const lockState = await getOrderLock(order._id.toString());
+    const alreadyReleased =
+      !lockState.success || (lockState.success && lockState.lockUsd === 0);
+    let releaseTxHash = order.releaseTxHash || "";
+    if (!alreadyReleased) {
+      const bc = await cancelVendorCollateral(order._id.toString(), seller.walletAddress);
+      if (!bc.success) {
+        return res.status(500).json({
+          success: false,
+          message: "No se pudo liberar el colateral en la blockchain.",
+          error: bc.error,
+        });
+      }
+      releaseTxHash = bc.txHash;
+    }
+
+    order.status = "cancelled";
+    order.releaseTxHash = releaseTxHash;
+    order.cancelledBy = "admin";
+    order.cancelledAt = new Date();
+    order.dispute.status = "resolved_release"; // a favor del vendedor
+    order.dispute.resolvedAt = new Date();
+    order.dispute.resolvedBy = req.user?._id || null;
+    order.dispute.resolution = comment || "El admin determinó que el pago nunca se acreditó. Se liberó la garantía al vendedor y se canceló la orden.";
+    order.statusHistory.push({
+      status: "cancelled",
+      changedAt: new Date(),
+      comment: `Disputa de pago no recibido resuelta a favor del VENDEDOR. Se liberó el colateral y se canceló la orden. ${comment}`.trim(),
+    });
+    order.orderActions.push({
+      type: "admin_intervention",
+      initiator: "admin",
+      paidStatus: "not_paid",
+      status: "completed",
+      reason: `Disputa de pago no recibido resuelta a favor del VENDEDOR (no se acreditó el pago). Orden cancelada y garantía liberada. ${comment}`.trim(),
+      releaseTxHash: releaseTxHash || undefined,
+      createdBy: req.user?._id,
+    });
+    await order.save();
+
+    // Contador anti-abuso (MVP): el comprador notificó un pago que nunca se
+    // acreditó → se cuenta como cancelación del comprador.
+    await User.findByIdAndUpdate(order.buyer, {
+      $inc: { "accounting.cancellationsAsBuyer": 1 },
+    });
+
+    if (buyer?.email) {
+      sendOrderCancelledToBuyer({ buyerEmail: buyer.email, orderId: order._id, amount: order.totalAmount, withRefund: false }).catch(() => {});
+    }
+    if (seller?.email) {
+      sendOrderCancelledToVendor({ vendorEmail: seller.email, orderId: order._id, amount: order.totalAmount, withRefund: false }).catch(() => {});
+    }
+    createNotification({
+      recipient: order.buyer,
+      type: "order_cancelled",
+      title: "Tu compra fue cancelada",
+      message: `No se acreditó el pago de la orden #${shortId}. La compra se canceló y la garantía del vendedor fue liberada. Si creés que es un error, contactá a soporte.`,
+      data: { orderId: order._id },
+    }).catch(() => {});
+    createNotification({
+      recipient: order.seller,
+      type: "order_guarantee_released",
+      title: "Disputa resuelta a tu favor",
+      message: `Confirmamos que el pago de la orden #${shortId} no se acreditó. Se canceló la compra y se liberó tu garantía.`,
+      data: { orderId: order._id },
+    }).catch(() => {});
+    // Recordatorio de rating mutuo tras cancelación por admin.
+    createNotification({
+      recipient: order.seller,
+      type: "rating_reminder",
+      title: "Calificá al comprador",
+      message: `La orden #${shortId} se canceló. Dejá tu calificación (👍/👎) sobre el comprador en la página de la orden.`,
+      data: { orderId: order._id, ratingType: "buyer_rating" },
+    }).catch(() => {});
+
+    return res.status(200).json({
+      success: true,
+      message: "Disputa resuelta a favor del vendedor. Orden cancelada y garantía liberada.",
+      order,
+    });
+  } catch (error) {
+    console.error("Error al resolver disputa de pago (admin):", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -3089,4 +3396,6 @@ export {
   adminCancelEscrow,
   adminUpdateEscrowFee,
   openDispute,
+  uploadPaymentProof,
+  adminResolvePaymentDispute,
 };

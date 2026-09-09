@@ -81,7 +81,51 @@ export default function OrderDetail() {
     }
   };
 
-  const handleUploadProof = async () => {
+    const handleUploadProof = async (event) => {
+    // Si es una subida "inline" desde la bandera de disputa, ya tenemos el file
+    // o abrimos el selector acá. Mantenemos apertura nativa acá para ambos casos.
+    const handleFile = async (file) => {
+      if (!file) return;
+      if (!/image\/.*|application\/pdf/.test(file.type)) {
+        Swal.fire("Error", "Solo se aceptan imágenes o PDF", "error");
+        return;
+      }
+      setLoading(true);
+      try {
+        // 1) Subir DIRECTAMENTE a Cloudinary desde el navegador (preset unsigned),
+        //    reutilizando el mismo patrón que las imágenes de producto.
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("upload_preset", "mercadonero");
+        const cloudRes = await fetch(
+          "https://api.cloudinary.com/v1_1/davo0f82p/auto/upload",
+          { method: "POST", body: formData },
+        );
+        const cloudData = await cloudRes.json();
+        if (!cloudRes.ok || !cloudData.secure_url) {
+          throw new Error(cloudData?.error?.message || "Error al subir a Cloudinary");
+        }
+        // 2) Guardar la URL del comprobante en la orden (backend liviano).
+        const token = await getAccessToken();
+        await axios.patch(
+          `${import.meta.env.VITE_SERVER_URL}/api/order/${id}/upload-proof`,
+          { paymentProof: cloudData.secure_url },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        Swal.fire("Éxito", "Comprobante subido correctamente", "success");
+        fetchOrder(); // Refrescar datos
+      } catch (err) {
+        console.error(err);
+        Swal.fire(
+          "Error",
+          err?.response?.data?.message || "No se pudo subir el archivo",
+          "error",
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
     const { value: file } = await Swal.fire({
       title: "Subir Comprobante",
       text: "Selecciona la imagen o PDF de tu transferencia",
@@ -96,32 +140,7 @@ export default function OrderDetail() {
       background: isDark ? "#121212" : "#ffffff",
       color: isDark ? "#f3f4f6" : "#1f2937",
     });
-
-    if (file) {
-      setLoading(true);
-      const formData = new FormData();
-      formData.append("paymentProof", file);
-
-      try {
-        const token = await getAccessToken();
-        await axios.patch(
-          `${import.meta.env.VITE_SERVER_URL}/api/order/${id}/upload-proof`,
-          formData,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "multipart/form-data",
-            },
-          },
-        );
-        Swal.fire("Éxito", "Comprobante subido correctamente", "success");
-        fetchOrder(); // Refrescar datos
-      } catch (err) {
-        Swal.fire("Error", "No se pudo subir el archivo", "error");
-      } finally {
-        setLoading(false);
-      }
-    }
+    await handleFile(file);
   };
       if (loading)
     return (
@@ -296,7 +315,7 @@ export default function OrderDetail() {
               <AlertCircle size={20} />
             </div>
             <p className="text-[10px] font-bold uppercase text-center text-red-500">
-              Orden Expirada por falta de pago en el plazo establecido de 60 minutos.
+              Orden expirada por no completarse el pago dentro del plazo establecido.
             </p>
             <p className="text-[9px] text-gray-500 dark:text-gray-400 text-center">
               {order.expiresAt ? new Date(order.expiresAt).toLocaleDateString('es-AR', {
@@ -444,8 +463,77 @@ export default function OrderDetail() {
                 }}
               />
             </section>
-          )}
-                                        {/* Gestión de cancelación / garantía.
+        )}
+
+        {/* BANNER COMPRADOR: el vendedor reportó "pago no recibido" → subir comprobante */}
+        {role === "buyer" &&
+            order.dispute?.exists &&
+            order.dispute.status === "open" &&
+            String(order.dispute.raisedBy) === String(order.seller?._id) &&
+            order.status === "verifying_payment" && (
+            <section className="bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-400/70 dark:border-amber-500/40 p-6 rounded-2xl">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" size={22} />
+                <div className="flex-1">
+                  <h4 className="text-sm font-black uppercase tracking-wide text-amber-700 dark:text-amber-300 mb-1">
+                    Tu pago no fue registrado
+                  </h4>
+                  <p className="text-sm text-amber-800 dark:text-amber-200/90">
+                    El vendedor reportó que aún no recibió tu transferencia de la orden{" "}
+                    <strong>#{String(order._id).slice(-6).toUpperCase()}</strong>. Si ya pagaste,
+                    subí el comprobante para que podamos validar tu pago y se despache el pedido.
+                  </p>
+                  {order.paymentProof && (
+                    <div className="mt-2 text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
+                      <CheckCircle size={14} /> Comprobante ya cargado. Nuestro equipo lo revisará.
+                    </div>
+                  )}
+                  <button
+                    onClick={handleUploadProof}
+                    disabled={loading}
+                    className="mt-4 bg-amber-500 hover:bg-amber-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold inline-flex items-center gap-2 disabled:opacity-60 transition-all"
+                  >
+                    <UploadCloud size={16} /> {order.paymentProof ? "Reemplazar comprobante" : "Subir comprobante"}
+                  </button>
+                </div>
+              </div>
+            </section>
+        )}
+        {/* VISTA VENDEDOR: el comprador adjuntó su comprobante ante tu reporte de "pago no recibido".
+            Podés verlo/aclararlo para decidir si confirmás la recepción o seguís con el reclamo. */}
+        {role === "seller" &&
+            order.paymentProof &&
+            order.dispute?.exists &&
+            order.dispute.status === "open" &&
+            String(order.dispute.raisedBy) === String(order.seller?._id) &&
+            order.status === "verifying_payment" && (
+            <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border-2 border-zinc-200 dark:border-zinc-800">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 bg-indigo-500/10 text-indigo-500 rounded-xl shrink-0">
+                  <FileText size={20} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-sm font-black uppercase tracking-wide text-indigo-600 dark:text-indigo-300 mb-1">
+                    Comprobante del comprador
+                  </h4>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-300">
+                    El comprador adjuntó el comprobante de la orden{" "}
+                    <strong>#{String(order._id).slice(-6).toUpperCase()}</strong> por tu reporte de
+                    pago no recibido. Revisalo y verificá si te llegó la transferencia.
+                  </p>
+                  <a
+                    href={order.paymentProof}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-3 inline-flex items-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wide transition-colors"
+                  >
+                    <FileText size={14} /> Ver comprobante
+                  </a>
+                </div>
+              </div>
+            </section>
+        )}
+              {/* Gestion de cancelacion / garantia.
               - Comprador: el menú de "3 puntitos" (cancelar compra) ya está
                 integrado en el encabezado de "Productos en esta orden". Acá solo
                 mostramos la tarjeta cuando hay un reembolso en curso (pendiente de

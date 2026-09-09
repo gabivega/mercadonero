@@ -181,7 +181,7 @@ export default function Header() {
     setIsUserMenuOpen(false);
   };
 
-  const menuItems = ["Categorias", "Ofertas", "Comunidad", "Vender", "Ayuda", "Referidos"];
+  const menuItems = ["Categorias", "Ofertas", "Comunidad", "Vender", "Ayuda", ];
 
 // if (isLoginOpen) {
 //   return (    
@@ -377,14 +377,14 @@ export default function Header() {
                               <List className="w-4 h-4" />
                               Publicaciones
                             </button>
-                            <button
+                            {/* <button
                               onClick={() => handleMenuClick("/referidos")}
                               className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
                             >
                               <Users className="w-4 h-4" />
                               Referidos
-                            </button>
-                            <hr className="my-2 border-gray-100 dark:border-zinc-800" />
+                            </button> */}
+                            {/* <hr className="my-2 border-gray-100 dark:border-zinc-800" /> */}
                             <button
                               onClick={handleLogout}
                               className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"

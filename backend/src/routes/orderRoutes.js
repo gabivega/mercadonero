@@ -1,6 +1,6 @@
 import express from 'express';
 const router = express.Router();
-import { createOrder, getMyOrders, markAsPaid, getOrderById, updateOrder, cancelOrder, vendorConfirmsRefund, buyerConfirmsRefundReceived, requestAdminRelease, retryCollateral, cancelCollateralHold, confirmEscrowFunding, getEscrowStatus, cancelCryptoOrder, openDispute } from '../controllers/orderController.js';
+import { createOrder, getMyOrders, markAsPaid, getOrderById, updateOrder, cancelOrder, vendorConfirmsRefund, buyerConfirmsRefundReceived, requestAdminRelease, retryCollateral, cancelCollateralHold, confirmEscrowFunding, getEscrowStatus, cancelCryptoOrder, openDispute, uploadPaymentProof } from '../controllers/orderController.js';
 import verifyPrivyToken from '../middleware/auth.js';
 import attachUser from '../middleware/attachUser.js';
 
@@ -29,5 +29,8 @@ router.patch('/:orderId/buyer-confirms-refund-received', verifyPrivyToken, attac
 router.patch('/:orderId/request-admin-release', verifyPrivyToken, attachUser, requestAdminRelease);
 // Comprador abre una disputa cuando el pedido va en camino pero llegó mal
 router.post('/:orderId/dispute', verifyPrivyToken, attachUser, openDispute);
+// Comprador adjunta el comprobante de su transferencia ante una disputa de
+// pago no recibido (recibe una URL ya subida a Cloudinary desde el front).
+router.patch('/:orderId/upload-proof', verifyPrivyToken, attachUser, uploadPaymentProof);
 
 export default router;
