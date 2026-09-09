@@ -264,7 +264,7 @@ const NERO_CATEGORY_MAP = {
 // OBTENER PRODUCTOS POR CATEGORIA O GENERAL
 export const getProducts = async (req, res) => {
   try {
-        const { search, category, subCategory, brand, minPrice, maxPrice, sort, sellerId } = req.query;
+                const { search, category, subCategory, brand, minPrice, maxPrice, sort, sellerId, page, limit } = req.query;
     let query = { status: "active" };
     console.log("req.query: ",req.query)
 
@@ -390,17 +390,34 @@ export const getProducts = async (req, res) => {
       }
     }
 
-    // 4. EXTRAER FILTROS DISPONIBLES (Facetas) - Queda igual
-    const availableFilters = {
-      categories: [...new Set(products.map(p => p.category))].filter(Boolean),
-      subCategories: [...new Set(products.map(p => p.subCategory))].filter(Boolean),
-      brands: [...new Set(products.map(p => p.brand))].filter(Boolean)
-    };
+        // ── PAGINACIÓN (opcional) ──
+        // El front puede pedir un "limit" (nº de resultados por vez) + "page".
+        // Si no se pasa, devolvemos todo como antes (carousels, categorías, etc.).
+        const total = products.length;
+        let pageResult = products;
+        let hasLimit = limit !== undefined && limit !== null && limit !== '';
+        let startIndex = 0;
+        if (hasLimit) {
+          const pageNum = parseInt(page, 10);
+          const currentPage = Number.isNaN(pageNum) || pageNum < 1 ? 1 : pageNum;
+          const perPage = Math.max(1, parseInt(limit, 10));
+          startIndex = (currentPage - 1) * perPage;
+          pageResult = products.slice(startIndex, startIndex + perPage);
+        }
 
-    res.json({
-      products: products || [],
-      filters: availableFilters
-    });
+        // 4. EXTRAER FILTROS DISPONIBLES (Facetas) - Queda igual
+        const availableFilters = {
+          categories: [...new Set(products.map(p => p.category))].filter(Boolean),
+          subCategories: [...new Set(products.map(p => p.subCategory))].filter(Boolean),
+          brands: [...new Set(products.map(p => p.brand))].filter(Boolean)
+        };
+
+        res.json({
+          products: pageResult || [],
+          total,
+          hasMore: hasLimit ? startIndex + pageResult.length < total : false,
+          filters: availableFilters
+        });
 
   } catch (error) {
     res.status(500).json({ message: "Error", error: error.message || error });

@@ -74,7 +74,7 @@ const fetchProducts = async () => {
         {loading ? (
           // Skeleton simple mientras carga
           <div className="flex gap-5 overflow-hidden">
-            {[1, 2, 3, 4, 5, 6].map(i => (
+            {[1, 2, 3, 4, 5, 6 ,7,8,9,10,11,12].map(i => (
               <div key={i} className="min-w-[160px] h-64 bg-gray-100 dark:bg-zinc-800 animate-pulse rounded-[32px]" />
             ))}
           </div>

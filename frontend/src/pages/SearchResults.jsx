@@ -6,12 +6,22 @@ import FilterSidebar from '../components/FilterSidebar'; // Importamos tu compon
 import { SlidersHorizontal } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 
+// Tamaño de página estándar de la industria para grids de resultados
+// (~48 = 4 columnas x 12 filas, similar al default de los principales marketplaces).
+const PAGE_SIZE = 48;
+
 const SearchResults = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState({ 
-    products: [], 
-    filters: { categories: [], subCategories: [], brands: [] } 
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [products, setProducts] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextPage, setNextPage] = useState(1);
+  const [filtersList, setFiltersList] = useState({
+    categories: [],
+    subCategories: [],
+    brands: []
   });
   
   // Estado de filtros sincronizado con la URL
@@ -31,32 +41,64 @@ const SearchResults = () => {
   // "Publicaciones de @..." en vez de una búsqueda genérica.
   const isSellerView = Boolean(sellerId);
 
-  useEffect(() => {
-    const fetchResults = async () => {
+  // Función de fetch con paginación (segmentada de a PAGE_SIZE resultados)
+  const fetchPage = async (pageNumber, append = false) => {
+    if (append) {
+      setLoadingMore(true);
+    } else {
       setLoading(true);
-      
-      // Capturamos todos los params actuales de la URL
-      const params = Object.fromEntries(searchParams.entries());
-      
-      const backendParams = {
-        ...params,
-        search: params.q || '', 
-      };
+    }
 
-      try {
-        const response = await axios.get(`${import.meta.env.VITE_SERVER_URL}/api/product/products`, { 
-          params: backendParams 
-        });
-        setData(response.data);
-      } catch (err) {
-        console.error("Error en fetch:", err);
-      } finally {
-        setLoading(false);
-      }
+    // Capturamos todos los params actuales de la URL
+    const params = Object.fromEntries(searchParams.entries());
+
+    const backendParams = {
+      ...params,
+      search: params.q || '',
+      page: pageNumber,
+      limit: PAGE_SIZE,
     };
-    
-    fetchResults();
+
+    try {
+      const response = await axios.get(`${import.meta.env.VITE_SERVER_URL}/api/product/products`, {
+        params: backendParams
+      });
+
+      const newProducts = response.data.products || [];
+      setProducts(append ? (prev) => [...prev, ...newProducts] : newProducts);
+      setTotal(response.data.total ?? newProducts.length);
+      setHasMore(Boolean(response.data.hasMore));
+      setNextPage(pageNumber + 1);
+
+      // Facetas (marcas / subcategorías disponibles) siempre se refrescan
+      // con la respuesta (el back las calcula sobre el total filtrado completo).
+      if (response.data.filters) {
+        setFiltersList(response.data.filters);
+      }
+    } catch (err) {
+      console.error("Error en fetch:", err);
+      setProducts(append ? products : []);
+      if (!append) setTotal(0);
+      setHasMore(false);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  // Carga inicial / cambio de filtros o URL: reiniciamos a la página 1
+  useEffect(() => {
+    fetchPage(1, false);
+    // ESLint: queremos correr solo cuando cambian los params de la URL
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
+
+  // "Cargar más": trae la siguiente "página" de resultados y la acumula
+  const handleLoadMore = () => {
+    if (hasMore && !loading && !loadingMore) {
+      fetchPage(nextPage, true);
+    }
+  };
 
   // Esta función se pasa al FilterSidebar para que actualice la URL
   const handleFilterChange = (newFilters) => {
@@ -83,10 +125,10 @@ const SearchResults = () => {
         <FilterSidebar 
           filters={filters} 
           onFilterChange={handleFilterChange} 
-          totalResults={data.products?.length || 0}
+          totalResults={total}
           // Pasamos los filtros que vienen del backend para que el sidebar sepa qué mostrar
-          availableBrands={data.filters?.brands || []}
-          availableSubCategories={data.filters?.subCategories || []}
+          availableBrands={filtersList.brands || []}
+          availableSubCategories={filtersList.subCategories || []}
           categoryName={
             isSellerView
               ? `Publicaciones de @${sellerName || "vendedor"}`
@@ -108,7 +150,7 @@ const SearchResults = () => {
                 : "Explorar productos"}
           </h1>
           <p className="text-gray-500 dark:text-zinc-500 text-sm font-medium">
-            {data.products?.length || 0} artículos encontrados
+            {total} artículos encontrados
           </p>
         </div>
 
@@ -119,12 +161,27 @@ const SearchResults = () => {
           </div>
         ) : (
           <>
-            {Array.isArray(data.products) && data.products.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6 flex-1 w-full">
-                {data.products.map((p) => (
-                  <ProductCard key={p._id} product={p} />
-                ))}
-              </div>
+            {Array.isArray(products) && products.length > 0 ? (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6 flex-1 w-full">
+                  {products.map((p) => (
+                    <ProductCard key={p._id} product={p} />
+                  ))}
+                </div>
+
+                {/* CARGAR MÁS (paginación en el front) */}
+                {hasMore && (
+                  <div className="flex justify-center mt-10">
+                    <button
+                      onClick={handleLoadMore}
+                      disabled={loadingMore}
+                      className="px-8 py-3 bg-zinc-900 dark:bg-white dark:text-black text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:scale-105 transition-transform disabled:opacity-60 disabled:hover:scale-100 disabled:cursor-not-allowed"
+                    >
+                      {loadingMore ? "Cargando..." : "Cargar más"}
+                    </button>
+                  </div>
+                )}
+              </>
             ) : (
               /* Pantalla de No Results */
               <div className="text-center py-20 bg-gray-50 dark:bg-zinc-900/30 rounded-[2rem] border-2 border-dashed border-gray-100 dark:border-zinc-800">
