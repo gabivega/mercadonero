@@ -52,4 +52,9 @@ Agregar a la parte de reintegros, un mensaje que se puede utilizar a partir de l
 Al pagarse la orden con crypto, activar redireccion a la orden creada o a mis ordenes
 Pago con crypto: No hace falta verificar ni notificar pago, cambiar eso . Tambien eliminar el mail hacia el comprador con datos para realizar la transferencia
 ordenes canceladas por el comprador cuando esta en espera de colateral, no notifica al vendedor
-Producto se edita a "envio gratis" pero no se actualiza (da mensaje de confirmacion de guardado exitosamente)
+Producto se edita a "envio gratis" pero no se actualiza (da mensaje de confirmacion de guardado exitosamente)-LISTO
+Acomodar aviso de deposito de garantia en orderdetail del lado comprador y vendedor
+en mobile, los precios del checkout tienen , en vez de .
+IDEA de auction por los primeros puestos del site
+IDEA pools de compra-ir pensando-diagramando.dejando espacio . Usa smart contract
+en mobile no se ve el icono de notificaciones

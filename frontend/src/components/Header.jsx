@@ -206,17 +206,17 @@ export default function Header() {
             to="/"
             className="flex-shrink-0 flex items-center cursor-pointer hover:opacity-80 transition-opacity"
           >
-       <img
+              <img
   src={mobileLogoDark}
   alt="Mercado Nero"
-  className="h-14 w-auto block dark:hidden lg:hidden"
+  className="h-10 sm:h-12 w-auto block dark:hidden lg:hidden"
 />
 
 {/* Mobile Dark Theme Logo - Visible solo en mobile y en modo dark */}
 <img
   src={mobileLogoWhite}
   alt="Mercado Nero"
-  className="h-14 w-auto hidden dark:block lg:hidden dark:lg:hidden"
+  className="h-10 sm:h-12 w-auto hidden dark:block lg:hidden dark:lg:hidden"
 />
             {/* Desktop Logos */}
             {/* Light Theme Logo - Hidden on mobile, Hidden in dark mode */}
@@ -235,7 +235,7 @@ export default function Header() {
           </Link>
 
           {/* Center: Search + Nav (Always Visible) */}
-          <div className="flex flex-col items-center flex-1 mx-4 md:mx-8 max-w-2xl">
+          <div className="flex flex-col items-center flex-1 mx-2 sm:mx-3 md:mx-8 max-w-2xl">
             {/* Search Bar */}
             <SearchSuggestions
               onCloseMobileMenu={() => setIsMobileMenuOpen(false)}
@@ -432,8 +432,15 @@ export default function Header() {
               )}
             </div>
 
-            {/* Mobile Actions: Cart + Hamburger */}
-            <div className="lg:hidden flex items-center gap-2">
+                        {/* Mobile Actions: Notifications (si logueado) + Cart + Hamburger */}
+            <div className="lg:hidden flex items-center gap-0.5 sm:gap-1">
+              {ready && authenticated && (
+                <IconButton
+                  icon={Bell}
+                  onClick={() => navigate("/notificaciones")}
+                  badge={unreadNotifications}
+                />
+              )}
               <IconButton
                 icon={ShoppingCart}
                 onClick={() => navigate("/cart")}
