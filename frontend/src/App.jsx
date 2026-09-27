@@ -34,6 +34,8 @@ import MyOrders from "./pages/dashboard/MyOrders";
 import AdminDashboard from "./pages/AdminDashboard";
 import Referrals from "./pages/dashboard/Referrals";
 import Offers from "./pages/Offers";
+import ComprasGrupales from "./pages/ComprasGrupales";
+import PoolDetail from "./pages/PoolDetail";
 import { usePrivySpanish } from "./Utils/privyTranslate";
 import HelpSeller from "./pages/HelpSeller";
 import HelpBuyer from "./pages/HelpBuyer";
@@ -41,6 +43,9 @@ import DisclaimerBanner from "./components/DisclaimerBanner";
 import Ayuda from "./pages/Ayuda";
 import Team from "./pages/Team";
 import Mensajes from "./pages/dashboard/Mensajes";
+// import VirtualPet from "./components/VirtualPet/VirtualPet"; // Mascota "Nerito" deshabilitada temporalmente
+import ProveedorPanel from "./pages/dashboard/ProveedorPanel";
+import PickupLocations from "./pages/dashboard/PickupLocations";
 
 export default function App() {
   const theme = useSelector((s) => s.theme.mode);
@@ -57,15 +62,19 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-slate-50 dark:bg-[#1A1A1A] text-gray-900 dark:text-gray-100 transition-colors">
+      <div className="min-h-screen pb-12 bg-slate-50 dark:bg-[#1A1A1A] text-gray-900 dark:text-gray-100 transition-colors">
         <ScrollToTop />
-        <Header />
+                <Header />
+        {/* <VirtualPet /> */} {/* Mascota "Nerito" deshabilitada por ahora */}
         <main className="w-full min-h-screen px-2">
           <Routes>
             {/* <Route path="/login" element={<LoginPage />} /> */}
             <Route path="/" element={<Home />} />
-            <Route path="/post/:id" element={<PostDetail />} />
-            <Route path="/product/:id" element={<ProductDetail />} />
+                        <Route path="/post/:id" element={<PostDetail />} />
+            {/* URL SEO-friendly de producto: /producto/<slug> */}
+            <Route path="/producto/:idOrSlug" element={<ProductDetail />} />
+            {/* Compatibilidad con enlaces viejos basados en ObjectId */}
+            <Route path="/product/:idOrSlug" element={<ProductDetail />} />
             <Route path="/search" element={<SearchResults />} />
             <Route path="/social" element={<SocialMedia />} />
             <Route path="/c/:categorySlug" element={<CategoryResults />} />
@@ -75,6 +84,8 @@ export default function App() {
             <Route path="/user/:id" element={<UserProfilePage />} />
             <Route path="/checkout/:sellerId" element={<Checkout />} />
             <Route path="/ofertas" element={<Offers />} />
+            <Route path="/compras-grupales" element={<ComprasGrupales />} />
+            <Route path="/pool/:id" element={<PoolDetail />} />
             <Route path="/vender" element={<CreateProduct />} />
             <Route path="/ayuda/vender" element={<HelpSeller />} />
             <Route path="/ayuda/comprar" element={<HelpBuyer />} />
@@ -89,6 +100,8 @@ export default function App() {
               <Route path="compras" element={<Purchases />} />
               <Route path="order/:id" element={<OrderDetail />} />
               <Route path="publicaciones" element={<SellerDashboard />} />
+              <Route path="puntos-retiro" element={<PickupLocations />} />
+              <Route path="proveedor" element={<ProveedorPanel />} />
               <Route path="favoritos" element={<Favorites />} />
               <Route path="historial" element={<History />} />
               <Route path="posts" element={<Posts />} />
@@ -100,11 +113,12 @@ export default function App() {
             <Route path="/terminos-y-condiciones" element={<TermsAndConditions />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
-        </main>
+                </main>
         {/* <DisclaimerBanner /> */}
         <Footer />
       </div>
     </BrowserRouter>
   );
 }
+
 

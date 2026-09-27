@@ -1,2 +1,28 @@
+# ──────────────────────────────────────────────────────────────
+# robots.txt — Mercado Nero
+# ──────────────────────────────────────────────────────────────
+# ⚠️ SITIO AÚN NO ONLINE: bloqueamos toda la indexación.
+# Al salir a producción, descomentá la "VERSIÓN PARA PRODUCCIÓN"
+# y borrá el bloque de bloqueo de abajo.
+# ──────────────────────────────────────────────────────────────
 User-agent: *
 Disallow: /
+
+# ── VERSIÓN PARA PRODUCCIÓN (activar al lanzar) ────────────────
+# User-agent: *
+# Allow: /
+#
+# # Zonas privadas / transaccionales que no deben indexarse
+# Disallow: /perfil
+# Disallow: /billetera
+# Disallow: /notificaciones
+# Disallow: /mensajes
+# Disallow: /compras
+# Disallow: /order/
+# Disallow: /publicaciones
+# Disallow: /favoritos
+# Disallow: /historial
+# Disallow: /checkout/
+# Disallow: /cart
+#
+# Sitemap: https://mercadonero.com/sitemap.xml

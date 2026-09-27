@@ -70,6 +70,34 @@ const orderSchema = new Schema(
       zipCode: String,
       addressType: String,
     },
+
+    // ────────────────────────────────────────────────
+    // MÉTODO DE ENTREGA ELEGIDO POR EL COMPRADOR
+    //   "shipping" → envío a domicilio (Zipnova / vendedor)
+    //   "pickup"   → retiro en sucursal del vendedor (GRATIS)
+    // Para "pickup", guardamos también el punto elegido en `pickupLocation`
+    // (snapshot con los datos del local al momento de la compra).
+    // ────────────────────────────────────────────────
+    deliveryMethod: {
+      type: String,
+      enum: ["shipping", "pickup"],
+      default: "shipping",
+    },
+    pickupLocation: {
+      locationId: { type: String, default: "" },
+      name: String,
+      street: String,
+      streetNumber: String,
+      city: String,
+      state: String,
+      zipcode: String,
+      floor: String,
+      apartment: String,
+      betweenStreets: String,
+      references: String,
+      hours: String,
+      notes: String,
+    },
     productsAmount: { type: Number, required: true },
     shippingAmount: { type: Number, required: true, default: 0 },
     totalAmount: { type: Number, required: true },
@@ -170,6 +198,11 @@ const orderSchema = new Schema(
         enum: ["unpaid", "funding", "funded", "released", "cancelled_refunded"],
         default: "unpaid",
       },
+      // ── MARCA DE COMPRA GRUPAL ─────────────────────────────────────
+      // true cuando la orden nació de un pool (social selling). Sirve para:
+      //   - NO re-liberar el escrow en updateOrder (el pool ya liberó on-chain).
+      //   - Diferenciar el origen de la orden en backoffice/reportes.
+      groupBuy: { type: Boolean, default: false },
       tokenAddress: { type: String, default: "" },        // dirección del token usado
       amountUsdRetained: { type: Number, default: 0 },    // monto total USDT retenido (productos + envío)
       feeBps: { type: Number, default: 0 },               // fee global del contrato en puntos base al momento de la orden
@@ -273,6 +306,24 @@ const orderSchema = new Schema(
       createdAt: { type: Date, default: Date.now },
       resolvedAt: { type: Date, default: null },
     },
+
+    // ────────────────────────────────────────────────
+    // COMPRA GRUPAL / SOCIAL SELLING
+    // Cuando la orden proviene de un Pool (compra en grupo), guardamos acá
+    // el vínculo con el pool y el member on-chain. `stockConsumed` marca que
+    // el pool YA descontó stock + reservedStock al crear la orden 'paid', así
+    // `updateOrder` NO lo vuelve a descontar al completarse.
+    // ────────────────────────────────────────────────
+    groupBuy: {
+      poolId: { type: Schema.Types.ObjectId, ref: "Pool", default: null },
+      memberId: { type: Schema.Types.ObjectId, default: null },
+      chainGroupId: { type: String, default: null }, // groupId on-chain (string)
+      units: { type: Number, default: 1 },           // unidades compradas
+      unitPriceUsd: { type: Number, default: 0 },
+      stockConsumed: { type: Boolean, default: false },
+    },
+    // Flag rápido para queries/filtros.
+    isGroupBuy: { type: Boolean, default: false, index: true },
 
     // ────────────────────────────────────────────────
     // CANCELACIONES / DEVOLUCIONES / RECLAMOS

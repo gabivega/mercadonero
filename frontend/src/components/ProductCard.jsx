@@ -1,11 +1,12 @@
 import { useNavigate } from "react-router-dom";
-import { ShoppingCart, Heart, BadgeCheck } from "lucide-react";
+import { ShoppingCart, Heart, BadgeCheck, Users } from "lucide-react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useCartStore } from "../store/useCartStore";
 import { useFavoritesStore } from "../store/useFavoritesStore";
 import { useFavorites } from "../Utils/useFavorites";
 import noImage from "../assets/img/no-image.png";
 import Swal from "sweetalert2";
+import { productPath } from "../Utils/productUrl";
 
 export default function ProductCard({ product }) {
   const navigate = useNavigate();
@@ -16,8 +17,8 @@ export default function ProductCard({ product }) {
     (f) => String(f._id) === String(product?._id),
   );
   const addToCart = useCartStore((state) => state.addToCart);
-  const handleCardClick = () => {
-    navigate(`/product/${product._id}`);
+    const handleCardClick = () => {
+    navigate(productPath(product));
   };
 
         const handleAddToCart = (e) => {
@@ -126,13 +127,20 @@ export default function ProductCard({ product }) {
       maximumFractionDigits: 0,
     });
 
-    // Ajuste visual para que el dólar se vea como "U$S" que es común en Argentina
+        // Ajuste visual para que el dólar se vea como "U$S" que es común en Argentina
     let formatted = formatter.format(price);
     if (currency === "USD") {
       formatted = formatted.replace("US$", "USD");
     }
     return formatted;
   };
+
+  // Precio más económico disponible comprando en grupo (tier de más compradores).
+  const ssTiers = product.socialSelling?.tiers || {};
+  const ssBestPrice = ssTiers[5] ?? ssTiers[4] ?? ssTiers[3] ?? ssTiers[2] ?? null;
+  const isSocialSelling =
+    product.listingType === "product" && !!product.socialSelling?.enabled;
+
   return (
     <div
       className="poly-card poly-card--grid poly-card--xlarge bg-white dark:bg-zinc-800 rounded-lg overflow-hidden hover:shadow-lg transition-shadow flex flex-col cursor-pointer"
@@ -150,11 +158,24 @@ export default function ProductCard({ product }) {
           className="w-full h-full object-contain object-center hover:scale-110 transition-transform duration-300 bg-white"
           loading="lazy"
         />
-        {product.discount && (
+                {product.discount && (
           <div className="absolute top-2 right-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded">
             {product.discount}
           </div>
         )}
+
+                {/* Badge de Compra en Grupo (Social Selling) */}
+        {product.listingType === "product" &&
+          product.socialSelling?.enabled && (
+            <div
+              className="absolute bottom-2 right-2 flex items-center gap-1 text-white text-[10px] font-black uppercase tracking-wide px-2 py-1 rounded-full shadow-sm"
+              style={{ backgroundColor: "#228B22" }}
+              title="Compra en grupo disponible"
+            >
+              <Users size={11} />
+              Grupo
+            </div>
+          )}
 
         {/* Hover Actions */}
         <div className="absolute inset-0 bg-black/0 hover:bg-black/10 transition-colors flex items-end justify-center gap-2 pb-3 opacity-0 hover:opacity-100">
@@ -221,11 +242,15 @@ export default function ProductCard({ product }) {
           )}
         </div>
 
-        {/* Price Section */}
+                {/* Price Section */}
         <div className="poly-component__price mt-2">
           {product.sale?.price > 0 ? (
             <span className="text-xs text-gray-500 dark:text-gray-400 line-through block">
               {formatPrice(product.price, product.currency)}
+            </span>
+          ) : isSocialSelling && ssBestPrice ? (
+            <span className="text-xs text-[#228B22] dark:text-green-400 font-semibold block line-clamp-1">
+              Hasta {formatPrice(ssBestPrice, product.currency)} en grupo
             </span>
           ) : (
             <span

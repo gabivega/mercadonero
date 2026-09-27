@@ -7,6 +7,17 @@
   --nero-gray: #4D4D4D;
 }
 
+/* Evita el scroll horizontal fantasma.
+   Los carruseles (ProductCarousel) usan botones de navegación posicionados
+   fuera del contenedor (-translate-x-6 / translate-x-6) que, al hacerse
+   visibles en hover, sobresalen del viewport y expanden el ancho del
+   documento generando una barra de scroll-x. Bloqueamos eso en la raíz. */
+html,
+body {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
 /* simple body backgrounds driven by Tailwind dark class on <html> */
 
 .container {

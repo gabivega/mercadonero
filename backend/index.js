@@ -13,7 +13,11 @@ import notificationRoutes from './src/routes/notificationRoutes.js';
 import messageRoutes from './src/routes/messageRoutes.js';
 import reviewRoutes from './src/routes/reviewRoutes.js';
 import cashbackRoutes from './src/routes/cashbackRoutes.js';
+import poolRoutes from './src/routes/poolRoutes.js';
+import shippingRoutes from './src/routes/shippingRoutes.js';
+import elitRoutes from './src/routes/elitRoutes.js';
 import startOrderCleanup from './src/services/orderCleanup.js';
+import { getSitemap } from './src/controllers/seoController.js';
 
 const PORT = process.env.PORT || 3000;
 const app = express();
@@ -51,8 +55,13 @@ try {
   app.use('/api/transak', transakRoutes);
     app.use('/api/notification', notificationRoutes);
   app.use('/api/message', messageRoutes);
-  app.use('/api/review', reviewRoutes);
+    app.use('/api/review', reviewRoutes);
   app.use('/api/cashback', cashbackRoutes);
+  app.use('/api/pool', poolRoutes);
+  app.use('/api/shipping', shippingRoutes);
+  app.use('/api/elit', elitRoutes);
+  // Sitemap dinámico para motores de búsqueda (SEO orgánico)
+  app.get('/sitemap.xml', getSitemap);
   app.get('/', (req, res) => res.json({ success: true, message: 'API running' }));
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
@@ -62,4 +71,5 @@ try {
   console.error('DB connection failed', err);
   process.exit(1);
 }
+
 

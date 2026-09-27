@@ -166,10 +166,24 @@ export const bulkImport = async (req, res) => {
     const userId = req.user._id;
 
 
-    const userProfile = await User.findById(userId).select("username shop isVerified");
+    const userProfile = await User.findById(userId).select("username shop isVerified addresses");
     if (!userProfile) {
       return res.status(404).json({ success: false, message: "Usuario no encontrado" });
     }
+
+    // ── UBICACIÓN POR DEFECTO ──
+    // La importación masiva no trae `location`, así que usamos la del vendedor
+    // para mostrar "Ciudad, Provincia" (ej: "Rosario, Santa Fe").
+    // Prioridad: shop.location (despacho) → dirección por defecto → primera.
+    const shopLocation = userProfile?.shop?.location || {};
+    const defaultAddress =
+      userProfile?.addresses?.find((a) => a.isDefault) ||
+      userProfile?.addresses?.[0] ||
+      {};
+    const sellerLocation = {
+      city: shopLocation.city || defaultAddress.city || "",
+      province: shopLocation.province || defaultAddress.province || "",
+    };
 
     const { products } = req.body;
 
@@ -190,6 +204,10 @@ export const bulkImport = async (req, res) => {
           seller: userId,
           sellerName: userProfile?.shop?.name || userProfile?.username,
           sellerIsVerified: userProfile?.isVerified || false,
+          // Ubicación: la del archivo si vino, si no la del vendedor.
+          location: productData?.location?.city
+            ? productData.location
+            : sellerLocation,
           status: "active",
         });
 

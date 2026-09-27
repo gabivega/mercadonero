@@ -3,6 +3,7 @@ import { MapPin, Plus, Trash2 } from "lucide-react";
 import axios from "axios";
 import Swal from "sweetalert2";
 import LoadingSpinner from "./LoadingSpinner";
+import PostalCodeInput from "./PostalCodeInput";
 
 export const AddressSection = ({ 
   addresses = [], 
@@ -24,14 +25,6 @@ export const AddressSection = ({
     zipCode: "",
     isDefault: false,
   });
-
-  const PROVINCIAS_AR = [
-    "Buenos Aires", "CABA", "Catamarca", "Chaco", "Chubut", "Córdoba",
-    "Corrientes", "Entre Ríos", "Formosa", "Jujuy", "La Pampa", "La Rioja",
-    "Mendoza", "Misiones", "Neuquén", "Río Negro", "Salta", "San Juan",
-    "San Luis", "Santa Cruz", "Santa Fe", "Santiago del Estero",
-    "Tierra del Fuego", "Tucumán"
-  ];
 
   const saveAddress = async () => {
     const errors = [];
@@ -229,36 +222,21 @@ export const AddressSection = ({
               />
             </div>
 
-            <div className="col-span-6 md:col-span-4">
-              <input
-                placeholder="Código Postal *"
-                inputMode="numeric"
-                maxLength={4}
-                className="input-nero w-full"
-                value={newAddress.zipCode}
-                onChange={(e) => setNewAddress({ ...newAddress, zipCode: e.target.value.replace(/\D/g, "").slice(0, 4) })}
-              />
-            </div>
-
-            <div className="col-span-12 md:col-span-6">
-              <select
-                className="input-nero w-full"
-                value={newAddress.province}
-                onChange={(e) => setNewAddress({ ...newAddress, province: e.target.value })}
-              >
-                <option value="">Provincia *</option>
-                {PROVINCIAS_AR.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="col-span-12 md:col-span-6">
-              <input
-                placeholder="Ciudad/Partido *"
-                className="input-nero w-full"
-                value={newAddress.city}
-                onChange={(e) => setNewAddress({ ...newAddress, city: e.target.value })}
+                        <div className="col-span-12">
+              <PostalCodeInput
+                zipCode={newAddress.zipCode}
+                province={newAddress.province}
+                city={newAddress.city}
+                cityAsSelect
+                labels={{ city: "Ciudad / Partido *" }}
+                onChange={({ zipCode, province, city }) =>
+                  setNewAddress((prev) => ({
+                    ...prev,
+                    ...(zipCode !== undefined ? { zipCode } : {}),
+                    ...(province !== undefined ? { province } : {}),
+                    ...(city !== undefined ? { city } : {}),
+                  }))
+                }
               />
             </div>
           </div>

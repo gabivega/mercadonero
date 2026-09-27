@@ -43,8 +43,12 @@ import {
 
 const createOrder = async (req, res) => {
   try {
-        const { sellerId, items, shippingAddress, paymentMethod = "bank_transfer", token = "USDT" } = req.body;
+                const { sellerId, items, shippingAddress, paymentMethod = "bank_transfer", token = "USDT", deliveryMethod = "shipping", pickupLocation = null } = req.body;
     const buyerId = req.user._id;
+
+    // Método de entrega efectivo: "shipping" (default) o "pickup" (retiro en
+    // sucursal, GRATIS). Normalizamos por seguridad (solo esos dos valores).
+    const isPickup = deliveryMethod === "pickup";
 
         const buyer = await User.findById(buyerId);
     if (!buyer) {
@@ -129,10 +133,11 @@ const createOrder = async (req, res) => {
       calculatedTotal += itemTotal;
 
 
-      const shippingCost = actualProduct.shipping?.free
+            const shippingCost = actualProduct.shipping?.free
         ? 0
         : actualProduct.shipping?.cost || 0;
-      if (shippingCost > maxShippingCost) {
+      // Si el comprador eligió RETIRO EN SUCURSAL, no se cobra envío (GRATIS).
+      if (!isPickup && shippingCost > maxShippingCost) {
         maxShippingCost = shippingCost;
       }
 
@@ -153,11 +158,30 @@ const createOrder = async (req, res) => {
       };
     });
 
-    const financials = await calculateOrderFinancials(
+        const financials = await calculateOrderFinancials(
       calculatedTotal,
       maxShippingCost,
     );
     console.log("[Server] Financials:", financials);
+
+    // ─────────────────────────────────────────────────────────────
+    // DIRECCIÓN EN LA ORDEN
+    // Si es RETIRO EN SUCURSAL, guardamos los datos del punto como
+    // `shippingAddress` (para que los mails/paneles existentes lo muestren) y
+    // además el snapshot completo en `pickupLocation`. Si es envío, usamos la
+    // dirección de envío que mandó el front.
+    // ─────────────────────────────────────────────────────────────
+    const pickupAddress = isPickup && pickupLocation
+      ? {
+          street: pickupLocation.street || "",
+          streetNumber: pickupLocation.streetNumber || "",
+          city: pickupLocation.city || "",
+          province: pickupLocation.state || "",
+          zipCode: pickupLocation.zipcode || "",
+          addressType: "Retiro en sucursal",
+        }
+      : null;
+    const effectiveShippingAddress = pickupAddress || shippingAddress || {};
 
     // 3. Definir expiración (Parametrizable)
     const MINUTES_TO_EXPIRATION = 15; // Plazo para pagar/notificar el pago (anti-triangulación)
@@ -209,12 +233,14 @@ const createOrder = async (req, res) => {
 
       // Creamos la orden en estado 'pending_payment' con el sub-estado de pago
       // crypto en 'funding'. El comprador fondeará el escrow desde su billetera.
-      const newOrderCrypto = new Order({
+            const newOrderCrypto = new Order({
         buyer: buyerId,
         seller: sellerId,
         products: productIds,
         itemsSnapshot,
-        shippingAddress,
+        shippingAddress: effectiveShippingAddress,
+        deliveryMethod: isPickup ? "pickup" : "shipping",
+        pickupLocation: isPickup ? (pickupLocation || undefined) : undefined,
         totalAmount: calculatedTotal + maxShippingCost,
         productsAmount: calculatedTotal,
         shippingAmount: maxShippingCost,
@@ -294,12 +320,14 @@ const createOrder = async (req, res) => {
         // B. Definimos qué ID va a tener esta orden para mandárselo al contrato.
     // Como todavía no guardamos la orden en Mongoose, generamos un ObjectId temporal.
     // O si usas otro generador de IDs (como uuid), ponelo acá. Lo importante es que sea único.
-    const newOrder = new Order({
+        const newOrder = new Order({
       buyer: buyerId,
       seller: sellerId,
       products: productIds,
       itemsSnapshot,
-      shippingAddress,
+      shippingAddress: effectiveShippingAddress,
+      deliveryMethod: isPickup ? "pickup" : "shipping",
+      pickupLocation: isPickup ? (pickupLocation || undefined) : undefined,
       totalAmount: calculatedTotal + maxShippingCost,
       productsAmount: calculatedTotal,
       shippingAmount: maxShippingCost,
@@ -812,32 +840,41 @@ const updateOrder = async (req, res) => {
         // liberamos el escrow: el admin firma releaseOrder() y el contrato
         // envía al vendedor el neto y el fee a la feeWallet.
         // ════════════════════════════════════════════════════════════
-        let txHash;
+                let txHash;
         if (order.payment?.method === "crypto") {
-          // La liberación del escrow NO requiere la wallet del vendedor como
-          // parámetro propio: el contrato guarda la dirección del vendedor al
-          // momento de fundar. El admin la envía al releaseOrder contract.
-          // Importamos el servicio escrow localmente para evitar ciclos.
-          const { releaseOrderEscrow } = await import("../services/escrowServices.js");
-          if (order.payment?.status !== "funded") {
-            return res.status(400).json({
-              success: false,
-              message:
-                "El escrow no está fondeado on-chain. Verificá que el comprador haya depositado los USDT antes de completar la orden.",
-            });
-          }
-          const escrowResult = await releaseOrderEscrow(order._id.toString());
-          if (!escrowResult.success) {
-            throw new Error(`Fallo en escrow: ${escrowResult.error}`);
-          }
-          txHash = escrowResult.txHash;
+          // 🛡️ COMPRA GRUPAL: los fondos YA se liberaron on-chain al cerrar el
+          // pool (releaseMember en NeroGroupBuy). No re-liberamos el escrow aquí;
+          // solo cerramos la orden individual en la DB.
+          if (order.payment?.groupBuy === true) {
+            txHash = order.payment?.releaseTxHash || "";
+            order.payment.status = "released";
+            order.payment.releasedAt = order.payment.releasedAt || new Date();
+          } else {
+            // La liberación del escrow NO requiere la wallet del vendedor como
+            // parámetro propio: el contrato guarda la dirección del vendedor al
+            // momento de fundar. El admin la envía al releaseOrder contract.
+            // Importamos el servicio escrow localmente para evitar ciclos.
+            const { releaseOrderEscrow } = await import("../services/escrowServices.js");
+            if (order.payment?.status !== "funded") {
+              return res.status(400).json({
+                success: false,
+                message:
+                  "El escrow no está fondeado on-chain. Verificá que el comprador haya depositado los USDT antes de completar la orden.",
+              });
+            }
+            const escrowResult = await releaseOrderEscrow(order._id.toString());
+            if (!escrowResult.success) {
+              throw new Error(`Fallo en escrow: ${escrowResult.error}`);
+            }
+            txHash = escrowResult.txHash;
 
-          // Actualizamos el sub-estado de pago.
-          order.payment.status = "released";
-          order.payment.releaseTxHash = txHash;
-          order.payment.feeUsd = order.financials.platformFeeUsd;
-          order.payment.sellerNetUsd = order.financials.sellerNetReleaseUsd;
-          order.payment.releasedAt = new Date();
+            // Actualizamos el sub-estado de pago.
+            order.payment.status = "released";
+            order.payment.releaseTxHash = txHash;
+            order.payment.feeUsd = order.financials.platformFeeUsd;
+            order.payment.sellerNetUsd = order.financials.sellerNetReleaseUsd;
+            order.payment.releasedAt = new Date();
+          }
         } else {
           // B. Ejecutamos la transacción en la Blockchain usando nuestro helper
           // El backend (admin) firma el releaseOrderCollateral en el contrato pool
@@ -886,13 +923,25 @@ const updateOrder = async (req, res) => {
           $inc: { "accounting.completedPurchases": 1 },
         });
 
-        // D3. Incrementar "vendidos" de cada producto de la orden por su cantidad.
+                // D3. Incrementar "vendidos" de cada producto de la orden por su cantidad.
         // Descontamos también el stock, ya que la venta se concretó.
+        // ⚠️ EXCEPCIÓN COMPRA GRUPAL: el pool YA consumió stock + reservedStock
+        //    al crear la orden 'paid'. Aquí sólo sumamos 'sold' para no
+        //    descontar dos veces el stock.
+        const isGroupBuyOrder = order.groupBuy?.poolId || order.isGroupBuy === true;
         for (const item of order.itemsSnapshot) {
           const qty = item.quantity || 1;
-          await Product.findByIdAndUpdate(item.productId, {
-            $inc: { sold: qty, stock: -qty },
-          });
+          if (isGroupBuyOrder && order.groupBuy?.stockConsumed) {
+            // Ya lo descontó el pool: solo reflejamos la venta en 'sold'.
+            await Product.findByIdAndUpdate(item.productId, {
+              $inc: { sold: qty },
+            });
+          } else {
+            // Flujo normal: descuenta stock y suma sold (comportamiento actual).
+            await Product.findByIdAndUpdate(item.productId, {
+              $inc: { sold: qty, stock: -qty },
+            });
+          }
         }
 
                 // Notificar al vendedor que la venta se completó y los fondos fueron liberados (Background)

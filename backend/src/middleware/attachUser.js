@@ -12,6 +12,8 @@ const attachUser = async (req, res, next) => {
     // Inyectamos el ID de MongoDB y otros datos útiles
     req.user._id = user._id; 
     req.user.role = user.role; // Por si después tenés admins
+    // Wallet Web3 (para flujos de escrow on-chain: pools, crypto, etc.).
+    req.user.walletAddress = user.walletAddress || "";
     
     next();
   } catch (error) {

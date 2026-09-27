@@ -11,6 +11,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import CashbackBadge from "../components/CashbackBadge";
+import { productPath } from "../Utils/productUrl";
 
 
 export default function Cart() {
@@ -131,7 +132,7 @@ export default function Cart() {
                           <div className="flex justify-between">
                             <h3
                               className="text-[15px] font-medium text-gray-900 dark:text-gray-100 leading-tight mb-2 hover:text-[#3483fa] cursor-pointer"
-                              onClick={() => navigate(`/product/${item._id}`)}
+                              onClick={() => navigate(productPath(item))}
                             >
                               {item.name}
                             </h3>

@@ -1,15 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { ShoppingBag, Tag, Clock, ChevronRight, AlertCircle } from 'lucide-react';
+import { ShoppingBag, Tag, Clock, ChevronRight, AlertCircle, Users } from 'lucide-react';
 import { usePrivy } from "@privy-io/react-auth";
 import LoadingSpinner from "../../components/LoadingSpinner";
+import SellerPoolCard from "../../components/SellerPoolCard";
+import { usePools } from "../../Utils/usePools";
 
 export default function MyOrders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState("orders"); // "orders" | "pools"
+  const [pools, setPools] = useState([]);
+  const [poolsLoading, setPoolsLoading] = useState(true);
   const navigate = useNavigate();
   const {getAccessToken} = usePrivy();
+  const { fetchSellerPools } = usePools();
 
   useEffect(() => {
     const fetchOrders = async () => {
@@ -32,6 +38,17 @@ export default function MyOrders() {
     };
     fetchOrders();
   }, []);
+
+  // Grupos activos (compra en grupo) de los productos del vendedor.
+  useEffect(() => {
+    const fetchPools = async () => {
+      setPoolsLoading(true);
+      const list = await fetchSellerPools({ status: "open", silent: true });
+      setPools(list);
+      setPoolsLoading(false);
+    };
+    fetchPools();
+  }, [fetchSellerPools]);
 
     const getStatusStyle = (status) => {
     switch (status) {
@@ -66,79 +83,141 @@ export default function MyOrders() {
 
   if (loading) return <div className="p-8 text-center"><LoadingSpinner size="lg" text="Cargando órdenes..." /></div>;
 
-  return (
+    return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-2">
         <h2 className="text-2xl font-black uppercase tracking-tighter dark:text-white">Actividad Comercial</h2>
       </div>
 
-      {orders.length === 0 ? (
-        <div className="p-12 border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-[2.5rem] text-center">
-          <ShoppingBag className="mx-auto text-zinc-300 mb-4" size={48} />
-          <p className="text-zinc-500 font-medium">Aún no hay movimientos registrados.</p>
-        </div>
-      ) : (
-        <div className="grid gap-3">
-          {orders.map((order) => (
-            <div 
-              key={order._id}
-              onClick={() => navigate(`/order/${order._id}`)}
-              className="group relative bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-5 rounded-[2rem] hover:border-[#F26722] transition-all cursor-pointer shadow-sm hover:shadow-md"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                                    <div className={`p-3 rounded-2xl ${getStatusStyle(order.status)}`}>
-                    {(order.status === 'payment_submitted' || isAwaitingCollateral(order.status)) ? <AlertCircle size={24} /> : <Clock size={24} />}
-                  </div>
-                  
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">
-                        ID: {order._id.slice(-6)}
-                      </span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${getStatusStyle(order.status)}`}>
-                        {translateStatus(order.status)}
-                      </span>
-                    </div>
-                    <h3 className="font-bold text-zinc-900 dark:text-white leading-none">
-                      {order.products.length} {order.products.length === 1 ? 'Producto' : 'Productos'}
-                    </h3>
-                    <p className="text-sm text-zinc-500 mt-1 font-medium">
-                      Total: <span className="text-[#F26722]">${order.totalAmount.toLocaleString()}</span>
-                    </p>
-                  </div>
-                </div>
+      {/* Solapas: Órdenes | Grupos activos */}
+      <div className="flex gap-2 mb-4">
+        <button
+          onClick={() => setTab("orders")}
+          className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all ${
+            tab === "orders"
+              ? "bg-[#F26722] text-white"
+              : "bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+          }`}
+        >
+          <ShoppingBag size={14} /> Órdenes
+          {orders.length > 0 && (
+            <span className={`text-[10px] px-1.5 rounded-full ${tab === "orders" ? "bg-white/25" : "bg-zinc-200 dark:bg-zinc-700"}`}>
+              {orders.length}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setTab("pools")}
+          className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all ${
+            tab === "pools"
+              ? "bg-[#F26722] text-white"
+              : "bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+          }`}
+        >
+          <Users size={14} /> Grupos activos
+          {pools.length > 0 && (
+            <span className={`text-[10px] px-1.5 rounded-full ${tab === "pools" ? "bg-white/25" : "bg-zinc-200 dark:bg-zinc-700"}`}>
+              {pools.length}
+            </span>
+          )}
+        </button>
+      </div>
 
-                <div className="flex items-center gap-2">
-                  <div className="text-right hidden sm:block mr-4">
-                    <p className="text-[10px] text-zinc-400 uppercase font-black tracking-tighter">Comprador</p>
-                    <p className="text-xs font-bold dark:text-zinc-300">
-                      {order.buyer.username}
-                    </p>
+      {/* ── Solapa: ÓRDENES ── */}
+      {tab === "orders" && (
+        orders.length === 0 ? (
+          <div className="p-12 border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-[2.5rem] text-center">
+            <ShoppingBag className="mx-auto text-zinc-300 mb-4" size={48} />
+            <p className="text-zinc-500 font-medium">Aún no hay movimientos registrados.</p>
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {orders.map((order) => (
+              <div 
+                key={order._id}
+                onClick={() => navigate(`/order/${order._id}`)}
+                className="group relative bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-5 rounded-[2rem] hover:border-[#F26722] transition-all cursor-pointer shadow-sm hover:shadow-md"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                                      <div className={`p-3 rounded-2xl ${getStatusStyle(order.status)}`}>
+                      {(order.status === 'payment_submitted' || isAwaitingCollateral(order.status)) ? <AlertCircle size={24} /> : <Clock size={24} />}
+                    </div>
+                    
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">
+                          ID: {order._id.slice(-6)}
+                        </span>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${getStatusStyle(order.status)}`}>
+                          {translateStatus(order.status)}
+                        </span>
+                      </div>
+                      <h3 className="font-bold text-zinc-900 dark:text-white leading-none">
+                        {order.products.length} {order.products.length === 1 ? 'Producto' : 'Productos'}
+                      </h3>
+                      <p className="text-sm text-zinc-500 mt-1 font-medium">
+                        Total: <span className="text-[#F26722]">${order.totalAmount.toLocaleString()}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <div className="text-right hidden sm:block mr-4">
+                      <p className="text-[10px] text-zinc-400 uppercase font-black tracking-tighter">Comprador</p>
+                      <p className="text-xs font-bold dark:text-zinc-300">
+                        {order.buyer.username}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-right hidden sm:block mr-4">
+                      <p className="text-[10px] text-zinc-400 uppercase font-black tracking-tighter">Fecha</p>
+                      <p className="text-xs font-bold dark:text-zinc-300">
+                        {new Date(order.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <ChevronRight className="text-zinc-300 group-hover:text-[#F26722] group-hover:translate-x-1 transition-all" />
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="text-right hidden sm:block mr-4">
-                    <p className="text-[10px] text-zinc-400 uppercase font-black tracking-tighter">Fecha</p>
-                    <p className="text-xs font-bold dark:text-zinc-300">
-                      {new Date(order.createdAt).toLocaleDateString()}
-                    </p>
+                
+                              {/* Indicador visual para el vendedor si tiene una acción pendiente:
+                    pago por revisar o depósito de garantía para activar la venta */}
+                {(order.status === 'payment_submitted' || isAwaitingCollateral(order.status)) && (
+                  <div className="absolute -top-1 -right-1 flex h-4 w-4">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#F26722] opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-4 w-4 bg-[#F26722]"></span>
                   </div>
-                  <ChevronRight className="text-zinc-300 group-hover:text-[#F26722] group-hover:translate-x-1 transition-all" />
-                </div>
+                )}
               </div>
-              
-                            {/* Indicador visual para el vendedor si tiene una acción pendiente:
-                  pago por revisar o depósito de garantía para activar la venta */}
-              {(order.status === 'payment_submitted' || isAwaitingCollateral(order.status)) && (
-                <div className="absolute -top-1 -right-1 flex h-4 w-4">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#F26722] opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-4 w-4 bg-[#F26722]"></span>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )
+      )}
+
+      {/* ── Solapa: GRUPOS ACTIVOS ── */}
+      {tab === "pools" && (
+        poolsLoading ? (
+          <div className="p-8 text-center">
+            <LoadingSpinner size="lg" text="Cargando grupos..." />
+          </div>
+        ) : pools.length === 0 ? (
+          <div className="p-12 border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-[2.5rem] text-center">
+            <Users className="mx-auto text-zinc-300 mb-4" size={48} />
+            <p className="text-zinc-500 font-medium">
+              Todavía no hay grupos activos en tus productos.
+            </p>
+            <p className="text-xs text-zinc-400 mt-1">
+              Cuando un comprador cree o se sume a un grupo, lo vas a ver acá.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {pools.map((pool) => (
+              <SellerPoolCard key={pool._id} pool={pool} />
+            ))}
+          </div>
+        )
       )}
     </div>
   );

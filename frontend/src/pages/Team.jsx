@@ -1,5 +1,5 @@
 import React from 'react';
-import { Linkedin } from 'lucide-react'; // Si no usás lucide-react, podés cambiarlo por cualquier ícono de Redes
+// import { Linkedin } from 'lucide-react'; // Si no usás lucide-react, podés cambiarlo por cualquier ícono de Redes
 import gabi from "../../public/assets/img/team/gabi.jpg";
 import emi from "../../public/assets/img/team/emiliano.jpeg";
 import juan from "../../public/assets/img/team/juan2.jpg";
@@ -83,7 +83,7 @@ const Team = () => {
                 className="text-neutral-500 hover:text-white transition-colors duration-300 p-2 rounded-full hover:bg-neutral-800/60"
                 aria-label={`Perfil de LinkedIn de ${member.name}`}
               >
-                <Linkedin className="w-5 h-5" />
+                {/* <Linkedin className="w-5 h-5" /> */}
               </a>
             </div>
           ))}

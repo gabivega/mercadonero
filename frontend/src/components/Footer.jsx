@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShoppingBag, ShieldCheck, Cpu, HelpCircle, BookOpen, Twitter, Github, Instagram } from 'lucide-react';
+import { ShoppingBag, ShieldCheck, Cpu, HelpCircle, BookOpen,} from 'lucide-react';
 
 export default function Footer() {
   const currentYear = new Date().getFullYear();
@@ -104,7 +104,7 @@ export default function Footer() {
                 className="p-2 bg-gray-50 dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800/60 rounded-xl text-gray-600 dark:text-zinc-400 hover:text-white hover:bg-[#F26722] dark:hover:bg-[#F26722] hover:border-[#F26722] transition-all"
                 aria-label="Twitter X"
               >
-                <Twitter className="w-4 h-4" />
+                {/* <Twitter className="w-4 h-4" /> */}
               </a>
               <a 
                 href="https://instagram.com" 
@@ -113,7 +113,7 @@ export default function Footer() {
                 className="p-2 bg-gray-50 dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800/60 rounded-xl text-gray-600 dark:text-zinc-400 hover:text-white hover:bg-[#F26722] dark:hover:bg-[#F26722] hover:border-[#F26722] transition-all"
                 aria-label="Instagram"
               >
-                <Instagram className="w-4 h-4" />
+                {/* <Instagram className="w-4 h-4" /> */}
               </a>
             </div>
           </div>

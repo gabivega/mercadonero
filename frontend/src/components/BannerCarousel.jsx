@@ -3,7 +3,15 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 // Estructura de objetos para Desktop
-const desktopBanners = [
+const desktopBanners = [ 
+  {
+    image: '/assets/img/banner-desktop/warehouse.webp',
+    title: "Precios mayoristas, a tu alcance",
+    subtitle: "Sumate a pools de compra y obtené los mejores precios posibles",
+    button: "Ver Pooles activos",
+    url: "/compras-grupales",
+    overlay: "bg-black/70"
+  },
   {
     image: '/assets/img/banner-desktop/cash.webp',
     title: "Vendé y cobrá por adelantado",
@@ -26,14 +34,6 @@ const desktopBanners = [
     subtitle: "Envios flexibles y rápidos, al mejor precio. Llegamos a todo el país",
     button: "",
     overlay: "bg-gradient-to-r from-black/70 to-transparent" // Degradado estético de izquierda a derecha
-  },
-  {
-    image: '/assets/img/banner-desktop/cellphone.webp',
-    title: "Mejores Precios en celulares",
-    subtitle: "Encontrá los mejores precios del país en telefonía. Compra protegida y envíos a todo el pais.",
-    button: "Ver Ofertas",
-    url: "/ofertas",
-    overlay: "bg-black/60" // Sin capa extra
   },
     {
     image: '/assets/img/banner-desktop/supermarket.webp',

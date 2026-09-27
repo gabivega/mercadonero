@@ -679,3 +679,194 @@ export const deleteAddress = async (req, res) => {
       .json({ success: false, message: "Error al eliminar la dirección" });
   }
 };
+
+// ────────────────────────────────────────────────────────────────────────
+// PUNTOS DE RETIRO DEL VENDEDOR (shop.pickupLocations)
+// Sucursales/locales donde el comprador puede retirar SIN COSTO.
+// Requieren ser vendedor (shop.active). Sin límite por ahora.
+// ────────────────────────────────────────────────────────────────────────
+
+// Lista los puntos de retiro del PROPIO vendedor (para el panel).
+export const getPickupLocations = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const user = await User.findById(userId).select("shop.pickupLocations");
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Usuario no encontrado." });
+    }
+    res.status(200).json({
+      success: true,
+      pickupLocations: user.shop?.pickupLocations || [],
+    });
+  } catch (error) {
+    console.error("Error en getPickupLocations:", error);
+    res.status(500).json({ success: false, message: "Error al obtener los puntos de retiro." });
+  }
+};
+
+// Crea un punto de retiro para el vendedor logueado.
+export const createPickupLocation = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Usuario no encontrado." });
+    }
+    if (!user.shop?.active) {
+      return res.status(403).json({ success: false, message: "Necesitás una tienda activa para configurar puntos de retiro." });
+    }
+
+    const {
+      name, street, streetNumber, city, state, zipcode,
+      floor, apartment, betweenStreets, references, hours, notes, isDefault,
+    } = req.body || {};
+
+    // Validación mínima: nombre + ubicación.
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ success: false, field: "name", message: "El nombre del punto es obligatorio." });
+    }
+    if (!city || !String(city).trim()) {
+      return res.status(400).json({ success: false, field: "city", message: "La ciudad es obligatoria." });
+    }
+    if (!state || !String(state).trim()) {
+      return res.status(400).json({ success: false, field: "state", message: "La provincia es obligatoria." });
+    }
+
+    const newLocation = {
+      name: String(name).trim(),
+      street: street || "",
+      streetNumber: streetNumber || "",
+      city: String(city).trim(),
+      state: String(state).trim(),
+      zipcode: zipcode || "",
+      floor: floor || "",
+      apartment: apartment || "",
+      betweenStreets: betweenStreets || "",
+      references: references || "",
+      hours: hours || "",
+      notes: notes || "",
+      isDefault: Boolean(isDefault),
+      active: true,
+    };
+
+    // Si es el default, o es el primer punto, lo marcamos como default y
+    // quitamos el flag de los demás.
+    const isFirst = (user.shop?.pickupLocations?.length || 0) === 0;
+    if (newLocation.isDefault || isFirst) {
+      newLocation.isDefault = true;
+      await User.updateOne(
+        { _id: userId },
+        { $set: { "shop.pickupLocations.$[].isDefault": false } },
+      );
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $push: { "shop.pickupLocations": newLocation } },
+      { new: true, runValidators: true },
+    ).select("shop.pickupLocations");
+
+    res.status(201).json({
+      success: true,
+      pickupLocations: updatedUser.shop.pickupLocations,
+      message: "Punto de retiro agregado.",
+    });
+  } catch (error) {
+    console.error("Error en createPickupLocation:", error);
+    res.status(500).json({ success: false, message: "Error al crear el punto de retiro." });
+  }
+};
+
+// Actualiza un punto de retiro existente.
+export const updatePickupLocation = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { locationId } = req.params;
+    const fields = req.body || {};
+
+    // Campos permitidos (whitelist) para evitar inyección de propiedades.
+    const allowed = [
+      "name", "street", "streetNumber", "city", "state", "zipcode",
+      "floor", "apartment", "betweenStreets", "references", "hours",
+      "notes", "isDefault", "active",
+    ];
+    const updates = {};
+    for (const key of allowed) {
+      if (fields[key] !== undefined) updates[`shop.pickupLocations.$.${key}`] = fields[key];
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ success: false, message: "No enviaste campos para actualizar." });
+    }
+
+    // Si lo marcan como default, quitamos el default de los demás.
+    if (fields.isDefault === true) {
+      await User.updateOne(
+        { _id: userId },
+        { $set: { "shop.pickupLocations.$[].isDefault": false } },
+      );
+    }
+
+    const updatedUser = await User.findOneAndUpdate(
+      { _id: userId, "shop.pickupLocations._id": locationId },
+      { $set: updates },
+      { new: true, runValidators: true },
+    ).select("shop.pickupLocations");
+
+    if (!updatedUser) {
+      return res.status(404).json({ success: false, message: "Punto de retiro no encontrado." });
+    }
+
+    res.status(200).json({
+      success: true,
+      pickupLocations: updatedUser.shop.pickupLocations,
+      message: "Punto de retiro actualizado.",
+    });
+  } catch (error) {
+    console.error("Error en updatePickupLocation:", error);
+    res.status(500).json({ success: false, message: "Error al actualizar el punto de retiro." });
+  }
+};
+
+// Elimina un punto de retiro.
+export const deletePickupLocation = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { locationId } = req.params;
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $pull: { "shop.pickupLocations": { _id: locationId } } },
+      { new: true },
+    ).select("shop.pickupLocations");
+
+    res.status(200).json({
+      success: true,
+      pickupLocations: updatedUser?.shop?.pickupLocations || [],
+      message: "Punto de retiro eliminado.",
+    });
+  } catch (error) {
+    console.error("Error en deletePickupLocation:", error);
+    res.status(500).json({ success: false, message: "Error al eliminar el punto de retiro." });
+  }
+};
+
+// Público: devuelve los puntos de retiro ACTIVOS de un vendedor (para el
+// comprador en el detalle del producto / checkout). No requiere ser el dueño.
+export const getSellerPickupLocations = async (req, res) => {
+  try {
+    const { sellerId } = req.params;
+    const user = await User.findById(sellerId).select("shop.pickupLocations shop.name");
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Vendedor no encontrado." });
+    }
+    const active = (user.shop?.pickupLocations || []).filter((p) => p.active !== false);
+    res.status(200).json({
+      success: true,
+      shopName: user.shop?.name || "",
+      pickupLocations: active,
+    });
+  } catch (error) {
+    console.error("Error en getSellerPickupLocations:", error);
+    res.status(500).json({ success: false, message: "Error al obtener los puntos de retiro." });
+  }
+};

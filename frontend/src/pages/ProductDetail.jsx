@@ -21,9 +21,128 @@ import { useCartStore } from "../store/useCartStore";
 import LoadingSpinner from "../components/LoadingSpinner";
 import Swal from "sweetalert2";
 import CashbackBadge from "../components/CashbackBadge";
+import SocialSellingSection from "../components/SocialSellingSection";
+import SocialSellingBanner from "../components/SocialSellingBanner";
+import ShippingQuoteBox from "../components/ShippingQuoteBox";
+import PickupOption from "../components/PickupOption";
+import { useUserStore } from "../store/useUserStore";
+import { productUrl } from "../Utils/productUrl";
+import { showCopiedToast } from "../Utils/copiedToast";
+
+/**
+ * Inyecta metadatos SEO (title, description, canonical, Open Graph y
+ * JSON-LD estructurado) para la página de un producto. Se llama al cargar
+ * el producto y mejora la indexación y los snippets en buscadores.
+ * Si existe react-helmet en el proyecto, se podría migrar, pero este enfoque
+ * sin dependencias es suficiente para una SPA con prerender.
+ */
+const setMetaTag = (attr, key, content) => {
+  if (content == null) return;
+  let el = document.head.querySelector(`meta[${attr}="${key}"]`);
+  if (!el) {
+    el = document.createElement("meta");
+    el.setAttribute(attr, key);
+    document.head.appendChild(el);
+  }
+  el.setAttribute("content", content);
+};
+
+const applyProductSeo = (product) => {
+  const title = `${product.name} | Mercado Nero`;
+  document.title = title;
+
+  const price = product.sale?.active ? product.sale.price : product.price;
+  const currencyLabel = product.currency === "USD" ? "USD" : "ARS";
+  const priceLabel = new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: currencyLabel,
+    minimumFractionDigits: 0,
+  }).format(price || 0);
+
+  // Descripción: recortamos la descripción del producto a ~155 caracteres
+  // (largo recomendado por buscadores) sin cortar palabras.
+  let desc = (product.description || "").replace(/\s+/g, " ").trim();
+  if (desc.length > 155) {
+    desc = desc.slice(0, 155);
+    desc = desc.slice(0, desc.lastIndexOf(" ")) + "…";
+  }
+  const metaDescription =
+    desc || `${product.name} a ${priceLabel}. Comprá en Mercado Nero.`;
+
+  const url = productUrl(product);
+  const image = product.images?.[0]?.url || "";
+
+  setMetaTag("name", "description", metaDescription);
+  setMetaTag("property", "og:type", "product");
+  setMetaTag("property", "og:title", title);
+  setMetaTag("property", "og:description", metaDescription);
+  setMetaTag("property", "og:url", url);
+  if (image) setMetaTag("property", "og:image", image);
+  setMetaTag("name", "twitter:card", "summary_large_image");
+  setMetaTag("name", "twitter:title", title);
+  setMetaTag("name", "twitter:description", metaDescription);
+  if (image) setMetaTag("name", "twitter:image", image);
+
+  // URL canónica: consolida todas las variantes (con/sin ObjectId) en UN solo
+  // enlace para evitar contenido duplicado.
+  let canonical = document.head.querySelector('link[rel="canonical"]');
+  if (!canonical) {
+    canonical = document.createElement("link");
+    canonical.setAttribute("rel", "canonical");
+    document.head.appendChild(canonical);
+  }
+  canonical.setAttribute("href", url);
+
+  // ── DATOS ESTRUCTURADOS (JSON-LD) ──
+  // Permite a Google mostrar precio, disponibilidad y rating directamente en
+  // los resultados de búsqueda (rich snippets), mejorando el CTR orgánico.
+  const jsonLd = {
+    "@context": "https://schema.org/",
+    "@type": "Product",
+    name: product.name,
+    description: product.description,
+    image: product.images?.map((i) => i.url) || [],
+    brand: product.brand ? { "@type": "Brand", name: product.brand } : undefined,
+    offers: {
+      "@type": "Offer",
+      url,
+      priceCurrency: currencyLabel,
+      price: price || 0,
+      availability:
+        (product.stock ?? 0) > 0
+          ? "https://schema.org/InStock"
+          : "https://schema.org/OutOfStock",
+      itemCondition:
+        product.condition === "used"
+          ? "https://schema.org/UsedCondition"
+          : product.condition === "refurbished"
+            ? "https://schema.org/RefurbishedCondition"
+            : "https://schema.org/NewCondition",
+    },
+  };
+  if (product.rating > 0) {
+    jsonLd.aggregateRating = {
+      "@type": "AggregateRating",
+      ratingValue: product.rating,
+      bestRating: 5,
+    };
+  }
+
+  const SCRIPT_ID = "product-jsonld";
+  let script = document.getElementById(SCRIPT_ID);
+  if (!script) {
+    script = document.createElement("script");
+    script.type = "application/ld+json";
+    script.id = SCRIPT_ID;
+    document.head.appendChild(script);
+  }
+  script.textContent = JSON.stringify(jsonLd);
+};
 
 export default function ProductDetail() {
-  const { id } = useParams();
+  // El segmento puede ser el slug SEO o (en enlaces viejos) el ObjectId.
+  const params = useParams();
+  const id = params.idOrSlug || params.id;
   const navigate = useNavigate();
   const [quantity, setQuantity] = useState(1);
   const [isSaved, setIsSaved] = useState(false);
@@ -32,6 +151,8 @@ export default function ProductDetail() {
   const [loading, setLoading] = useState(true);
   const { setDirectPurchase } = useCartStore();
   const { addToCart, cart, updateQuantity } = useCartStore();
+  const dbUser = useUserStore((s) => s.dbUser);
+  const currentUserId = dbUser?._id;
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -44,6 +165,20 @@ export default function ProductDetail() {
         const data = await response.json();
         // console.log(data);
         setProduct(data);
+
+        // ── SEO DINÁMICO ──
+        // Actualizamos los metadatos de la página con el título, la
+        // descripción y la imagen del producto para mejorar el CTR y la
+        // indexación orgánica. También fijamos la URL canónica con slug.
+        if (data?.slug) {
+          applyProductSeo(data);
+          // Si llegamos por el ObjectId (enlace viejo), redirigimos a la
+          // URL canónica con slug para consolidar el SEO (mismo contenido,
+          // una sola URL). replace:true evita ensuciar el historial.
+          if (id !== data.slug) {
+            navigate(`/producto/${data.slug}`, { replace: true });
+          }
+        }
       } catch (error) {
         // console.error("Error fetching product:", error);   
       } finally {
@@ -52,6 +187,13 @@ export default function ProductDetail() {
     };
     if (id) fetchProduct();
     window.scrollTo(0, 0);
+
+    // Al salir de la página limpiamos el JSON-LD del producto para que no
+    // quede colgado en otras vistas (evita datos estructurados incorrectos).
+    return () => {
+      const script = document.getElementById("product-jsonld");
+      if (script) script.remove();
+    };
   }, [id]);
 
   if (loading)
@@ -172,9 +314,15 @@ export default function ProductDetail() {
           </span>
         </nav>
 
-        {/* Contenedor Principal */}
+        {/* Contenedor Principal.
+            El grid tiene DOS filas lógicas (implícitas):
+              - Fila 1: [izquierda: imágenes + características] [derecha: compra]
+              - Fila 2 (ancho completo, md:col-span-3): descripción, social
+                selling, opiniones y preguntas.
+            Así la columna de compra NO estira todo el layout y el contenido
+            inferior aprovecha el ancho completo. */}
         <div className="bg-white dark:bg-[#121212] rounded-sm shadow-sm border border-gray-200 dark:border-gray-800 grid grid-cols-1 md:grid-cols-3 overflow-hidden">
-          {/* COLUMNA IZQUIERDA: Fotos y Detalles */}
+          {/* COLUMNA IZQUIERDA (Fila 1): Fotos y Características */}
           <div className="border-r border-gray-100 dark:border-gray-800 p-4 md:p-6 order-2 md:order-1 md:col-span-2">
             <div className="hidden md:flex flex-col md:flex-row gap-6">
               {/* Selector de fotos lateral */}
@@ -209,9 +357,21 @@ export default function ProductDetail() {
             </div>
 
             <hr className="my-8 border-gray-100 dark:border-gray-800" />
-
+                {/* SOCIAL SELLING: Compra en Grupo (pools) — el gancho principal,
+                arriba de todo en el bloque ancho para que se vea ni bien se
+                accede. Solo productos con el feature habilitado por el vendedor. */}
+            {product.listingType === "product" &&
+              product.category !== "autos-motos-y-otros" &&
+              product.socialSelling?.enabled && (
+                <div className="pb-8">
+                  <SocialSellingSection
+                    product={product}
+                    currentUserId={currentUserId}
+                  />
+                </div>
+              )}
             {/* Características */}
-            <div className="mb-8">
+            {/* <div className="mb-8">
               <h2 className="text-xl mb-4 dark:text-white font-medium">
                 Características principales
               </h2>
@@ -230,31 +390,11 @@ export default function ProductDetail() {
                   </div>
                 ))}
               </div>
-            </div>
+            </div> */}
 
-            {/* Descripción */}
-            <div className="pb-8">
-              <h2 className="text-xl mb-4 dark:text-white font-medium">
-                Descripción
-              </h2>
-              <p className="text-gray-600 dark:text-gray-400 text-[16px] whitespace-pre-line leading-relaxed">
-                {product.description}
-              </p>
-            </div>
-
-            {/* Opiniones del producto */}
-            <div className="border-t border-gray-100 dark:border-gray-800 pt-8">
-              <ProductReviews productId={product._id} />
-            </div>
-
-            {/* Preguntas y Respuestas */}
-            <ProductQuestions
-              productId={product._id}
-              sellerId={product.seller?._id || product.seller}
-            />
           </div>
 
-          {/* COLUMNA DERECHA: Compra (Compacta) */}
+          {/* COLUMNA DERECHA (Fila 1): Compra (Compacta) */}
           <div className="order-1 md:order-2 p-4 md:p-5 bg-white dark:bg-[#121212]">
             <div className="space-y-3 border border-gray-200 dark:border-gray-800 rounded-lg p-4 bg-white dark:bg-[#121212]">
               <div className="text-[12px] text-gray-500">
@@ -321,6 +461,23 @@ export default function ProductDetail() {
               <h1 className="text-lg lg:text-xl font-bold dark:text-white leading-snug mt-1">
                 {product.name}
               </h1>
+
+              {/* Compartir: copia el enlace SEO del producto. Ayuda a generar
+                  enlaces entrantes (tráfico orgánico). */}
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(productUrl(product));
+                    showCopiedToast("Compartí el enlace del producto");
+                  } catch {
+                    /* noop */
+                  }
+                }}
+                className="text-xs font-semibold text-gray-500 dark:text-gray-400 flex items-center gap-1 hover:text-[#3483fa] transition-colors"
+              >
+                <Share2 size={14} /> Compartir
+              </button>
               {/* 📱 1. GALERÍA PARA MOBILE (Visible solo en pantallas menores a md) */}
               <div className="flex flex-col gap-4 md:hidden mb-6">
               {/* Imagen Principal Mobile */}
@@ -387,36 +544,40 @@ export default function ProductDetail() {
 
               {/* Envío y Ubicación */}
               <div className="space-y-3 py-2">
-                {/* Solo mostramos envío si NO es un clasificado */}
-                {product.listingType !== "classified" ||
-                  (product.category !== "autos-motos-y-otros" && (
-                    <div className="flex gap-2.5">
-                      <Truck
-                        className={`w-4 h-4 shrink-0 mt-1 ${product.shipping?.free ? "text-green-500" : "text-gray-400"}`}
-                      />
-                      <div>
+                {/* Envío: solo para productos (no clasificados). */}
+                {product.listingType !== "classified" && (
+                  <>
+                    {/* Retiro en sucursal — GRATIS. Solo si el vendedor lo
+                        habilitó. Los productos viejos sin `delivery` no lo tienen. */}
+                    {product.shipping?.delivery?.pickup === true && (
+                      <PickupOption product={product} compact />
+                    )}
+
+                    {/* Envío a domicilio (Zipnova). Se oculta si el vendedor lo
+                        desactivó explícitamente (homeDelivery === false). */}
+                    {product.shipping?.delivery?.homeDelivery !== false && (
+                      <>
                         {product.shipping?.free ? (
-                          <>
-                            <p className="text-green-500 text-sm font-medium">
-                              Envío gratis a todo el país
-                            </p>
-                            <p className="text-gray-500 text-xs">
-                              A través de Mercado Nero Envíos
-                            </p>
-                          </>
+                          // Envío gratis: hoy es solo un label del vendedor.
+                          <div className="flex gap-2.5">
+                            <Truck className="w-4 h-4 shrink-0 mt-1 text-green-500" />
+                            <div>
+                              <p className="text-green-500 text-sm font-medium">
+                                Envío gratis a todo el país
+                              </p>
+                              <p className="text-gray-500 text-xs">
+                                A través de Mercado Nero Envíos
+                              </p>
+                            </div>
+                          </div>
                         ) : (
-                          <>
-                            <p className="text-gray-900 dark:text-gray-200 text-sm font-medium">
-                              Envío a cargo del comprador
-                            </p>
-                            <p className="text-[#3483fa] text-xs cursor-pointer hover:underline">
-                              Calcular costo de envío
-                            </p>
-                          </>
+                          // Envío a cargo del comprador: cotizamos con Zipnova.
+                          <ShippingQuoteBox product={product} />
                         )}
-                      </div>
-                    </div>
-                  ))}
+                      </>
+                    )}
+                  </>
+                )}
 
                 {/* La ubicación siempre es relevante, pero en clasificados es CRUCIAL */}
                 <div className="flex gap-2.5">
@@ -426,8 +587,8 @@ export default function ProductDetail() {
                       Ubicado en{" "}
                       <span className="text-gray-700 dark:text-gray-200 font-medium">
                         {product.location?.city || "Ubicación no especificada"}
-                        {product.location?.state
-                          ? `, ${product.location.state}`
+                        {product.location?.province
+                          ? `, ${product.location.province}`
                           : ""}
                       </span>
                     </p>
@@ -520,6 +681,16 @@ export default function ProductDetail() {
                 )}
               </div>
 
+              {/* SOCIAL SELLING: CTA compacto → hace scroll a la sección de
+                  compra en grupo (columna izquierda). Solo productos. */}
+              {product.listingType === "product" &&
+                product.category !== "autos-motos-y-otros" && (
+                  <SocialSellingBanner
+                    product={product}
+                    activePoolsCount={product.socialSelling?.activePoolsCount || 0}
+                  />
+                )}
+
               {/* Info extra compacta */}
               {/* Solo mostramos confianza y garantía en productos físicos/ecommerce */}
               {product.listingType === "product" && (
@@ -562,6 +733,46 @@ export default function ProductDetail() {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* FILA 2: ancho completo (md:col-span-3). Descripción, Compra en
+              Grupo (pools), Opiniones y Preguntas aprovechan todo el ancho
+              debajo de la zona de imágenes + compra. */}
+          <div className="order-3 md:col-span-3 border-t border-gray-100 dark:border-gray-800 p-4 md:p-6">
+             {/* SOCIAL SELLING: Compra en Grupo (pools) — el gancho principal,
+                arriba de todo en el bloque ancho para que se vea ni bien se
+                accede. Solo productos con el feature habilitado por el vendedor. */}
+            {/* {product.listingType === "product" &&
+              product.category !== "autos-motos-y-otros" &&
+              product.socialSelling?.enabled && (
+                <div className="pb-8">
+                  <SocialSellingSection
+                    product={product}
+                    currentUserId={currentUserId}
+                  />
+                </div>
+              )}  */}
+
+            {/* Descripción */}
+            <div className="pb-8">
+              <h2 className="text-xl mb-4 dark:text-white font-medium">
+                Descripción
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 text-[16px] whitespace-pre-line leading-relaxed">
+                {product.description}
+              </p>
+            </div>
+
+            {/* Opiniones del producto */}
+            <div className="border-t border-gray-100 dark:border-gray-800 pt-8">
+              <ProductReviews productId={product._id} />
+            </div>
+
+            {/* Preguntas y Respuestas */}
+            <ProductQuestions
+              productId={product._id}
+              sellerId={product.seller?._id || product.seller}
+            />
           </div>
         </div>
 

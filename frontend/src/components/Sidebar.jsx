@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { 
-    User, Wallet, Bell, ShoppingBag, History, 
-    FileText, Tag, LogOut, LayoutDashboard, Heart,
-  ChevronLeft, ChevronRight, Menu, X , Users , ShieldCheck, MessageSquare
+import {
+  User, Wallet, Bell, ShoppingBag, History,
+  FileText, Tag, LogOut, LayoutDashboard, Heart,
+  ChevronLeft, ChevronRight, Menu, X, MessageSquare, Server,
+  Store
 } from 'lucide-react';
 import { useUserStore } from '../store/useUserStore';
 
@@ -13,17 +14,20 @@ const Sidebar = ({ handleLogout }) => {
   const { dbUser, isAdmin } = useUserStore();
 
   const menuItems = [
-    { name: 'Perfil', icon: <User size={20}/>, path: '/perfil' },
-    { name: 'Billetera', icon: <Wallet size={20}/>, path: '/billetera' },
-        { name: 'Notificaciones', icon: <Bell size={20}/>, path: '/notificaciones' },
-    { name: 'Mensajes', icon: <MessageSquare size={20}/>, path: '/mensajes' },
-    { name: 'Favoritos', icon: <Heart size={20}/>, path: '/favoritos' },
-    { name: 'Compras', icon: <ShoppingBag size={20}/>, path: '/compras' },
-    { name: 'Vender', icon: <Tag size={20}/>, path: '/vender' },
-    { name: 'Posts', icon: <FileText size={20}/>, path: '/posts' },
-    { name: 'Mis Publicaciones', icon: <LayoutDashboard size={20}/>, path: '/publicaciones' },
-    // { name: 'Referidos', icon: <Users size={20}/>, path: '/referidos' },
-    ...(isAdmin ? [{ name: 'Admin', icon: <History size={20}/>, path: '/admin' }] : [])
+    { name: 'Perfil', icon: <User size={20} />, path: '/perfil' },
+    { name: 'Billetera', icon: <Wallet size={20} />, path: '/billetera' },
+    { name: 'Notificaciones', icon: <Bell size={20} />, path: '/notificaciones' },
+    { name: 'Mensajes', icon: <MessageSquare size={20} />, path: '/mensajes' },
+    { name: 'Favoritos', icon: <Heart size={20} />, path: '/favoritos' },
+    { name: 'Compras', icon: <ShoppingBag size={20} />, path: '/compras' },
+    { name: 'Vender', icon: <Tag size={20} />, path: '/vender' },
+    { name: 'Posts', icon: <FileText size={20} />, path: '/posts' },
+    { name: 'Mis Publicaciones', icon: <LayoutDashboard size={20} />, path: '/publicaciones' },
+    // Puntos de retiro: solo visible para vendedores con tienda activa.
+    ...(dbUser?.shop?.active ? [{ name: 'Puntos de retiro', icon: <Store size={20} />, path: '/puntos-retiro' }] : []),
+    // { name: 'Referidos', icon: <Users size={20} />, path: '/referidos' },
+    ...(isAdmin ? [{ name: 'Proveedor', icon: <Server size={20} />, path: '/proveedor' }] : []),
+    ...(isAdmin ? [{ name: 'Admin', icon: <History size={20} />, path: '/admin' }] : []),
   ];
 
   return (
@@ -39,15 +43,13 @@ const Sidebar = ({ handleLogout }) => {
       </div>
 
       {/* Mobile Menu Overlay */}
-      <div className={`fixed inset-0 z-50 lg:hidden ${
-        isMobileMenuOpen ? 'block' : 'hidden'
-      }`}>
+      <div className={`fixed inset-0 z-50 lg:hidden ${isMobileMenuOpen ? 'block' : 'hidden'}`}>
         {/* Backdrop */}
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 backdrop-blur-sm"
           onClick={() => setIsMobileMenuOpen(false)}
         />
-        
+
         {/* Mobile Menu Panel */}
         <div className="fixed left-0 top-0 h-full w-72 bg-white dark:bg-[#252525] shadow-xl transform transition-transform duration-300 ease-in-out">
           {/* Mobile Menu Header */}
@@ -60,7 +62,7 @@ const Sidebar = ({ handleLogout }) => {
               <X size={20} className="text-gray-600 dark:text-gray-400" />
             </button>
           </div>
-          
+
           {/* Mobile Navigation */}
           <nav className="flex-1 p-4 space-y-2">
             {menuItems.map((item) => (
@@ -70,9 +72,9 @@ const Sidebar = ({ handleLogout }) => {
                 onClick={() => setIsMobileMenuOpen(false)}
                 className={({ isActive }) =>
                   `flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${
-                    isActive 
-                    ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' 
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#333]'
+                    isActive
+                      ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#333]'
                   }`
                 }
               >
@@ -80,25 +82,8 @@ const Sidebar = ({ handleLogout }) => {
                 <span className="font-medium">{item.name}</span>
               </NavLink>
             ))}
-            {isAdmin && (
-              <NavLink
-                key="Admin"
-                to="/admin"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className={({ isActive }) =>
-                  `flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${
-                    isActive 
-                    ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' 
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#333]'
-                  }`
-                }
-              >
-                <ShieldCheck size={20}/>
-                <span className="font-medium">Admin</span>
-              </NavLink>
-            )}
           </nav>
-          
+
           {/* Mobile Logout Button */}
           <div className="border-t border-gray-200 dark:border-gray-800 p-4">
             <button
@@ -113,7 +98,7 @@ const Sidebar = ({ handleLogout }) => {
       </div>
 
       {/* Desktop Sidebar - Solo visible en desktop */}
-      <aside 
+      <aside
         className={`hidden lg:flex relative h-[calc(100vh-80px)] sticky top-20 bg-white dark:bg-[#252525] border-r border-gray-200 dark:border-gray-800 flex flex-col transition-all duration-300 ease-in-out ${
           isCollapsed ? 'w-20' : 'w-64'
         }`}
@@ -137,16 +122,16 @@ const Sidebar = ({ handleLogout }) => {
                 `flex items-center rounded-xl transition-all duration-200 ${
                   isCollapsed ? 'justify-center px-0 py-2.5' : 'px-4 py-2.5 space-x-3'
                 } ${
-                  isActive 
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' 
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#333]'
+                  isActive
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#333]'
                 }`
               }
             >
               <div className="flex-shrink-0">
                 {item.icon}
               </div>
-              
+
               {/* El texto desaparece con una transición de opacidad */}
               <span className={`font-medium whitespace-nowrap transition-opacity duration-300 ${
                 isCollapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100'

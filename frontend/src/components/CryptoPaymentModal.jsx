@@ -91,20 +91,54 @@ export default function CryptoPaymentModal({
 
     try {
       // 1. Cambiar a BSC Testnet con la wallet activa.
+      //    switchChain es asíncrono y en algunos providers no garantiza que el
+      //    provider ya esté en la red al instante. Esperamos un pequeño delay
+      //    para evitar "could not detect network" / tx a la red equivocada.
       await activeWallet.switchChain(bscTestnet.id);
+      await new Promise((r) => setTimeout(r, 800));
 
       // 2. Obtener provider y signer
       const ethereumProvider = await activeWallet.getEthereumProvider();
       const provider = new ethers.BrowserProvider(ethereumProvider);
       const signer = await provider.getSigner();
 
+      // Verificamos que el provider esté en la red correcta antes de firmar.
+      const net = await provider.getNetwork();
+      if (Number(net.chainId) !== bscTestnet.id) {
+        throw new Error(
+          `Tu wallet está en la red ${net.chainId} y debe estar en BSC Testnet (${bscTestnet.id}). Cambiá la red e intentá de nuevo.`,
+        );
+      }
+
       const buyerAddress = activeWallet.address;
-      const sellerAddress = order.sellerWallet || order.seller?.walletAddress || order.seller;
+      // Resolución ROBUSTA de la wallet del vendedor. El backend devuelve
+      // `sellerWallet` en la respuesta de createOrder; si no, intentamos con el
+      // objeto seller poblado. NUNCA usamos `order.seller` a secas porque es un
+      // ObjectId de Mongo (24 hex chars) y el contrato espera una address (40).
+      const rawSeller =
+        order.sellerWallet ||
+        (order.seller && typeof order.seller === "object"
+          ? order.seller.walletAddress
+          : null);
+      const sellerAddress =
+        rawSeller && /^0x[a-fA-F0-9]{40}$/.test(rawSeller) ? rawSeller : null;
       if (!sellerAddress) {
-        throw new Error("No se pudo determinar la wallet del vendedor.");
+        throw new Error(
+          "No se pudo determinar la wallet del vendedor. Contactá a soporte: el vendedor debe tener una billetera Web3 vinculada.",
+        );
       }
       const amountWei = ethers.parseUnits(totalUsd.toFixed(2), token.decimals);
       const orderId = order._id.toString();
+
+      // 2.b Verificación de balance: evitamos que approve pase y fundOrder
+      //     revierta con "Fallo transferencia" (error críptico al usuario).
+      const erc20Read = new ethers.Contract(token.address, ERC20_ABI, provider);
+      const rawBalance = await erc20Read.balanceOf(buyerAddress);
+      if (rawBalance < amountWei) {
+        throw new Error(
+          `Saldo insuficiente de ${token.symbol}. Necesitás ${amountStr} ${token.symbol} y tu wallet tiene ${ethers.formatUnits(rawBalance, token.decimals)}.`,
+        );
+      }
 
       setStatus("Paso 1/2: Solicitando aprobación de " + token.symbol + "...");
       const usdt = new ethers.Contract(token.address, ERC20_ABI, signer);

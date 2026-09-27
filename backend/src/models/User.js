@@ -171,6 +171,35 @@ const userSchema = new Schema(
         province: { type: String, default: "" },
       },
 
+      // ────────────────────────────────────────────────
+      // PUNTOS DE RETIRO (sucursales/locales del vendedor)
+      // El comprador puede elegir retirar el pedido en uno de estos
+      // puntos SIN COSTO (no usa Zipnova).
+      // NOTA: por ahora sin límite de cantidad. En el futuro se podrá
+      // limitar a 1 punto para cuentas free.
+      // ────────────────────────────────────────────────
+      pickupLocations: [
+        {
+          name: { type: String, trim: true, required: true }, // Ej: "Sucursal Centro"
+          // Dirección del punto
+          street: { type: String, trim: true, default: "" },
+          streetNumber: { type: String, trim: true, default: "" },
+          city: { type: String, trim: true, default: "" },
+          state: { type: String, trim: true, default: "" }, // provincia
+          zipcode: { type: String, trim: true, default: "" },
+          floor: { type: String, trim: true, default: "" },
+          apartment: { type: String, trim: true, default: "" },
+          betweenStreets: { type: String, default: "" },
+          references: { type: String, default: "" },
+          // Horarios de atención (texto libre). Ej: "Lun-Vie 9 a 18 hs"
+          hours: { type: String, trim: true, default: "" },
+          // Notas para el comprador. Ej: "Timbre 2B", "Preguntar por Juan"
+          notes: { type: String, trim: true, default: "" },
+          isDefault: { type: Boolean, default: false },
+          active: { type: Boolean, default: true },
+        },
+      ],
+
       // Relaciones movidas adentro
       sales: [{ type: Schema.Types.ObjectId, ref: "Order" }],
       reviews: [

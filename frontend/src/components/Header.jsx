@@ -181,7 +181,7 @@ export default function Header() {
     setIsUserMenuOpen(false);
   };
 
-  const menuItems = ["Categorias", "Ofertas", "Comunidad", "Vender", "Ayuda", ];
+  const menuItems = ["Categorias", "Ofertas", "Vender", "Ayuda", ];
 
 // if (isLoginOpen) {
 //   return (    
@@ -262,13 +262,20 @@ export default function Header() {
                   </ul>
                 </div>
               </div>
-              {menuItems
+                            {menuItems
                 .filter((i) => i !== "Categorias")
                 .map((item) => (
                   <Link key={item} to={`${item.toLowerCase()}`}>
                     {item}
                   </Link>
                 ))}
+              <Link
+                to="/compras-grupales"
+                className="flex items-center gap-1.5 text-sm text-white dark:text-gray-300 hover:text-white/80 dark:hover:text-white/80 transition-colors font-medium"
+              >
+                {/* <Users size={16} /> */}
+                Compras Grupales
+              </Link>
             </nav>
           </div>
 
@@ -575,7 +582,7 @@ export default function Header() {
                       </ul>
                     </div>
                   </div>
-                  {menuItems
+                                    {menuItems
                     .filter((i) => i !== "Categorias")
                     .map((item) => (
                       <NavLink
@@ -586,6 +593,14 @@ export default function Header() {
                         {item}
                       </NavLink>
                     ))}
+                  <Link
+                    to="/compras-grupales"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="flex items-center gap-2 font-medium transition-colors duration-200 w-full py-3 text-lg border-b border-gray-100 dark:border-zinc-800 text-gray-900 dark:text-white"
+                  >
+                    {/* <Users size={20} /> */}
+                    Compras Grupales
+                  </Link>
                 </nav>
 
                 {/* Mobile Quick Actions */}

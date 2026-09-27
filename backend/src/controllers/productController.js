@@ -1,27 +1,46 @@
 import Product from "../models/Product.js";
 import User from "../models/User.js";
+import mongoose from "mongoose";
+import { buildProductSlug } from "../utils/slugify.js";
+
+// Acepta un id (ObjectId) o un slug SEO. Devuelve el filtro de búsqueda
+// adecuado para Mongo. Los slugs siempre contienen guiones y letras, por lo
+// que se distinguen trivialmente de un ObjectId de 24 hex.
+const buildProductLookup = (idOrSlug = "") => {
+  const value = String(idOrSlug).trim();
+  if (mongoose.Types.ObjectId.isValid(value) && value.length === 24) {
+    return { _id: value };
+  }
+  return { slug: value };
+};
 
 export const createProduct = async (req, res) => {
   try {
     const userId = req.user._id;
     console.log("req.user:", req.user);
-    const {
-      name,
-      price,
-      currency,
-      sale,
-      stock,
-      images,
-      description,
-      category,
-      subCategory,
-      brand,
-      condition,
-      shipping,
-      listingType,
-      specifications,
-      location
-    } = req.body;
+        const {
+          name,
+          price,
+          currency,
+          sale,
+          stock,
+          images,
+          description,
+          category,
+          subCategory,
+          brand,
+
+
+                    sku,
+          condition,
+          warranty,
+          shipping,
+          listingType,
+          specifications,
+          location,
+          socialSelling,
+          providerRef,
+        } = req.body;
 
     console.log("req.body", req.body);
 
@@ -34,11 +53,32 @@ export const createProduct = async (req, res) => {
     // const user = await User.findOne({ privyDid: privyDid });
     // 2. Buscamos la data extendida del usuario (incluyendo location)
   // 1. Buscamos el username en la BD (Query rápido por ID)
-    const userProfile = await User.findById(userId).select('username shop');
+        const userProfile = await User.findById(userId).select('username shop isVerified addresses');
     console.log("userProfile", userProfile)
     if (!userProfile) {
       return res.status(404).json({ message: "Usuario no encontrado" });
     }
+
+    // ── UBICACIÓN POR DEFECTO ──
+    // El formulario de publicación no envía `location`, así que si llega vacío
+    // tomamos la ubicación del vendedor para poder mostrar "Ciudad, Provincia"
+    // (ej: "Rosario, Santa Fe") en el detalle y en las tarjetas.
+    // Prioridad: lo que venga en el body → shop.location (despacho) →
+    // dirección por defecto → primera dirección cargada.
+    const shopLocation = userProfile?.shop?.location || {};
+    const defaultAddress =
+      userProfile?.addresses?.find((a) => a.isDefault) ||
+      userProfile?.addresses?.[0] ||
+      {};
+    const finalLocation = {
+      city: location?.city || shopLocation.city || defaultAddress.city || "",
+      province:
+        location?.province ||
+        location?.state ||
+        shopLocation.province ||
+        defaultAddress.province ||
+        "",
+    };
   // Definimos las categorías que NO requieren marca
 const categoriesWithoutBrand = ['inmuebles', 'servicios'];
 
@@ -106,6 +146,16 @@ if (!name || !price || !category || !description || (needsBrand && !brand)) {
 };
 // Solo procesamos dimensiones si NO es un clasificado y si viene el objeto shipping
 if (listingType !== 'classified' && shipping) {
+  // ── MÉTODOS DE ENTREGA ──
+  // homeDelivery: envío a domicilio (cotiza con Zipnova). Default true.
+  // pickup: retiro en local del vendedor ($0). Default false.
+  // pickupLocationIds: sucursales elegidas (solo si pickup=true).
+  const deliveryInput = shipping.delivery || {};
+  const pickupEnabled = deliveryInput.pickup === true;
+  const pickupLocationIds = pickupEnabled && Array.isArray(deliveryInput.pickupLocationIds)
+    ? deliveryInput.pickupLocationIds.filter((id) => id)
+    : [];
+
   finalShipping = {
     isDigital: !!shipping.isDigital,
     free: shipping.isDigital ? false : (shipping.free || false),
@@ -117,6 +167,12 @@ if (listingType !== 'classified' && shipping) {
       length: Number(shipping.dimensions?.length) || 0,
     },
     shippingTime: shipping.shippingTime || "24h",
+    // Un producto digital no tiene métodos de entrega físicos.
+    delivery: {
+      homeDelivery: shipping.isDigital ? false : (deliveryInput.homeDelivery !== false),
+      pickup: shipping.isDigital ? false : pickupEnabled,
+      pickupLocationIds,
+    },
   };
 }
 
@@ -129,37 +185,120 @@ if (listingType !== 'classified' && shipping) {
           message: "El precio de oferta debe ser menor al precio original.",
         });
       }
-      saleData = {
+            saleData = {
         active: true,
         price: Number(sale.price),
       };
     }
+
+    // --- SOCIAL SELLING (Compra en grupo / Pools) ---
+    // Solo aplica a productos de pago (no clasificados). Es EXCLUYENTE con
+    // el precio de oferta: si está habilitado, desactivamos sale.
+    let socialSellingData = { enabled: false };
+    const wantsSocialSelling =
+      listingType !== "classified" && socialSelling?.enabled === true;
+
+    if (wantsSocialSelling) {
+      // Normalizamos los tiers: mapeamos cantidades 2..5 -> precio > 0.
+      const rawTiers = socialSelling.tiers || {};
+      const tiers = {};
+      for (const buyers of [2, 3, 4, 5]) {
+        const value = Number(rawTiers[buyers]);
+        if (value > 0) tiers[buyers] = value;
+      }
+
+      // Si no completó los 4 tiers, lo tratamos como no habilitado.
+      if (Object.keys(tiers).length === 4) {
+        // Validación: precios decrecientes y menores al precio base.
+        const prices = [tiers[2], tiers[3], tiers[4], tiers[5]];
+        const isDecreasing = prices.every(
+          (p, i) => i === 0 || prices[i - 1] > p,
+        );
+
+        if (!isDecreasing) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Los precios de compra en grupo deben disminuir al sumar compradores.",
+          });
+        }
+        if (prices[0] >= Number(price)) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "El precio de compra en grupo debe ser menor al precio base del producto.",
+          });
+        }
+
+        socialSellingData = {
+          enabled: true,
+          durationHours: [24, 48, 72].includes(Number(socialSelling.durationHours))
+            ? Number(socialSelling.durationHours)
+            : 48,
+          tiers,
+        };
+
+        // Excluyente: no puede haber oferta si hay compra en grupo.
+        saleData = { active: false, price: 0 };
+      }
+    }
+
     //  Creación del objeto sanitizado
     // --- CONSTRUCCIÓN DEL PRODUCTO ---
-    const newProduct = new Product({
+        const newProduct = new Product({
       name: name.trim(),
       description: description.trim(),
-      price: Number(price),
+            price: Number(price),
       currency: currency,
-      sale: saleData,
-      stock: listingType === 'classified' ? 1 : Math.floor(Number(stock || 1)),
-      category,
+      // SKU: código interno / de proveedor (opcional). Se prellena al importar.
+      sku: (sku || "").trim(),
+            category,
       subCategory: subCategory || "",
       condition: condition || "new",
       images,
+      stock: Number(stock),
+      // Precio de oferta (excluyente con compra en grupo; ver socialSellingData).
+      sale: saleData,
+      // ── SOCIAL SELLING (Compra en grupo / Pools) ──
+      // Se calcula más arriba en `socialSellingData`. Sin esta asignación, el
+      // flag `enabled` y los tiers se perdían al CREAR el producto (al editar
+      // sí se guardaba porque updateProduct pasa el body completo).
+      socialSelling: socialSellingData,
       // Logística Centralizada
       shipping:finalShipping,
       specifications: specifications || [],
             seller: userId,
-      sellerName: userProfile?.shop?.name || userProfile?.username,
+            sellerName: userProfile?.shop?.name || userProfile?.username,
       sellerIsVerified: userProfile?.isVerified || false,
-      location: location,
+            location: finalLocation,
       status: "active",
       listingType: listingType,
     });
-    // Solo agregamos la propiedad brand si la categoría lo requiere
+
+    // ── TRAZABILIDAD CON PROVEEDOR (Elit, etc.) ──
+    // Sólo lo guardamos si viene con un provider válido (productos importados).
+    if (providerRef && providerRef.provider) {
+      newProduct.providerRef = {
+        provider: providerRef.provider,
+        id: providerRef.id ?? null,
+        codigo_producto: providerRef.codigo_producto || "",
+        codigo_alfa: providerRef.codigo_alfa || "",
+        costPvpArs: Number(providerRef.costPvpArs) || 0,
+        lastSyncAt: new Date(),
+      };
+      // Fuente marcada como importada de proveedor.
+      newProduct.source = "provider";
+      newProduct.sourceUrl = providerRef.sourceUrl || "";
+    }
+
+        // Solo agregamos la propiedad brand si la categoría lo requiere
     if (!['inmuebles', 'servicios'].includes(category)) {
       newProduct.brand = brand.trim();
+    }
+
+    // SKU: código de producto propio o del proveedor (opcional).
+    if (sku && String(sku).trim()) {
+      newProduct.sku = String(sku).trim();
     }
     const savedProduct = await newProduct.save();
 
@@ -301,8 +440,17 @@ export const getProducts = async (req, res) => {
         ];
 
         // 🔥 En lugar de ordenar por fecha, anulamos sortOptions para que Mongo traiga los primeros 50 que encuentre rápido
-        sortOptions = {}; 
+                sortOptions = {}; 
         isRandom = true; // 🔥 Activamos la aleatoriedad
+        isSpecialSection = true;
+      } else if (lowerCategory === 'social-selling') {
+        // Caso Compra en Grupo (Social Selling): productos de pago que tienen
+        // habilitada la compra grupal (tiers de precio), sin importar si hay
+        // pools activos. Sección especial: NO aplica filtro de categoría.
+        query["socialSelling.enabled"] = true;
+        query.listingType = "product"; // los clasificados no tienen pools
+
+        sortOptions = { createdAt: -1 };
         isSpecialSection = true;
       }
     }
@@ -424,13 +572,17 @@ export const getProducts = async (req, res) => {
   }
 };
 
-// Obtener un producto por ID
+// Obtener un producto por ID o por slug SEO
 export const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
-    console.log("GetproductbyId id: ", id);
+    console.log("GetproductbyId id/slug: ", id);
 
-    const product = await Product.findById(id).populate(
+    // Resolvemos tanto por ObjectId (compatibilidad con links viejos)
+    // como por el slug SEO (/producto/consola-gaming-rog-ally-20ky5u).
+    const lookup = buildProductLookup(id);
+
+    const product = await Product.findOne(lookup).populate(
       "seller",
       "username name shop isVerified shopName walletAddress",
     ); // Traemos data del vendedor
@@ -444,20 +596,29 @@ export const getProductById = async (req, res) => {
 
     // 🔒 Un producto de pago (escrow) cuyo vendedor no tiene wallet Web3 NO
     // puede venderse: lo tratamos como no disponible para el comprador.
-    // (El middleware requireSellerOnboarding ya impide publicar productos
-    // nuevos sin wallet; acá cubrimos los ya existentes). Los clasificados
-    // (listingType !== "product") no usan escrow y se mantienen.
     if (product.listingType === "product" && !product.seller?.walletAddress) {
       return res.status(404).json({
         message: "Esta publicación no está disponible por el momento.",
       });
     }
 
-    await Product.updateOne({ _id: id }, { $inc: { views: 1 } });
+    await Product.updateOne({ _id: product._id }, { $inc: { views: 1 } });
 
     // Opcional: Para que el frontend que hace la petición vea la visita actual reflejada de una,
     // le sumamos 1 manualmente al objeto en memoria antes de mandarlo.
     product.views = (product.views || 0) + 1;
+
+    // ── UBICACIÓN FALLBACK PARA PRODUCTOS VIEJOS ──
+    // Los productos publicados antes de que guardáramos la ubicación por
+    // defecto pueden no tenerla. En ese caso, la completamos en la respuesta
+    // con la ubicación de despacho del vendedor (shop.location) para mostrar
+    // "Ciudad, Provincia" (ej: "Rosario, Santa Fe") sin migrar la base.
+    if (!product.location?.city && product.seller?.shop?.location?.city) {
+      product.location = {
+        city: product.seller.shop.location.city,
+        province: product.seller.shop.location.province || "",
+      };
+    }
 
     res.json(product);
   } catch (error) {
@@ -489,13 +650,22 @@ export const updateProduct = async (req, res) => {
       });
     }
 
-    // 3. Actualizamos en MongoDB
-    // { new: true } devuelve el producto ya modificado; runValidators aplica los checks del esquema
-    const updatedProduct = await Product.findByIdAndUpdate(
-      id, 
-      updateData, 
-      { new: true, runValidators: true }
-    );
+        // 3. Actualizamos en MongoDB
+        // { new: true } devuelve el producto ya modificado; runValidators aplica los checks del esquema
+        // findByIdAndUpdate NO dispara el hook pre-save, así que:
+        //   - Nunca dejamos que el cliente setee/corrompa el slug (lo quitamos).
+        //   - Si cambió el nombre, lo regeneramos (mantiene SEO alineado y la
+        //     unicidad vía el sufijo derivado del _id).
+        delete updateData.slug;
+        if (typeof updateData.name === "string" && updateData.name.trim() !== product.name) {
+          updateData.slug = buildProductSlug(updateData.name.trim(), product._id);
+        }
+
+        const updatedProduct = await Product.findByIdAndUpdate(
+          id,
+          updateData,
+          { new: true, runValidators: true },
+        );
 
     res.json({ 
       success: true, 

@@ -13,14 +13,14 @@ ver tema referidos!!!
 si el vendedor cancela, no puede calificar al comprador, y viceversa
 cuando comprador marca la orden como recibida, no hay spinner de carga mientras cierra la operacion
 pagina de perfil no guarda edicion de datos de usuario
-agregar onboarding vendedor *** LISTO, FALTA PROBAR 
+agregar onboarding vendedor *** LISTO, FALTA PROBAR
 
 ============00000000=============
 Revision 27/8
 SI pones como metodo de pago crypto, sin tener wallet no podes salir del modal de swal-LISTO
 Mejorar spinner al confirmar orden: queda solo dentro del boton de confirmar- LISTO
 Banner de referidos cambiar por cashback - LISTO
-ordenes de compra con crypto no expiran 
+ordenes de compra con crypto no expiran
 en las notificaciones el comprador figura como "undefined"--LISTO
 En el detalle de la orden no se menciona el metodo de pago, en la notificacion si - VER MAS ADELANTE CUANDO ESTE HABILITADO PAGO CRYPTO
 Una orden en espera de colateral, no muestra notificacion, si envia un mail- LISTO
@@ -57,4 +57,66 @@ Acomodar aviso de deposito de garantia en orderdetail del lado comprador y vende
 en mobile, los precios del checkout tienen , en vez de .
 IDEA de auction por los primeros puestos del site
 IDEA pools de compra-ir pensando-diagramando.dejando espacio . Usa smart contract
-en mobile no se ve el icono de notificaciones
+en mobile no se ve el icono de notificaciones / listo
+cuando se crea un grupo de compra y el user no tiene imagen de perfil, se ve roto. agregar iniciales
+
+============FASE 1 - COMPRA GRUPAL ON-CHAIN============
+[✔] Modelos: Product.reservedStock + virtual availableStock
+[✔] Modelos: Order.groupBuy + isGroupBuy + payment.groupBuy
+[✔] Modelos: Pool (member.units/wallet/locked, chainGroupId, orderSync*)
+[✔] groupBuyOrderController.js: createPaidOrderForPoolMember + syncPoolOrdersAfterRelease
+[✔] updateOrder: 2 guards (no re-descontar stock / no re-liberar escrow grupal)
+[✔] Bug crypto: sellerAddress robusto + check de red + check de balance (front)
+
+[✔] ENDPOINTS DE POOL (backend) — IMPLEMENTADOS:
+    - POST /api/pool/:id/prepare-funding → groupId/contract/token/amount/priceArs/rateAtLock + gas drip
+    - POST /api/pool/:id/escrow/fund     → verifica fondeo on-chain + reserva stock (reservedStock, $expr)
+    - POST /api/pool/:id/close (ADMIN)   → closeGroupOnChain(priceFinal) + syncPoolOrdersAfterRelease
+                                           (si memberCount === 1 → refundCreator, sin crear órdenes)
+    - POST /api/pool/:id/release-member  → releaseMemberOnChain (comprador confirma recepción)
+    - create/join aceptan `units` y validan stock disponible (stock - reservedStock)
+
+[✔] Front: poolEscrowClient.js (switchChain + approve + createGroup/joinGroup + confirm escrow/fund)
+[✔] Front: usePools.jsx expone preparePoolFunding/confirmPoolFunding/closePool/releasePoolMember
+[✔] Front: SocialSellingSection.jsx y PoolDetail.jsx firman on-chain, con overlay de estado
+[✔] attachUser ahora inyecta req.user.walletAddress (fallback para el fondeo)
+[✔] Pool model: member.needsReview agregado (caso borde: fondeo on-chain sin stock)
+[✔] Fix: priceForBuyers redefinido (se había borrado al quitar el duplicado)
+[✔] Gating de WALLET: createPool/joinPool devuelven 400 needsWallet si el user no tiene wallet
+[✔] Front: WalletRequiredNotice.jsx + InsufficientBalanceNotice (CTA crear billetera / recargar)
+    - UX ON-DEMAND: los botones SIEMPRE dicen "Crear grupo"/"Unirme". La wallet se
+      pide recién al hacer click (no se anticipa), maximizando la conversión.
+    - Si no tiene wallet → modal con CTA de crear (Privy, 1 click).
+    - Si tiene wallet pero le falta saldo USDT → aviso de recarga con monto exacto
+      (se obtiene de prepare-funding: required vs balance) + "Verificar de nuevo".
+    - Maneja err.needsWallet y err.insufficientUsdt del backend y reintenta tras resolver.
+[✔] prepare-funding: propaga { insufficientUsdt, required, balance } para el aviso de saldo
+[✔] userSync.jsx: resuelve wallet desde user.wallet o linkedAccounts (robustez post-createWallet)
+
+[✔] ANTI-POOL-HUÉRFANO (el grupo nace SOLO con saldo congelado):
+    - createPool: VALIDA SALDO USDT ANTES de insertar. Si no alcanza → 400 con
+      { insufficientUsdt, required, balance } y NO se crea nada (fin del "crear por crear").
+    - joinPool: idem, ya requería wallet; member sin fondeo no cuenta para el precio.
+    - rollbackPool (DELETE /:id/rollback): borra el pool PROVISIONAL si el creador
+      canceló la firma on-chain o falló el fondeo (solo si está solo y sin fondeo).
+    - Front: si el fondeo falla/cancela tras crear → rollbackPool; si el join no
+      completa el fondeo → leavePool (no queda membresía sin saldo).
+    - Pool.rateAtLock: snapshot TDC al crear, para consistencia de precio USDT.
+
+[✔] DEPÓSITO IN-SITU (sin romper el flujo de creación del grupo):
+    - DepositAddressCard: dirección de depósito + botón COPIAR.
+    - Guía desplegable "¿Cómo deposito USDT?" (exchange / otra billetera / comprar).
+    - Aviso de red BSC (BEP-20) para no perder fondos.
+    - Integrado en WalletRequiredNotice (tras crear) e InsufficientBalanceNotice
+      (flujo "falta saldo"): deposita y "Verificar de nuevo" sin irse a /billetera.
+
+[ ] PROBAR end-to-end en testnet:
+    - Crear pool → firmar createGroup → confirmar (verificar reservedStock en Mongo)
+    - Unirse → firmar joinGroup → confirmar
+    - Admin: cerrar pool → verificar órdenes creadas (syncPoolOrdersAfterRelease)
+    - Admin: cerrar pool con 1 solo comprador → refundCreator (restaura reservedStock)
+    - Buyer confirma recepción → releaseMember (verificar seller recibe + refund)
+
+[ ] Front de ADMIN: botón "Cerrar grupo" que llame a closePool (hoy es solo endpoint).
+[ ] CreatePoolModal: no envía `units` (usa 1). Agregar selector de unidades.
+[ ] Revisar decimales reales del USDT testnet (0x337610...) — front y back asumen 18.

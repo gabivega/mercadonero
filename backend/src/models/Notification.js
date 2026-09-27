@@ -40,6 +40,9 @@ const notificationSchema = new mongoose.Schema(
         "order_admin_release_request", // Notificación interna para el admin
         "order_guarantee_released", // La garantía del vendedor fue liberada
         "review_received", // A alguien lo calificaron (producto/usuario)
+        // ── Compra en Grupo (aviso al vendedor) ──
+        "pool_created", // Un comprador creó un grupo para un producto del vendedor
+        "pool_joined", // Un comprador se sumó a un grupo de un producto del vendedor
         // ── Disputas de pago no recibido (transferencia bancaria) ──
         "order_dispute_evidence", // El comprador adjuntó el comprobante ante un reporte de pago no recibido
         "order_dispute_resolved", // El admin resolvió una disputa de pago no recibido

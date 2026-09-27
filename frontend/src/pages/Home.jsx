@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import ProductCarousel from "../components/ProductCarousel";
 import SocialVideoCarousel from "../components/SocialVideoCarousel";
 import SocialPostFeed from "../components/SocialPostFeed";
@@ -7,7 +7,6 @@ import BannerCarousel from "../components/BannerCarousel";
 import productosRaw from "../data/mercadolibre_productos.json";
 import posts from "../data/posts";
 import HowToBuy from "../components/HowToBuy";
-
 // Transform raw ML data to product card format
 const transformProduct = (product, index) => {
   // Price is now an integer string like "16452"
@@ -75,9 +74,9 @@ export default function Home() {
   // Memoize to avoid recalculating on every render
   const recommendedProducts = useMemo(() => createCategoryProducts(30), []);
   const recentlyAdded = useMemo(() => createCategoryProducts(30), []);
-  const offersProducts = useMemo(() => createCategoryProducts(30), []);
+    const offersProducts = useMemo(() => createCategoryProducts(30), []);
   const fashionProducts = useMemo(() => createCategoryProducts(30), []);
-  
+
   return (
     <div className="space-y-8">
       {/* Banner Carousel */}
@@ -87,10 +86,18 @@ export default function Home() {
         <ProductCarousel
           title="Recientemente Agregado"
           products={recentlyAdded}
-          sectionId="recently-added"
+                    sectionId="recently-added"
           category="recently-added" // 🔥 Le pasamos un flag claro en lugar de dejarlo undefined
         />
       )}
+
+      {/* Comprá en grupo — productos (estándar) con Social Selling habilitado */}
+      <ProductCarousel
+        title="Comprá en grupo"
+        category="social-selling"
+        sectionId="social-selling"
+      />
+
       {/* Offers Products Carousel */}
       {validProducts.length > 0 && (
         <ProductCarousel
@@ -160,3 +167,4 @@ export default function Home() {
     </div>
   );
 }
+

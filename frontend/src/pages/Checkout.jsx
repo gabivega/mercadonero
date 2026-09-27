@@ -9,6 +9,8 @@ import {
   ShieldCheck,
   User,
   Save,
+  Store,
+  Truck,
 } from "lucide-react";
 import axios from "axios";
 import { ethers } from "ethers";
@@ -24,7 +26,9 @@ import { useSyncUser } from "../Utils/userSync";
 import LoadingSpinner from "../components/LoadingSpinner";
 import CryptoPaymentModal from "../components/CryptoPaymentModal";
 import DepositUsdtModal from "../components/DepositUsdtModal";
+import PickupOption from "../components/PickupOption";
 import { getAuthenticatedWallet } from "../Utils/walletSelector";
+import { productPath } from "../Utils/productUrl";
 
 export default function Checkout() {
   const { sellerId } = useParams();
@@ -38,6 +42,11 @@ const addresses = dbUser?.addresses || [];
 const [selectedAddress, setSelectedAddress] = useState(null);
   const { syncUser } = useSyncUser(setDbUser);
   const [isLoading, setIsLoading] = useState(false);
+
+  // ── MÉTODO DE ENTREGA: "shipping" (default) | "pickup" (retiro en sucursal)
+  // ── El comprador elige si recibe a domicilio o retira GRATIS en el local.
+  const [deliveryMethod, setDeliveryMethod] = useState("shipping");
+  const [selectedPickup, setSelectedPickup] = useState(null);
   // True sólo mientras se CREA la orden en el backend (overs crea el overlay
   // de pantalla completa). Se apaga apenas responde la API.
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
@@ -301,8 +310,15 @@ const handleSaveBasicData = async () => {
       });
     }
 
-        if (!selectedAddress) {
+                                if (!selectedAddress) {
       return Swal.fire({ icon: "warning", title: "Falta la dirección" });
+    }
+    if (deliveryMethod === "pickup" && !selectedPickup) {
+      return Swal.fire({
+        icon: "warning",
+        title: "Elegí un punto de retiro",
+        text: "Seleccioná la sucursal donde vas a retirar tu compra.",
+      });
     }
 
     const isDark = document.documentElement.classList.contains("dark");
@@ -358,8 +374,12 @@ const step1 = await Swal.fire({
         <p style="margin: 10px 0 0 0; font-size: 0.85rem;">👤 <b>Vendedor:</b> ${sellerName}</p>
       </div>
 
-      <div style="margin-bottom: 15px;">
-        <p style="margin: 5px 0;">📍 <b>Envío a:</b> ${selectedAddress.street} ${selectedAddress.streetNumber}, ${selectedAddress.city}</p>
+            <div style="margin-bottom: 15px;">
+        ${
+          deliveryMethod === "pickup" && selectedPickup
+            ? `<p style="margin: 5px 0;">📍 <b>Retiro en:</b> ${selectedPickup.name} — ${[selectedPickup.street, selectedPickup.streetNumber].filter(Boolean).join(" ")}, ${selectedPickup.city || ""}</p>`
+            : `<p style="margin: 5px 0;">📍 <b>Envío a:</b> ${selectedAddress.street} ${selectedAddress.streetNumber}, ${selectedAddress.city}</p>`
+        }
         <p style="margin: 5px 0;">🚚 <b>Despacho:</b> El vendedor despacha en <b>${sellerProducts[0]?.shipping?.shippingTime || "48h"}</b></p>
         <p style="margin: 10px 0 0 0; font-size: 0.8rem; color: #10b981; display: flex; align-items: center; gap: 4px;">
           🛡️ Compra protegida por Mercado Nero
@@ -399,9 +419,11 @@ const step1 = await Swal.fire({
               productId: p._id,
               quantity: p.quantity,
             })),
-            shippingAddress: selectedAddress,
+                        shippingAddress: selectedAddress,
             paymentMethod: currentMethod,
             token: currentMethod === "crypto" ? tokenChoice : undefined,
+            deliveryMethod,
+            pickupLocation: deliveryMethod === "pickup" ? selectedPickup : undefined,
           },
           { headers: { Authorization: `Bearer ${token}` } },
         );
@@ -699,9 +721,11 @@ const step1 = await Swal.fire({
             productId: p._id,
             quantity: p.quantity,
           })),
-          shippingAddress: selectedAddress,
+                    shippingAddress: selectedAddress,
           paymentMethod: "crypto",
           token: tokenChoice,
+          deliveryMethod,
+          pickupLocation: deliveryMethod === "pickup" ? selectedPickup : undefined,
         },
         { headers: { Authorization: `Bearer ${token}` } },
       );
@@ -740,11 +764,18 @@ const step1 = await Swal.fire({
   };
 
   // 1. Filtramos los productos de este vendedor desde el Store
-  const sellerProducts = useMemo(() => {
-  return cart.filter(
-    (item) => (item.seller?._id || item.seller) === sellerId,
+    const sellerProducts = useMemo(() => {
+    return cart.filter(
+      (item) => (item.seller?._id || item.seller) === sellerId,
+    );
+  }, [cart, sellerId]);
+
+  // ¿El pedido permite RETIRO EN SUCURSAL? Basta con que algún producto del
+  // vendedor tenga habilitado el retiro (shipping.delivery.pickup === true).
+  const pickupAvailable = useMemo(
+    () => sellerProducts.some((p) => p.shipping?.delivery?.pickup === true),
+    [sellerProducts],
   );
-}, [cart, sellerId]);
 
 // 2. Calculamos el total considerando el precio de oferta (item.sale.price)
 const total = useMemo(() => {
@@ -760,11 +791,20 @@ const total = useMemo(() => {
 
 // CALCULO DEL COSTO DE ENVIO: Se toma el valor mas alto
   const shippingTotal = useMemo(() => {
+  // Si el comprador eligió RETIRO EN SUCURSAL, el envío es GRATIS.
+  if (deliveryMethod === "pickup") return 0;
   const costs = sellerProducts.map(p => p.shipping?.free ? 0 : (p.shipping?.cost || 0));
   
   // Si todos son gratis, el max será 0. Si hay costos, tomamos el mayor.
   return Math.max(...costs);
-}, [sellerProducts]);
+}, [sellerProducts, deliveryMethod]);
+
+// ¿El pedido está listo para avanzar? El comprador SIEMPRE debe tener una
+// dirección cargada en su perfil (es dato obligatorio, independiente del
+// método de entrega). Si además eligió retiro, debe seleccionar el punto.
+const deliveryReady =
+  Boolean(selectedAddress) &&
+  (deliveryMethod === "pickup" ? Boolean(selectedPickup) : true);
 
 // Calculamos el total final sumando productos + envío
 const finalTotal = useMemo(() => total + shippingTotal, [total, shippingTotal]);
@@ -835,31 +875,113 @@ if (!authenticated ||  !dbUser ) {
 
       <main className="max-w-5xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Lado Izquierdo: Configuración */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* SECCIÓN DIRECCIÓN */}
-          <section className="bg-white dark:bg-[#121212] rounded-lg shadow-sm border dark:border-zinc-800 p-6">
-            <h3 className="flex items-center gap-3 font-bold text-gray-800 dark:text-gray-100 mb-6">
-              <MapPin className="text-[#3483fa]" size={22} />
-              ¿Dónde quieres recibir tu compra?
-            </h3>
+                <div className="lg:col-span-2 space-y-6">
+          {/* SECCIÓN MÉTODO DE ENTREGA (solo si el vendedor ofrece retiro) */}
+          {pickupAvailable && (
+            <section className="bg-white dark:bg-[#121212] rounded-lg shadow-sm border dark:border-zinc-800 p-6">
+              <h3 className="flex items-center gap-3 font-bold text-gray-800 dark:text-gray-100 mb-6">
+                <Truck className="text-[#3483fa]" size={22} />
+                ¿Cómo querés recibir tu compra?
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Envío a domicilio */}
+                <button
+                  type="button"
+                  onClick={() => setDeliveryMethod("shipping")}
+                  className={`text-left p-4 rounded-lg border transition-all ${
+                    deliveryMethod === "shipping"
+                      ? "border-[#3483fa] bg-blue-50 dark:bg-blue-900/10"
+                      : "border-zinc-200 dark:border-zinc-700 hover:border-zinc-300"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Truck size={18} className="text-[#3483fa]" />
+                    <span className="font-semibold text-sm dark:text-white">
+                      Envío a domicilio
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {shippingTotal > 0
+                      ? `Costo de envío: $${shippingTotal.toLocaleString()}`
+                      : "Recibí tu compra en tu dirección"}
+                  </p>
+                </button>
 
-           <AddressSection
-  addresses={addresses}
-  getAccessToken={getAccessToken}
-  setAddresses={setAddresses}
-  handleSelectAddress={handleSelectAddress}
-  selectedAddress={selectedAddress}
-/>
-
-            {selectedAddress && (
-              <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg">
-                <p className="text-sm text-green-700 dark:text-green-400 font-medium capitalize">
-                  Dirección seleccionada: {selectedAddress.street}{" "}
-                  {selectedAddress.streetNumber}, {selectedAddress.city}
-                </p>
+                {/* Retiro en sucursal */}
+                <button
+                  type="button"
+                  onClick={() => setDeliveryMethod("pickup")}
+                  className={`text-left p-4 rounded-lg border transition-all ${
+                    deliveryMethod === "pickup"
+                      ? "border-[#00bb2d] bg-[#00bb2d]/5"
+                      : "border-zinc-200 dark:border-zinc-700 hover:border-zinc-300"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Store size={18} className="text-[#00bb2d]" />
+                    <span className="font-semibold text-sm dark:text-white">
+                      Retiro en sucursal
+                    </span>
+                    <span className="text-[10px] bg-[#00bb2d] text-white px-1.5 py-0.5 rounded font-bold uppercase">
+                      Gratis
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Retirás vos mismo en el local del vendedor.
+                  </p>
+                </button>
               </div>
-            )}
-          </section>
+            </section>
+          )}
+
+          {/* SECCIÓN DIRECCIÓN (solo si el envío a domicilio está activo) */}
+          {deliveryMethod === "shipping" && (
+            <section className="bg-white dark:bg-[#121212] rounded-lg shadow-sm border dark:border-zinc-800 p-6">
+              <h3 className="flex items-center gap-3 font-bold text-gray-800 dark:text-gray-100 mb-6">
+                <MapPin className="text-[#3483fa]" size={22} />
+                ¿Dónde quieres recibir tu compra?
+              </h3>
+
+             <AddressSection
+    addresses={addresses}
+    getAccessToken={getAccessToken}
+    setAddresses={setAddresses}
+    handleSelectAddress={handleSelectAddress}
+    selectedAddress={selectedAddress}
+  />
+
+              {selectedAddress && (
+                <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg">
+                  <p className="text-sm text-green-700 dark:text-green-400 font-medium capitalize">
+                    Dirección seleccionada: {selectedAddress.street}{" "}
+                    {selectedAddress.streetNumber}, {selectedAddress.city}
+                  </p>
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* SECCIÓN RETIRO EN SUCURSAL (solo si el retiro está activo) */}
+          {deliveryMethod === "pickup" && (
+            <section className="bg-white dark:bg-[#121212] rounded-lg shadow-sm border dark:border-zinc-800 p-6">
+              <h3 className="flex items-center gap-3 font-bold text-gray-800 dark:text-gray-100 mb-4">
+                <Store className="text-[#00bb2d]" size={22} />
+                Elegí el punto de retiro
+              </h3>
+                            <PickupOption
+                product={sellerProducts[0]}
+                selectedLocationId={selectedPickup?._id}
+                onSelect={(loc) => setSelectedPickup(loc)}
+                defaultExpanded
+              />
+                            {!selectedPickup && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-3">
+                  Seleccioná una sucursal para elegir dónde retirás tu compra.
+                </p>
+              )}
+            </section>
+          )}
+
 
           {/* SECCIÓN PAGO (INFO) */}
           <section className="bg-white dark:bg-[#121212] rounded-lg shadow-sm border dark:border-zinc-800 p-6">
@@ -944,7 +1066,7 @@ if (!authenticated ||  !dbUser ) {
                 <div
                   key={item._id}
                   className="py-4 flex gap-4 cursor-pointer"
-                  onClick={() => navigate(`/product/${item._id}`)}
+                  onClick={() => navigate(productPath(item))}
                 >
                   <img
                     src={item.images?.[0]?.url || item.image}
@@ -996,9 +1118,9 @@ if (!authenticated ||  !dbUser ) {
                 <span>Productos ({sellerProducts.length})</span>
                 <span>${total.toLocaleString()}</span>
               </div>
-              <div className="flex justify-between text-sm text-green-600 font-bold">
-                <span>Envío: </span>
-                <span>{shippingTotal.toLocaleString() > 0 ? ("$" + shippingTotal.toLocaleString()) : 'Gratis'} </span>
+                            <div className="flex justify-between text-sm text-green-600 font-bold">
+                <span>{deliveryMethod === "pickup" ? "Retiro en sucursal:" : "Envío: "}</span>
+                <span>{(shippingTotal.toLocaleString() > 0) ? ("$" + shippingTotal.toLocaleString()) : (deliveryMethod === "pickup" ? "Gratis" : "Gratis")} </span>
               </div>
               <div className="border-t dark:border-zinc-800 pt-4 flex justify-between">
                 <span className="text-lg font-bold dark:text-white">Total</span>
@@ -1008,20 +1130,22 @@ if (!authenticated ||  !dbUser ) {
               </div>
             </div>
 
-                                                <button
+                                                                                                <button
               onClick={() => handleFinalConfirm(paymentMethod)}
-              disabled={isLoading || !selectedAddress || isProfileIncomplete(dbUser)}
+              disabled={isLoading || !deliveryReady || isProfileIncomplete(dbUser)}
               className={`w-full py-4 rounded-md font-bold text-white transition-all flex items-center justify-center gap-2 ${
-                selectedAddress && !isProfileIncomplete(dbUser)
+                deliveryReady && !isProfileIncomplete(dbUser)
                   ? "bg-[#3483fa] hover:bg-[#2968c8]"
                   : "bg-gray-300 cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-500"
               }               disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               Confirmar compra <ChevronRight size={18} />
             </button>
-            {!selectedAddress && (
+                        {!deliveryReady && (
               <div className="mt-2 text-red-500 text-sm">
-                Por favor selecciona una dirección de envío para poder avanzar
+                {!selectedAddress
+                  ? "Por favor selecciona una dirección de envío para poder avanzar"
+                  : "Seleccioná un punto de retiro para poder avanzar"}
               </div>
             )}
 

@@ -7,11 +7,16 @@ import { cancelVendorCollateral } from "./blockchainServices.js"; // 👈 Import
 import { expireCollateralHold } from "./collateralHoldService.js"; // 👈 Expiración de holds de colateral
 import { verifyOrderFunded } from "./escrowServices.js"; // 👈 Verificamos fondeo on-chain de escrow crypto
 
-// Se ejecuta cada 15 minutos (según tu schedule)
-const startOrderCleanup = () => {
-  cron.schedule("*/15 * * * *", async () => {
-    console.log("🚀 Ejecutando cron job de limpieza de órdenes...");
-    try {
+/**
+ * Ejecuta UNA pasada de la limpieza de órdenes.
+ *
+ * Separada del scheduler para poder invocarla manualmente (ver
+ * src/scripts/runOrderCleanupOnce.js) sin depender de node-cron ni de
+ * tener el cron corriendo en el servidor.
+ */
+export const runOrderCleanupOnce = async () => {
+  console.log("🚀 Ejecutando limpieza de órdenes (una pasada)...");
+  try {
       // ---------------------------------------------------------------
       // (A) SIEMPRE: expirar holds de colateral vencidos ("awaiting_collateral").
       // Esto corre en CADA ciclo, en forma independiente de la expiración de
@@ -113,9 +118,29 @@ const startOrderCleanup = () => {
         }
       }
 
-    } catch (error) {
+        } catch (error) {
       console.error("Error crítico en el cleanup de órdenes:", error);
     }
+};
+
+// Se ejecuta cada 15 minutos (según tu schedule)
+const startOrderCleanup = () => {
+  // ── INTERRUPTOR (opt-in) ────────────────────────────────────────────
+  // Por defecto el cron queda DESACTIVADO. En el modelo actual (tiendas
+  // administradas a mano) no queremos gastar recursos ni correr lógica que
+  // puede haber quedado desalineada respecto al contrato vigente.
+  //
+  // Para reactivarlo: definir ENABLE_ORDER_CLEANUP_CRON=true en el .env.
+  // Para correrlo puntualmente a mano: `node src/scripts/runOrderCleanupOnce.js`
+  if (String(process.env.ENABLE_ORDER_CLEANUP_CRON).toLowerCase() !== "true") {
+    console.log(
+      "[Cron] Limpieza de órdenes DESACTIVADA (seteá ENABLE_ORDER_CLEANUP_CRON=true para activarla).",
+    );
+    return;
+  }
+
+  cron.schedule("*/15 * * * *", () => {
+    runOrderCleanupOnce();
   });
 };
 

@@ -5,6 +5,7 @@ import { usePrivy } from "@privy-io/react-auth";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { ImportSection } from "../../components/ImportProductsSection.jsx";
+import ElitCatalogExplorer from "../../components/ElitCatalogExplorer.jsx";
 import { ListingTypeSelector } from "../../components/ListingTypeSelector.jsx";
 import ProductForm from "../../components/ProductForm.jsx";
 import VehicleForm from "../../components/VehicleForm.jsx";
@@ -15,6 +16,7 @@ import NeroLogin from "../../components/NeroLogin.jsx";
 import SellerOnboarding from "../../components/SellerOnboarding.jsx";
 import { useUserStore } from "../../store/useUserStore";
 import { useSyncUser } from "../../Utils/userSync";
+import ShippingQuoteCalculator from "../../components/ShippingQuoteCalculator.jsx";
 
 
 import {
@@ -264,9 +266,9 @@ export default function CreateProduct() {
               </div>
             </div>
           )}
-          <ListingTypeSelector onSelect={setFormType} />
-        </div>
-      </DashboardLayout>
+                    <ListingTypeSelector onSelect={setFormType} />
+                    </div>
+        </DashboardLayout>
     );
   }
 
@@ -343,6 +345,7 @@ export default function CreateProduct() {
         draft={pendingProduct}
         prefill={onboardingPrefill}
       />
+      <ShippingQuoteCalculator />
     </DashboardLayout>
   );
 }

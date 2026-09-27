@@ -661,3 +661,61 @@ export const sendPaymentDisputeResolvedInBuyerFavor = async ({
     console.error('Exception en sendPaymentDisputeResolvedInBuyerFavor:', err);
   }
 };
+
+
+/**
+ * 12. NOTIFICACIÓN AL VENDEDOR (Compra en Grupo).
+ * Aviso simple cuando un comprador crea un grupo o se suma a uno existente
+ * para un producto del vendedor. No es una orden todavía: sólo visibilidad.
+ */
+export const sendPoolActivityToVendor = async ({
+  vendorEmail,
+  action = "created",
+  productName,
+  buyerName,
+  membersCount,
+  targetBuyers,
+  currentUnitPrice,
+}) => {
+  try {
+    const isCreated = action === "created";
+    const actionText = isCreated
+      ? "creó un grupo de compra"
+      : "se sumó a un grupo de compra";
+    const subject = isCreated
+      ? `👥 Nuevo grupo de compra: ${productName || "tu producto"}`
+      : `👥 Se sumó un comprador a un grupo: ${productName || "tu producto"}`;
+
+    const progressText =
+      membersCount != null && targetBuyers
+        ? `${membersCount}/${targetBuyers} compradores`
+        : null;
+
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [vendorEmail],
+      subject,
+      html: `
+        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+          <h2 style="color: #111;">Actividad en Compra en Grupo</h2>
+          <p>Un comprador <strong>${actionText}</strong> para tu producto <strong>${productName || ""}</strong>.</p>
+
+          <div style="background-color: #f4f4f5; padding: 15px; border-radius: 6px; margin: 15px 0;">
+            ${buyerName ? `<p style="margin: 0 0 6px 0;"><strong>Comprador:</strong> ${buyerName}</p>` : ""}
+            ${progressText ? `<p style="margin: 0 0 6px 0;"><strong>Integrantes:</strong> ${progressText}</p>` : ""}
+            ${currentUnitPrice != null ? `<p style="margin: 0;"><strong>Precio unitario actual:</strong> $${currentUnitPrice} ARS</p>` : ""}
+          </div>
+
+          <p style="font-size: 13px; color: #555;">
+            Recordá: el grupo <strong>todavía no es una orden</strong>. Recién se convierte en compra cuando se completa y los pagos quedan en garantía. Podés ver todos tus grupos activos en tu panel, sección <strong>"Mis Órdenes" » Grupos activos</strong>.
+          </p>
+        </div>
+      `,
+    });
+
+    if (error) console.error("Error email de grupo al vendedor:", error);
+    return { data, error };
+  } catch (err) {
+    console.error("Exception en sendPoolActivityToVendor:", err);
+  }
+};

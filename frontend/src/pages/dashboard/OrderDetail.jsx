@@ -286,7 +286,7 @@ export default function OrderDetail() {
               Esperando garantía del vendedor
             </p>
             <p className="text-[9px] text-gray-500 dark:text-gray-400 text-center max-w-xs">
-              El vendedor debe depositar su fondo de garantía para confirmar el envío de tu orden.
+              El vendedor debe depositar su garantía para proteger tu compra.
             </p>
           </div>
         ) : order.status !== "expired" ? steps.map((step, index) => (

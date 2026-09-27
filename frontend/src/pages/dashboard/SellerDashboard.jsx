@@ -60,9 +60,10 @@ export default function SellerDashboard() {
     setIsEditModalOpen(true); //[cite: 1]
   };
 
-  // 👁️ Función para previsualizar el producto en una nueva pestaña
-  const handlePreview = (productId) => {
-    window.open(`/product/${productId}`, "_blank", "noopener,noreferrer");
+    // 👁️ Función para previsualizar el producto en una nueva pestaña
+  const handlePreview = (product) => {
+    const seg = product?.slug || product?._id || product;
+    window.open(`/producto/${seg}`, "_blank", "noopener,noreferrer");
   };
 
   const fetchMyOrders = async () => {
@@ -480,7 +481,7 @@ export default function SellerDashboard() {
                     <td className="p-6">
                                             <div className="flex justify-end gap-2">
                         <button
-                          onClick={() => handlePreview(p._id)}
+                          onClick={() => handlePreview(p)}
                           className="p-3 hover:bg-purple-50 dark:hover:bg-purple-500/10 text-purple-500 rounded-xl transition-all"
                           title="Vista previa"
                         >
@@ -581,7 +582,7 @@ export default function SellerDashboard() {
                   </span>
                                     <div className="flex gap-2">
                     <button
-                      onClick={() => handlePreview(p._id)}
+                      onClick={() => handlePreview(p)}
                       className="p-2 hover:bg-purple-50 dark:hover:bg-purple-500/10 text-purple-500 rounded-lg transition-all"
                       title="Vista previa"
                     >

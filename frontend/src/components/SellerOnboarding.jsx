@@ -43,15 +43,6 @@ export default function SellerOnboarding({
   const [step, setStep] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Provincias argentinas para el selector de ubicación de la tienda.
-  const PROVINCIAS_AR = [
-    "Buenos Aires", "CABA", "Catamarca", "Chaco", "Chubut", "Córdoba",
-    "Corrientes", "Entre Ríos", "Formosa", "Jujuy", "La Pampa", "La Rioja",
-    "Mendoza", "Misiones", "Neuquén", "Río Negro", "Salta", "San Juan",
-    "San Luis", "Santa Cruz", "Santa Fe", "Santiago del Estero", "Tierra del Fuego",
-    "Tucumán",
-  ];
-
   // ── Estado del formulario ──
   const [form, setForm] = useState({
     // Datos de usuario (reutilizamos lo que ya tenga el perfil)
@@ -371,36 +362,21 @@ export default function SellerOnboarding({
                   <label className={labelCls}>Nombre de la tienda *</label>
                   <input id="field-shopName" className={inputCls} placeholder="Ej: Tienda de Gabi" value={form.shopName} onChange={set("shopName")} required />
                 </div>
-                <div>
-                  <label className={labelCls}>Provincia *</label>
-                  <select
-                    id="field-province"
-                    className={inputCls}
-                    value={form.province}
-                    onChange={set("province")}
-                    required
-                  >
-                    <option value="">Seleccioná tu provincia</option>
-                    {PROVINCIAS_AR.map((p) => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className={labelCls}>Ciudad *</label>
-                  <input id="field-city" className={inputCls} placeholder="Tu ciudad/partido de despacho" value={form.city} onChange={set("city")} required />
-                </div>
                 <div className="sm:col-span-2">
-                  <label className={labelCls}>Código postal *</label>
-                  <input
-                    id="field-zipCode"
-                    className={inputCls}
-                    placeholder="Código postal"
-                    value={form.zipCode}
-                    onChange={(e) => setForm((prev) => ({ ...prev, zipCode: e.target.value.replace(/\D/g, "").slice(0, 4) }))}
-                    inputMode="numeric"
-                    maxLength={4}
-                    required
+                  <PostalCodeInput
+                    zipCode={form.zipCode}
+                    province={form.province}
+                    city={form.city}
+                    cityAsSelect
+                    labels={{ city: "Ciudad / Partido de despacho *" }}
+                    onChange={({ zipCode, province, city }) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        ...(zipCode !== undefined ? { zipCode } : {}),
+                        ...(province !== undefined ? { province } : {}),
+                        ...(city !== undefined ? { city } : {}),
+                      }))
+                    }
                   />
                 </div>
                 <div className="sm:col-span-2">
