@@ -11,7 +11,12 @@ import {
   adminGetCollateralStatus,
     adminReleaseEscrow,
   adminCancelEscrow,
-  adminUpdateEscrowFee,
+    adminUpdateEscrowFee,
+  adminGetEscrowConfig,
+  adminUpdateEscrowFeeWallet,
+  adminUpdateEscrowConfig,
+  adminListCryptoOrders,
+  adminNotifyBuyerEscrow,
   adminResolvePaymentDispute,
 } from '../controllers/orderController.js';
 import {
@@ -19,6 +24,10 @@ import {
   adminUpdateCashbackConfig,
   adminAdjustUserCashback,
 } from '../controllers/cashbackController.js';
+import {
+  adminGetReferralConfig,
+  adminUpdateReferralConfig,
+} from '../controllers/referralController.js';
 import verifyPrivyToken from '../middleware/auth.js';
 import { isAdmin } from '../middleware/isAdmin.js';
 
@@ -50,6 +59,16 @@ router.patch('/orders/:orderId/release-escrow', verifyPrivyToken, isAdmin, admin
 router.patch('/orders/:orderId/cancel-escrow', verifyPrivyToken, isAdmin, adminCancelEscrow);
 // Actualizar el fee global del escrow en el contrato (puntos base).
 router.patch('/escrow/fee', verifyPrivyToken, isAdmin, adminUpdateEscrowFee);
+// Actualizar la feeWallet del escrow en el contrato.
+router.patch('/escrow/fee-wallet', verifyPrivyToken, isAdmin, adminUpdateEscrowFeeWallet);
+// Leer la configuración on-chain del escrow (fee, feeWallet, admin).
+router.get('/escrow/config', verifyPrivyToken, isAdmin, adminGetEscrowConfig);
+// Actualizar parámetros de plataforma del escrow (plazo de liberación).
+router.patch('/escrow/config', verifyPrivyToken, isAdmin, adminUpdateEscrowConfig);
+// Listar órdenes con pago cripto (escrow) para gestión.
+router.get('/crypto-orders', verifyPrivyToken, isAdmin, adminListCryptoOrders);
+// Recordar al comprador que confirme la recepción (escrow fondeado).
+router.post('/orders/:orderId/notify-buyer-escrow', verifyPrivyToken, isAdmin, adminNotifyBuyerEscrow);
 
 // ── CASHBACK (solo admin) ──
 // Configuración global: activar/desactivar, importe, umbral, etc.
@@ -58,5 +77,10 @@ router.patch('/cashback/config', verifyPrivyToken, isAdmin, adminUpdateCashbackC
 
 // Ajuste de cashback de un usuario concreto (override / bonificación manual).
 router.patch('/cashback/user/:userId', verifyPrivyToken, isAdmin, adminAdjustUserCashback);
+
+// ── REFERIDOS (solo admin) ──
+// Configuración global: tope de %, default, activar/desactivar, etc.
+router.get('/referral/config', verifyPrivyToken, isAdmin, adminGetReferralConfig);
+router.patch('/referral/config', verifyPrivyToken, isAdmin, adminUpdateReferralConfig);
 
 export default router;

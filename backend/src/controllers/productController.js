@@ -2,6 +2,7 @@ import Product from "../models/Product.js";
 import User from "../models/User.js";
 import mongoose from "mongoose";
 import { buildProductSlug } from "../utils/slugify.js";
+import { resolveProductReferral } from "../services/referralService.js";
 
 // Acepta un id (ObjectId) o un slug SEO. Devuelve el filtro de búsqueda
 // adecuado para Mongo. Los slugs siempre contienen guiones y letras, por lo
@@ -35,11 +36,13 @@ export const createProduct = async (req, res) => {
           condition,
           warranty,
           shipping,
-          listingType,
+                    listingType,
           specifications,
-          location,
+                    location,
           socialSelling,
+          referral,
           providerRef,
+          payment,
         } = req.body;
 
     console.log("req.body", req.body);
@@ -238,9 +241,39 @@ if (listingType !== 'classified' && shipping) {
           tiers,
         };
 
-        // Excluyente: no puede haber oferta si hay compra en grupo.
+                // Excluyente: no puede haber oferta si hay compra en grupo.
         saleData = { active: false, price: 0 };
       }
+    }
+
+        // --- REFERIDOS (reintegros por compartir) ---
+    // El vendedor ofrece un % de reintegro por producto. Solo aplica a
+    // productos de pago (no clasificados). Validamos contra el tope global.
+    const referralResult = await resolveProductReferral(referral, {
+      listingType,
+    });
+    if (referralResult.error) {
+      return res.status(400).json({
+        success: false,
+        message: referralResult.error,
+      });
+    }
+    const referralData = {
+      enabled: referralResult.enabled,
+      percent: referralResult.percent,
+    };
+
+    // ── EXCLUSIÓN: Compra en Grupo ↔ Referidos ──
+    // Son mecánicas mutuamente excluyentes (ambas compiten por el margen del
+    // vendedor y complican el cálculo de fee/reward). El front ya lo bloquea,
+    // pero acá lo validamos de nuevo (nunca confiar solo en el cliente) y
+    // devolvemos un error EXPLÍCITO en vez de apagar una silenciosamente.
+    if (socialSellingData.enabled && referralData.enabled) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "La Compra en Grupo y el Programa de Referidos son excluyentes. Desactivá uno para continuar.",
+      });
     }
 
     //  Creación del objeto sanitizado
@@ -263,10 +296,21 @@ if (listingType !== 'classified' && shipping) {
       // Se calcula más arriba en `socialSellingData`. Sin esta asignación, el
       // flag `enabled` y los tiers se perdían al CREAR el producto (al editar
       // sí se guardaba porque updateProduct pasa el body completo).
-      socialSelling: socialSellingData,
-      // Logística Centralizada
+            socialSelling: socialSellingData,
+      // ── REFERIDOS (reintegros por compartir) ──
+      // Se calcula más arriba en `referralData` (con tope global).
+      referral: referralData,
+            // Logística Centralizada
       shipping:finalShipping,
       specifications: specifications || [],
+      // ── MÉTODOS DE PAGO ACEPTADOS POR EL VENDEDOR ──
+      // acceptsTransfer (default true) / acceptsCrypto (default false).
+      // Sin este mapeo, el flag de cripto se perdía al CREAR (en update sí
+      // se guardaba porque updateProduct pasa el body completo).
+      payment: {
+        acceptsTransfer: payment?.acceptsTransfer !== false,
+        acceptsCrypto: payment?.acceptsCrypto === true,
+      },
             seller: userId,
             sellerName: userProfile?.shop?.name || userProfile?.username,
       sellerIsVerified: userProfile?.isVerified || false,
@@ -443,12 +487,29 @@ export const getProducts = async (req, res) => {
                 sortOptions = {}; 
         isRandom = true; // 🔥 Activamos la aleatoriedad
         isSpecialSection = true;
-      } else if (lowerCategory === 'social-selling') {
+            } else if (lowerCategory === 'social-selling') {
         // Caso Compra en Grupo (Social Selling): productos de pago que tienen
         // habilitada la compra grupal (tiers de precio), sin importar si hay
         // pools activos. Sección especial: NO aplica filtro de categoría.
         query["socialSelling.enabled"] = true;
         query.listingType = "product"; // los clasificados no tienen pools
+
+        sortOptions = { createdAt: -1 };
+        isSpecialSection = true;
+            } else if (lowerCategory === 'referral') {
+              // Caso Programa de Referidos: productos que ofrecen reintegro por
+              // compartir. Sección especial: NO aplica filtro de categoría (vista
+              // transversal).
+              //
+              // NOTA: filtramos sólo por `referral.enabled = true`. NO exigimos
+              // `percent > 0` porque hay productos viejos que quedaron con enabled
+              // pero percent 0 (cuando aún no existía el input del %), y queremos
+              // que igual aparezcan. `enabled` ya es la intención explícita del
+              // vendedor. Tampoco forzamos `listingType` porque documentos viejos
+              // podrían no tenerlo seteado explícitamente; excluimos los clasificados
+              // sólo si el campo está presente.
+              query["referral.enabled"] = true;
+              query.listingType = { $ne: "classified" };
 
         sortOptions = { createdAt: -1 };
         isSpecialSection = true;
@@ -656,9 +717,50 @@ export const updateProduct = async (req, res) => {
         //   - Nunca dejamos que el cliente setee/corrompa el slug (lo quitamos).
         //   - Si cambió el nombre, lo regeneramos (mantiene SEO alineado y la
         //     unicidad vía el sufijo derivado del _id).
-        delete updateData.slug;
+                delete updateData.slug;
         if (typeof updateData.name === "string" && updateData.name.trim() !== product.name) {
           updateData.slug = buildProductSlug(updateData.name.trim(), product._id);
+        }
+
+        // ── REFERIDOS (reintegros por compartir) ──
+        // Si viene `referral` en el body, lo validamos/normalizamos contra el
+        // tope global antes de guardar. Usamos el listingType del producto
+        // existente (no confiamos en que el cliente lo mande bien).
+        if (updateData.referral !== undefined) {
+          const referralResult = await resolveProductReferral(updateData.referral, {
+            listingType: updateData.listingType || product.listingType,
+          });
+          if (referralResult.error) {
+            return res.status(400).json({
+              success: false,
+              message: referralResult.error,
+            });
+          }
+                    updateData.referral = {
+            enabled: referralResult.enabled,
+            percent: referralResult.percent,
+          };
+        }
+
+        // ── EXCLUSIÓN: Compra en Grupo ↔ Referidos (al EDITAR) ──
+        // Comparamos el estado RESULTANTE (lo que quedaría guardado): tomamos
+        // el valor nuevo si viene en el body, o el actual del producto si no.
+        // Así detectamos la combinación aunque solo editen uno de los dos.
+        const resultingSocialSelling =
+          updateData.socialSelling !== undefined
+            ? updateData.socialSelling
+            : product.socialSelling;
+        const resultingReferral =
+          updateData.referral !== undefined
+            ? updateData.referral
+            : product.referral;
+
+        if (resultingSocialSelling?.enabled && resultingReferral?.enabled) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "La Compra en Grupo y el Programa de Referidos son excluyentes. Desactivá uno para continuar.",
+          });
         }
 
         const updatedProduct = await Product.findByIdAndUpdate(

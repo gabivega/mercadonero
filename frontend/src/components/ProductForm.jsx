@@ -8,11 +8,14 @@ import {
   Plus,
   X,
   ArrowRight,
-  Truck,
+    Truck,
   Store,
   Home,
+  CreditCard,
+  Coins,
 } from "lucide-react";
 import ProductImageUploadModal from "../components/ProductImageuploader";
+import ProductFinancialsSummary from "./ProductFinancialsSummary";
 import { deformatMoney, formatMoney } from "../Utils/currencyFormatter";
 
 const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
@@ -33,7 +36,7 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
     // ── SOCIAL SELLING (Compra en grupo / Pools) ──────────────────────
     // El vendedor lo habilita. Los tiers son EXCLUYENTES con sale.price.
     // `tiers` se indexa por cantidad de compradores (2..5) y guarda el precio.
-    socialSelling: {
+        socialSelling: {
       enabled: false,
       durationHours: 48, // 24 | 48 | 72
       tiers: {
@@ -42,6 +45,14 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
         4: "",
         5: "",
       },
+    },
+    // ── REFERIDOS (reintegros por compartir) ──────────────────────────
+    // El vendedor ofrece un % de reintegro que se reparte 50/50 entre quien
+    // comparte el enlace (referidor) y el comprador. Ese % sale de su margen
+    // (se le descuenta del colateral). Default 10%, tope 20% (config global).
+    referral: {
+      enabled: false,
+      percent: 10,
     },
         shipping: {
       isDigital: false,
@@ -64,8 +75,15 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
         pickupLocationIds: [],
       },
     },
-        images: [],
+                images: [],
     listingType: "product",
+    // ── MÉTODOS DE PAGO ACEPTADOS (por producto) ──
+    // acceptsTransfer: transferencia bancaria (default ON).
+    // acceptsCrypto: pago en cripto/USDT vía escrow (default OFF).
+    payment: {
+      acceptsTransfer: true,
+      acceptsCrypto: false,
+    },
     // Características clave-valor (ej: EAN, Garantía). Se precargan al importar
     // de un proveedor. Sin UI especial: viajan tal cual al backend.
     specifications: [],
@@ -75,6 +93,11 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
     },
   });
   const [isImgModalOpen, setIsImgModalOpen] = useState(false);
+
+  // Error de exclusión entre features incompatibles (Compra en Grupo ↔
+  // Referidos). Se muestra de forma visible para que el vendedor NO active
+  // combinaciones que rompen el modelo de negocio.
+  const [exclusionError, setExclusionError] = useState("");
 
   // ── PUNTOS DE RETIRO DEL VENDEDOR ──
   // Se traen del perfil del vendedor logueado para que pueda elegir cuáles
@@ -149,15 +172,25 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
         ...initialData,
         // Nos aseguramos de que los objetos anidados no se rompan si no venían completos
                 sale: { ...product.sale, ...initialData.sale },
-        socialSelling: {
-          ...product.socialSelling,
-          ...initialData.socialSelling,
-          tiers: {
-            ...product.socialSelling.tiers,
-            ...initialData.socialSelling?.tiers,
-          },
-        },
-                shipping: { 
+                socialSelling: {
+                  ...product.socialSelling,
+                  ...initialData.socialSelling,
+                  tiers: {
+                    ...product.socialSelling.tiers,
+                    ...initialData.socialSelling?.tiers,
+                  },
+                },
+                                referral: {
+                  ...product.referral,
+                  ...initialData.referral,
+                },
+                // Métodos de pago aceptados: preserva los defaults (transfer ON,
+                // cripto OFF) si el producto no trae el sub-documento.
+                payment: {
+                  ...product.payment,
+                  ...initialData.payment,
+                },
+                shipping: {  
           ...product.shipping, 
           ...initialData.shipping,
           dimensions: { ...product.shipping.dimensions, ...initialData.shipping?.dimensions },
@@ -229,9 +262,18 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
       };
     });
   };
-    // ── SOCIAL SELLING ────────────────────────────────────────────────
+      // ── SOCIAL SELLING ────────────────────────────────────────────────
   // Toggle de habilitación. Al activarlo limpia el sale.price (son excluyentes).
+  // IMPORTANTE: social selling es EXCLUYENTE con referidos. Si hay referido
+  // activo, no permitimos activar pools (y viceversa) → ver setExclusionError.
   const handleSocialSellingToggle = (enabled) => {
+    if (enabled && product.referral.enabled) {
+      setExclusionError(
+        "No podés combinar Compra en Grupo con el Programa de Referidos. Elegí uno: desactivá el referido para activar la compra en grupo.",
+      );
+      return; // rechazamos: NO activamos ni auto-desactivamos nada
+    }
+    setExclusionError("");
     setProduct((prev) => ({
       ...prev,
       socialSelling: { ...prev.socialSelling, enabled },
@@ -253,7 +295,7 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
     }));
   };
 
-  // Cambio de duración del pool (24/48/72)
+    // Cambio de duración del pool (24/48/72)
   const handleDurationChange = (value) => {
     setProduct((prev) => ({
       ...prev,
@@ -263,6 +305,66 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
       },
     }));
   };
+
+  // ── REFERIDOS ─────────────────────────────────────────────────────
+  // Tope de % (debe coincidir con el backend: ReferralConfig.maxPercent).
+  const REFERRAL_MAX_PERCENT = 20;
+  const REFERRAL_DEFAULT_PERCENT = 10;
+
+    // Toggle de habilitación. Al activar, si el % está vacío/0 lo seteamos al default.
+  // EXCLUYENTE con Compra en Grupo: si ésta está activa, rechazamos (ver motivo).
+  const handleReferralToggle = (enabled) => {
+    if (enabled && product.socialSelling.enabled) {
+      setExclusionError(
+        "No podés combinar Compra en Grupo con el Programa de Referidos. Elegí uno: desactivá la compra en grupo para activar el referido.",
+      );
+      return; // rechazamos: NO activamos ni auto-desactivamos nada
+    }
+    setExclusionError("");
+    setProduct((prev) => ({
+      ...prev,
+      referral: {
+        enabled,
+        percent:
+          enabled && (!prev.referral.percent || prev.referral.percent <= 0)
+            ? REFERRAL_DEFAULT_PERCENT
+            : prev.referral.percent,
+      },
+    }));
+  };
+
+  // Cambio del % de referido (solo números, tope máximo).
+  const handleReferralPercentChange = (rawValue) => {
+    const numericValue = String(rawValue).replace(/\D/g, "");
+    let finalValue = numericValue === "" ? "" : Number(numericValue);
+    if (finalValue > REFERRAL_MAX_PERCENT) finalValue = REFERRAL_MAX_PERCENT;
+    setProduct((prev) => ({
+      ...prev,
+      referral: { ...prev.referral, percent: finalValue },
+    }));
+  };
+
+    // Preview informativo: no tenemos la cotización USD acá (vive en el precio
+  // del producto), así que mostramos el desglose en % → 50/50.
+  const referralPercent = Number(product.referral?.percent) || 0;
+  const referralValid =
+    !product.referral?.enabled ||
+    (referralPercent > 0 && referralPercent <= REFERRAL_MAX_PERCENT);
+
+  // ── PREVIEW EN VIVO DEL REFERIDO (mientras se ajusta el %) ──
+  // Calculamos sobre el precio EFECTIVO en ARS (oferta si está activa, si no
+  // el precio normal). Sirve para que el vendedor vea, sin scrollear, cuánto
+  // "pierde" de su margen al mover el % (los márgenes suelen ser ajustados).
+  const referralBasePriceArs = Number(
+    product.sale?.price && Number(product.sale.price) > 0
+      ? product.sale.price
+      : product.price,
+  ) || 0;
+  // Monto total que se reparte (equivale al % ofrecido sobre el precio).
+  const referralTotalRewardArs =
+    referralBasePriceArs * (referralPercent / 100);
+  // Reparto 50/50: mitad referidor, mitad comprador.
+  const referralEachArs = referralTotalRewardArs / 2;
 
   // Validaciones de negocio para el bloque de social selling.
   const socialSellingErrors = (() => {
@@ -298,17 +400,42 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
 
   const socialSellingHasErrors = Object.keys(socialSellingErrors).length > 0;
 
-  const internalSubmit = (e) => {
+        const internalSubmit = (e) => {
     e.preventDefault(); // Evitamos que recargue la página
     if (socialSellingHasErrors) {
       setProduct((prev) => prev); // fuerza re-render sin cambios
       return; // bloqueamos el submit si hay errores de social selling
     }
+    if (!referralValid) {
+      return; // bloqueamos el submit si el % de referido es inválido
+    }
+    if (product.socialSelling.enabled && product.referral.enabled) {
+      setExclusionError(
+        "Compra en Grupo y Programa de Referidos son excluyentes. Desactivá uno para continuar.",
+      );
+      return;
+    }
     handleSubmit(product); // Ejecutamos la función del padre pasando los datos del hijo
   };
 
-  return (
+    return (
     <form onSubmit={internalSubmit} className="space-y-2">
+      {/* AVISO DE EXCLUSIÓN: Compra en Grupo ↔ Referidos no pueden coexistir.
+          Se muestra bien visible y bloquea la publicación hasta resolverse. */}
+      {exclusionError && (
+        <div className="flex items-start gap-3 p-4 rounded-2xl border border-red-300 dark:border-red-500/40 bg-red-50 dark:bg-red-500/10">
+          <span className="text-red-500 text-lg leading-none">⛔</span>
+          <div>
+            <p className="text-sm font-bold text-red-700 dark:text-red-400">
+              Funciones incompatibles
+            </p>
+            <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
+              {exclusionError}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* SECCIÓN 2: DETALLES DEL PRODUCTO (Flex-col y ancho completo) */}
       <section className="bg-white dark:bg-[#1A1A1A] p-8 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm space-y-2">
         <h1 className="text-2xl font-black dark:text-white">
@@ -790,11 +917,163 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                       )}
                     </div>
                   )}
-                </div>
+                                </div>
               </div>
             </div>
           )}
+
+          {/* ── MÉTODOS DE PAGO ACEPTADOS (por producto) ── */}
+          <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
+            <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">
+              Métodos de pago aceptados
+            </p>
+            <div className="space-y-3">
+              {/* Transferencia bancaria */}
+              <label
+                className={`flex items-center gap-4 p-4 border rounded-2xl cursor-pointer transition-all ${
+                  product.payment?.acceptsTransfer !== false
+                    ? "bg-blue-50 dark:bg-blue-500/10 border-blue-500"
+                    : "bg-gray-50 dark:bg-[#252525] border-gray-200 dark:border-gray-800"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  className="w-5 h-5 rounded-md border-gray-300 text-blue-600 focus:ring-blue-500"
+                  checked={product.payment?.acceptsTransfer !== false}
+                  onChange={() =>
+                    setProduct((prev) => ({
+                      ...prev,
+                      payment: {
+                        ...prev.payment,
+                        acceptsTransfer: !(prev.payment?.acceptsTransfer !== false),
+                      },
+                    }))
+                  }
+                />
+                <div className="flex items-center gap-2 font-bold text-gray-700 dark:text-gray-300 uppercase text-xs">
+                  <CreditCard
+                    size={18}
+                    className={
+                      product.payment?.acceptsTransfer !== false
+                        ? "text-blue-500"
+                        : "text-gray-400"
+                    }
+                  />
+                  Transferencia bancaria
+                </div>
+              </label>
+
+              {/* Criptomonedas (USDT) */}
+              <label
+                className={`flex items-center gap-4 p-4 border rounded-2xl cursor-pointer transition-all ${
+                  product.payment?.acceptsCrypto
+                    ? "bg-[#F26722]/10 border-[#F26722]"
+                    : "bg-gray-50 dark:bg-[#252525] border-gray-200 dark:border-gray-800"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  className="w-5 h-5 rounded-md border-gray-300 text-[#F26722] focus:ring-[#F26722]"
+                  checked={!!product.payment?.acceptsCrypto}
+                  onChange={() =>
+                    setProduct((prev) => ({
+                      ...prev,
+                      payment: {
+                        ...prev.payment,
+                        acceptsCrypto: !prev.payment?.acceptsCrypto,
+                      },
+                    }))
+                  }
+                />
+                <div className="flex items-center gap-2 font-bold text-gray-700 dark:text-gray-300 uppercase text-xs">
+                  <Coins
+                    size={18}
+                    className={
+                      product.payment?.acceptsCrypto
+                        ? "text-[#F26722]"
+                        : "text-gray-400"
+                    }
+                  />
+                  Criptomonedas (USDT)
+                </div>
+              </label>
+              <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                Si activás criptomonedas, el comprador podrá pagar en USDT. Los
+                fondos quedan retenidos en el contrato escrow hasta que confirmes
+                que recibió el pedido.
+              </p>
+            </div>
+          </div>
         </section>
+
+        {/* ── FOTOS DEL PRODUCTO ──
+            Se ubica ANTES de Compra en Grupo/Referidos para que el flujo quede:
+            … Logística → Fotos → Referidos → Liquidación final, y así el
+            vendedor ve la sección de referidos y el resumen de liquidación
+            consecutivos. */}
+        <div className="bg-white dark:bg-[#1A1A1A] p-8 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col items-center">
+          <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-6 text-center">
+            Fotos del producto ({product.images.length}/5)
+          </label>
+          {/* CARGA DE IMAGENES */}
+          <div
+            onClick={() => setIsImgModalOpen(true)}
+            className="w-full max-w-md aspect-video md:aspect-[21/9] rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-800 flex flex-col items-center justify-center cursor-pointer hover:bg-blue-50/50 dark:hover:bg-blue-900/10 hover:border-blue-500 transition-all group overflow-hidden relative"
+          >
+            {product.images.length > 0 ? (
+              <>
+                <img
+                  src={
+                    product.images.find((img) => img.isMain)?.url ||
+                    product.images[0].url
+                  }
+                  className="w-full h-full object-cover"
+                  alt="Preview"
+                />
+                <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 flex items-center justify-center transition-all">
+                  <span className="bg-white/90 dark:bg-black/60 px-4 py-2 rounded-xl text-xs font-bold dark:text-white backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                    Editar Galería
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center">
+                <div className="p-4 bg-gray-50 dark:bg-[#252525] rounded-full mb-3 group-hover:scale-110 transition-transform">
+                  <ImageIcon
+                    className="text-gray-400 group-hover:text-blue-500"
+                    size={32}
+                  />
+                </div>
+                <span className="text-sm font-bold text-gray-500">
+                  Cargar imágenes
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Miniaturas horizontales para no ocupar espacio vertical extra */}
+          {product.images.length > 0 && (
+            <div className="flex gap-2 mt-4 overflow-x-auto pb-2">
+              {product.images.map((img, i) => (
+                <div
+                  key={i}
+                  className={`w-14 h-14 rounded-lg border-2 overflow-hidden flex-shrink-0 ${img.isMain ? "border-blue-500" : "border-transparent"}`}
+                >
+                  <img src={img.url} className="w-full h-full object-cover" />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {/* Modal de Imágenes (Placeholder) */}
+        <ProductImageUploadModal
+          isOpen={isImgModalOpen}
+          onClose={() => setIsImgModalOpen(false)}
+          onUploadComplete={(images) => {
+            setProduct((prev) => ({ ...prev, images }));
+            // 'images' ahora es un array de objetos {url, isMain}
+          }}
+        />
 
                 {/* SECCIÓN SOCIAL SELLING (COMPRA EN GRUPO / POOLS) */}
         <section className="bg-white dark:bg-[#1A1A1A] p-8 rounded-[32px] border border-gray-100 dark:border-gray-800 space-y-6">
@@ -803,9 +1082,13 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
               <h2 className="text-xl font-black dark:text-white tracking-tighter uppercase italic text-blue-500">
                 Compra en Grupo
               </h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Permití que los compradores se agrupen (hasta 5) y accedan a
                 precios por cantidad.
+                <br />
+                <span className="text-amber-500">
+                  Excluyente con el Programa de Referidos.
+                </span>
               </p>
             </div>
             {/* Toggle habilitar */}
@@ -902,71 +1185,155 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                 </p>
               </div>
             </div>
-          )}
+                    )}
         </section>
 
-        <div className="bg-white dark:bg-[#1A1A1A] p-8 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col items-center">
-          <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-6 text-center">
-            Fotos del producto ({product.images.length}/5)
-          </label>
-          {/* CARGA DE IMAGENES */}
-          <div
-            onClick={() => setIsImgModalOpen(true)}
-            className="w-full max-w-md aspect-video md:aspect-[21/9] rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-800 flex flex-col items-center justify-center cursor-pointer hover:bg-blue-50/50 dark:hover:bg-blue-900/10 hover:border-blue-500 transition-all group overflow-hidden relative"
-          >
-            {product.images.length > 0 ? (
-              <>
-                <img
-                  src={
-                    product.images.find((img) => img.isMain)?.url ||
-                    product.images[0].url
-                  }
-                  className="w-full h-full object-cover"
-                  alt="Preview"
-                />
-                <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 flex items-center justify-center transition-all">
-                  <span className="bg-white/90 dark:bg-black/60 px-4 py-2 rounded-xl text-xs font-bold dark:text-white backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity">
-                    Editar Galería
-                  </span>
-                </div>
-              </>
-            ) : (
-              <div className="flex flex-col items-center">
-                <div className="p-4 bg-gray-50 dark:bg-[#252525] rounded-full mb-3 group-hover:scale-110 transition-transform">
-                  <ImageIcon
-                    className="text-gray-400 group-hover:text-blue-500"
-                    size={32}
-                  />
-                </div>
-                <span className="text-sm font-bold text-gray-500">
-                  Cargar imágenes
+        {/* SECCIÓN REFERIDOS (REINTEGROS POR COMPARTIR) */}
+        <section className="bg-white dark:bg-[#1A1A1A] p-8 rounded-[32px] border border-gray-100 dark:border-gray-800 space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-black dark:text-white tracking-tighter uppercase italic text-emerald-500">
+                Programa de Referidos
+              </h2>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Ofrecé un % de reintegro y que tus clientes te traigan nuevos
+                compradores. Se reparte <b>50/50</b> entre quien comparte el
+                enlace y el comprador.
+                <br />
+                <span className="text-amber-500">
+                  Excluyente con la Compra en Grupo.
                 </span>
-              </div>
-            )}
+              </p>
+            </div>
+            {/* Toggle habilitar */}
+            <button
+              type="button"
+              onClick={() => handleReferralToggle(!product.referral.enabled)}
+              className={`relative w-14 h-8 rounded-full transition-colors shrink-0 ${
+                product.referral.enabled
+                  ? "bg-emerald-600"
+                  : "bg-gray-300 dark:bg-gray-700"
+              }`}
+            >
+              <span
+                className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full shadow transition-transform ${
+                  product.referral.enabled
+                    ? "translate-x-6"
+                    : "translate-x-0"
+                }`}
+              />
+            </button>
           </div>
 
-          {/* Miniaturas horizontales para no ocupar espacio vertical extra */}
-          {product.images.length > 0 && (
-            <div className="flex gap-2 mt-4 overflow-x-auto pb-2">
-              {product.images.map((img, i) => (
-                <div
-                  key={i}
-                  className={`w-14 h-14 rounded-lg border-2 overflow-hidden flex-shrink-0 ${img.isMain ? "border-blue-500" : "border-transparent"}`}
-                >
-                  <img src={img.url} className="w-full h-full object-cover" />
+          {product.referral.enabled && (
+            <div className="animate-in fade-in slide-in-from-top-2 duration-300 space-y-6">
+              {/* Aviso explicativo del modelo 50/50 */}
+              <div className="flex items-start gap-3 p-4 bg-emerald-500/5 rounded-2xl border border-emerald-500/20">
+                <span className="text-emerald-500 text-lg leading-none">💸</span>
+                <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                  El reintegro sale de <b>tu margen</b>: se descuenta de tu
+                  garantía (colateral) al liberarse la orden. Configurá un % que
+                  puedas sostener.
+                </p>
+              </div>
+
+              {/* Input del % */}
+              <div className="space-y-2">
+                <label className="block text-xs font-black text-gray-400 uppercase tracking-widest">
+                  Porcentaje de reintegro (máx. {REFERRAL_MAX_PERCENT}%)
+                </label>
+                <div className="relative w-full md:w-64">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    className="w-full bg-gray-50 dark:bg-[#252525] border border-gray-200 dark:border-gray-800 rounded-2xl p-4 pr-12 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:text-white"
+                    value={product.referral.percent}
+                    onChange={(e) =>
+                      handleReferralPercentChange(e.target.value)
+                    }
+                    placeholder={REFERRAL_DEFAULT_PERCENT}
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-black">
+                    %
+                  </span>
                 </div>
-              ))}
+                {!referralValid && (
+                  <p className="text-xs text-red-500 font-medium">
+                    Ingresá un porcentaje entre 1 y {REFERRAL_MAX_PERCENT}.
+                  </p>
+                )}
+              </div>
+
+                            {/* ── PREVIEW EN VIVO (dinero real, sin scrollear) ──
+                  Muestra, en el momento, cuánto representa el % de recompensa
+                  sobre el precio cargado, y cómo se reparte 50/50. Ayuda a
+                  decidir con márgenes ajustados sin sacar la calculadora. */}
+              {referralBasePriceArs > 0 && referralPercent > 0 && (
+                <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-3">
+                  <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                    <span>Precio sobre el que se calcula</span>
+                    <span className="font-bold text-gray-700 dark:text-gray-200">
+                      ${formatMoney(referralBasePriceArs)}
+                      {product.sale?.price > 0 && (
+                        <span className="ml-1.5 text-[10px] font-black uppercase text-amber-500">
+                          oferta
+                        </span>
+                      )}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between border-t border-emerald-500/20 pt-3">
+                    <span className="text-sm font-bold dark:text-white">
+                      Reintegro total ({referralPercent}%)
+                    </span>
+                    <span className="text-base font-black text-emerald-600 dark:text-emerald-400">
+                      ${formatMoney(Math.round(referralTotalRewardArs))}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 rounded-xl bg-white dark:bg-[#252525] border border-gray-100 dark:border-gray-800">
+                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                        Para quien comparte
+                      </p>
+                      <p className="text-sm font-black text-emerald-500">
+                        ${formatMoney(Math.round(referralEachArs))}
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-white dark:bg-[#252525] border border-gray-100 dark:border-gray-800">
+                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                        Para el comprador
+                      </p>
+                      <p className="text-sm font-black text-emerald-500">
+                        ${formatMoney(Math.round(referralEachArs))}
+                      </p>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                    De cada venta, <b>${formatMoney(Math.round(referralTotalRewardArs))}</b>{" "}
+                    salen de tu margen y se reparten 50/50. Se descuenta de tu
+                    garantía (colateral) al liberarse la orden.
+                  </p>
+                </div>
+              )}
+
+              {referralBasePriceArs === 0 && referralPercent > 0 && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                  Cargá un precio en el producto para ver cuánto representa este
+                  porcentaje en dinero.
+                </p>
+              )}
             </div>
           )}
-        </div>
-        {/* Modal de Imágenes (Placeholder) */}
-        <ProductImageUploadModal
-          isOpen={isImgModalOpen}
-          onClose={() => setIsImgModalOpen(false)}
-          onUploadComplete={(images) => {
-            setProduct((prev) => ({ ...prev, images }));
-            // 'images' ahora es un array de objetos {url, isMain}
-          }}
+                </section>
+
+                {/* RESUMEN DE LIQUIDACIÓN (financials) — solo productos de pago.
+            Colapsado por defecto; el seller lo despliega para ver en limpio
+            cuánto recibe y qué se congela, con el TDC del momento. */}
+        <ProductFinancialsSummary
+          product={product}
+          isClassified={product.listingType === "classified"}
         />
 
         {/* BOTÓN FINAL */}

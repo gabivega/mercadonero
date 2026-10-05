@@ -1,8 +1,13 @@
 import React from 'react';
-import { ShoppingBag, ShieldCheck, Cpu, HelpCircle, BookOpen,} from 'lucide-react';
+import { useSelector } from 'react-redux';
+import { HelpCircle } from 'lucide-react';
+import logoWhite from '../assets/img/logo-white.png';
+import logoBlack from '../assets/img/logo-black.png';
 
 export default function Footer() {
   const currentYear = new Date().getFullYear();
+  // Condicional según el theme: logo blanco para tema oscuro, logo negro para tema claro
+  const theme = useSelector((s) => s.theme.mode);
 
   return (
     <footer className="border-t border-gray-100 dark:border-zinc-800/60 bg-white dark:bg-zinc-950 mt-20 transition-colors duration-300">
@@ -13,14 +18,13 @@ export default function Footer() {
           
           {/* Columna 1: Branding / Filosofía */}
           <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              {/* Logo placeholder - Reemplazalo por tu componente <Logo /> si tenés uno */}
-              <div className="p-1.5 bg-orange-500 rounded-lg text-white">
-                <ShoppingBag className="w-5 h-5 stroke-[2.5]" />
-              </div>
-              <span className="font-black text-xl tracking-tight text-gray-900 dark:text-white">
-                MERCADO<span className="text-[#F26722]">NERO</span>
-              </span>
+                        <div className="flex items-center gap-2">
+              {/* Logo según el theme: blanco en modo oscuro, negro en modo claro */}
+              <img
+                src={theme === 'dark' ? logoWhite : logoBlack}
+                alt="Mercado Nero"
+                className="h-8 w-auto object-contain"
+              />
             </div>
             <p className="text-xs text-gray-500 dark:text-zinc-400 leading-relaxed max-w-xs">
               El primer marketplace multivendor Web3 de la región. Conectamos compradores y vendedores de forma segura y transparente con las comisiones mas bajas del mercado.
@@ -43,24 +47,16 @@ export default function Footer() {
                   Explorar Productos
                 </a>
               </li>
-              <li>
+                            <li>
                 <a href="/vender" className="text-gray-600 dark:text-zinc-400 hover:text-[#F26722] dark:hover:text-[#F26722] transition-colors">
                   Publicar un Artículo
                 </a>
               </li>
-              <li>
-                <a href="/tokenomics" className="text-gray-600 dark:text-zinc-400 hover:text-[#F26722] dark:hover:text-[#F26722] transition-colors flex items-center gap-1.5">
-                  Token $NERO <span className="text-[10px] bg-orange-100 dark:bg-orange-950/40 text-[#F26722] px-1 rounded font-bold">Utility</span>
+              {/* <li>
+                <a href="/compras-grupales" className="text-gray-600 dark:text-zinc-400 hover:text-[#F26722] dark:hover:text-[#F26722] transition-colors">
+                  Compras Grupales
                 </a>
-              </li>
-              <h4 className="text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500 mb-4">
-              Nosotros
-            </h4>
-            <li>
-                <a href="/equipo" className="text-gray-600 dark:text-zinc-400 hover:text-[#F26722] dark:hover:text-[#F26722] transition-colors">
-                  Nuestro Equipo
-                </a>
-              </li>
+              </li> */}
             </ul>
           </div>
 
@@ -69,20 +65,15 @@ export default function Footer() {
             <h4 className="text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500 mb-4">
               Soporte y Ayuda
             </h4>
-            <ul className="space-y-2.5 text-sm">
+                        <ul className="space-y-2.5 text-sm">
+              <li>
+                <a href="/ayuda/comprar" className="text-gray-600 dark:text-zinc-400 hover:text-[#F26722] dark:hover:text-[#F26722] transition-colors flex items-center gap-1.5">
+                  <HelpCircle className="w-3.5 h-3.5" /> Ayuda para Compradores
+                </a>
+              </li>
               <li>
                 <a href="/ayuda/vender" className="text-gray-600 dark:text-zinc-400 hover:text-[#F26722] dark:hover:text-[#F26722] transition-colors flex items-center gap-1.5">
                   <HelpCircle className="w-3.5 h-3.5" /> Guía para Vendedores
-                </a>
-              </li>
-              <li>
-                <a href="/ayuda/disputas" className="text-gray-600 dark:text-zinc-400 hover:text-[#F26722] dark:hover:text-[#F26722] transition-colors flex items-center gap-1.5">
-                  <ShieldCheck className="w-3.5 h-3.5" /> Sistema de Garantías
-                </a>
-              </li>
-              <li>
-                <a href="/docs" className="text-gray-600 dark:text-zinc-400 hover:text-[#F26722] dark:hover:text-[#F26722] transition-colors flex items-center gap-1.5">
-                  <BookOpen className="w-3.5 h-3.5" /> Documentación (SAFT)
                 </a>
               </li>
             </ul>
@@ -125,8 +116,8 @@ export default function Footer() {
 
         {/* Barra de Derechos / Legal de Cierre */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-gray-500 dark:text-zinc-500">
-          <div>
-            © {currentYear} <strong>Nero Marketplace</strong>. Desarrollado exclusivamente para la fase de MVP y validación experimental.
+                    <div>
+            © {currentYear} <strong>Mercado Nero</strong>
           </div>
           <div className="flex items-center gap-4">
             <a href="/legal/terminos" className="hover:text-gray-800 dark:hover:text-zinc-300 transition-colors">Términos</a>

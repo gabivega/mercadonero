@@ -284,13 +284,13 @@ export default function ProductCard({ product }) {
                 {/* Envío / Condición / Cashback */}
         {product.listingType == "product" ? (
           <div className="flex items-center gap-2 h-5">
-            <div>
               {product.shipping?.free === true && (
+            <div>
                 <div className="text-xs text-green-600 dark:text-green-400 font-semibold">
                   Envío gratis
                 </div>
-              )}
             </div>
+              )}
             {/* Condición compartiendo renglón con el envío (ahorra espacio) */}
             {product.condition && product.condition !== "Nuevo" && (
               <span className="text-xs font-medium text-gray-600 dark:text-gray-400 inline-block bg-gray-100 dark:bg-zinc-700 px-2 py-[2px] rounded">
@@ -316,7 +316,7 @@ export default function ProductCard({ product }) {
         )}
 
         {/* Rating and Sold Info */}
-        <div className="h-5">
+        <div className="h-5 mt-[2px]">
           {product.rating > 0 && (
             <div className="text-[0.7rem] text-yellow-500">
               ⭐ {product.rating}{" "}

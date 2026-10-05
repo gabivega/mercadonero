@@ -1,6 +1,6 @@
 import express from 'express';
 const router = express.Router();
-import { createOrder, getMyOrders, markAsPaid, getOrderById, updateOrder, cancelOrder, vendorConfirmsRefund, buyerConfirmsRefundReceived, requestAdminRelease, retryCollateral, cancelCollateralHold, confirmEscrowFunding, getEscrowStatus, cancelCryptoOrder, openDispute, uploadPaymentProof } from '../controllers/orderController.js';
+import { createOrder, getMyOrders, markAsPaid, getOrderById, updateOrder, cancelOrder, vendorConfirmsRefund, buyerConfirmsRefundReceived, requestAdminRelease, retryCollateral, cancelCollateralHold, prepareEscrowFunding, confirmEscrowFunding, getEscrowStatus, cancelCryptoOrder, rollbackCryptoOrder, openDispute, uploadPaymentProof, buyerRequestEscrowRelease } from '../controllers/orderController.js';
 import verifyPrivyToken from '../middleware/auth.js';
 import attachUser from '../middleware/attachUser.js';
 
@@ -17,6 +17,10 @@ router.patch('/:orderId/cancel-crypto', verifyPrivyToken, attachUser, cancelCryp
 // Ver estado on-chain del escrow de una orden crypto
 router.get('/:orderId/escrow-status', verifyPrivyToken, attachUser, getEscrowStatus);
 // Confirmar fondeo del escrow (comprador reporta txHash, backend verifica on-chain)
+// Rollback de orden crypto provisional (comprador cerró el modal sin fondear)
+router.delete('/:orderId/escrow/rollback', verifyPrivyToken, attachUser, rollbackCryptoOrder);
+// Preparar fondeo del escrow: valida saldo USDT + entrega gas drip (BNB) + devuelve token.
+router.post('/:orderId/escrow/prepare-funding', verifyPrivyToken, attachUser, prepareEscrowFunding);
 router.post('/:orderId/escrow/fund', verifyPrivyToken, attachUser, confirmEscrowFunding);
 // Colateral en espera: vendedor deposita y activa la orden / comprador no espera más
 router.post('/:orderId/retry-collateral', verifyPrivyToken, attachUser, retryCollateral);
@@ -32,5 +36,8 @@ router.post('/:orderId/dispute', verifyPrivyToken, attachUser, openDispute);
 // Comprador adjunta el comprobante de su transferencia ante una disputa de
 // pago no recibido (recibe una URL ya subida a Cloudinary desde el front).
 router.patch('/:orderId/upload-proof', verifyPrivyToken, attachUser, uploadPaymentProof);
+// Comprador solicita la liberación del escrow al admin tras el plazo de
+// inactividad (ej: recibió el producto y no confirmó en la plataforma).
+router.post('/:orderId/escrow/request-release', verifyPrivyToken, attachUser, buyerRequestEscrowRelease);
 
 export default router;

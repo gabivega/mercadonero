@@ -9,7 +9,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Markup por defecto sobre el costo del proveedor para el precio de venta.
-export const DEFAULT_MARKUP = 0.15; // +15%
+export const DEFAULT_MARKUP = 0.20; // +20%
 
 /**
  * Calcula el precio de venta aplicando el markup sobre el costo de Elit.

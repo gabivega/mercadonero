@@ -34,6 +34,33 @@ const ProductSchema = new Schema(
       // se stringifican pero el acceso por number sigue funcionando).
       tiers: { type: Object, default: {} },
     },
+        // ── REFERIDOS (reintegros por compartir) ──────────────────────────
+    // El vendedor define qué % de reintegro (reward) ofrece por este producto.
+    // Ese % se calcula sobre el SUBTOTAL USD (sin envío) y se reparte 50/50:
+    //   - mitad para quien COMPARTIÓ el enlace (referidor)
+    //   - mitad para el COMPRADOR (reintegro)
+    // El % extra lo cubre el vendedor: en el flujo normal (pago ARS + colateral
+    // USDT) se le descuenta del colateral on-chain (fee = comisión + reward).
+    // Solo aplica a productos de pago (listingType === "product").
+        referral: {
+      enabled: { type: Boolean, default: false },
+      // % total que ofrece el vendedor (ej: 10 => 10%). Tope en ReferralConfig.
+      percent: { type: Number, default: 0 },
+    },
+    // ── MÉTODOS DE PAGO ACEPTADOS POR EL VENDEDOR ──────────────────────
+    // El vendedor decide, POR PRODUCTO, qué medio de pago acepta:
+    //   - acceptsTransfer: transferencia bancaria (flujo con colateral). ON por
+    //     defecto para no romper el comportamiento histórico.
+    //   - acceptsCrypto: pago en cripto (USDT) vía escrow NeroEscrow. El
+    //     comprador fondea el contrato y los fondos quedan retenidos hasta que
+    //     confirma la recepción. OFF por defecto.
+    // Un producto debe aceptar al menos UN método; el checkout arma el pago de
+    // la orden según los métodos que acepten TODOS los productos del carrito.
+    // Solo aplica a listingType === "product" (los clasificados no pagan).
+    payment: {
+      acceptsTransfer: { type: Boolean, default: true },
+      acceptsCrypto: { type: Boolean, default: false },
+    },
     warranty: {
       type: {
         type: String,
@@ -137,11 +164,13 @@ const ProductSchema = new Schema(
     // Vincula la publicación con el producto original de un proveedor.
     // Permite: (a) no duplicar al reimportar, (b) sincronizar precio/stock
     // más adelante sin adivinar por nombre.
-    providerRef: {
-      provider: { type: String, trim: true, default: "" }, // ej: "elit"
+        providerRef: {
+      provider: { type: String, trim: true, default: "" }, // ej: "elit", "flaming"
       id: { type: Number, default: null },                 // id numérico del proveedor
       codigo_producto: { type: String, trim: true, default: "" }, // SKU del proveedor
       codigo_alfa: { type: String, trim: true, default: "" },
+      // Etiqueta legible de la tienda/proveedor de origen (ej: "Flaming").
+      storeName: { type: String, trim: true, default: "" },
       // Precio de costo del proveedor al momento de importar (para calcular
       // margen y detectar cambios de precio en sync futuras).
       costPvpArs: { type: Number, default: 0 },

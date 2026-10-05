@@ -123,7 +123,13 @@ const userSchema = new Schema(
         },
         holderName: { type: String, required: true }, // Titular
         cuitCuil: { type: String, required: true },
-        cbuCvu: { type: String, required: true, unique: true },
+        // OJO: NO usar `unique: true` acá. Este campo vive dentro de un array
+        // (bankAccounts); un `unique` en un campo de array crea un índice único
+        // GLOBAL y hace que dos usuarios NO puedan repetir el mismo CBU/CVU,
+        // rompiendo el guardado desde el perfil (E11000 duplicate key → 500
+        // "Error al actualizar el perfil"). La unicidad, si hiciera falta, se
+        // valida a nivel lógico por usuario, no con un índice.
+        cbuCvu: { type: String, required: true },
         alias: { type: String, required: true },
         isDefault: { type: Boolean, default: false },
       },
@@ -281,6 +287,49 @@ const userSchema = new Schema(
       ],
     },
 
+    // ────────────────────────────────────────────────
+    // REFERIDOS (reintegros por compartir enlaces)
+    // El reward de cada orden referida se reparte 50/50: la mitad para quien
+    // compartió el enlace (este usuario como referidor) y la mitad para el
+    // comprador. Todo se acredita off-chain (BD), igual que el cashback.
+    // ────────────────────────────────────────────────
+    referral: {
+      balance: { type: Number, default: 0 },   // Saldo acumulado disponible (USD) como referidor
+      earned: { type: Number, default: 0 },     // Total ganado histórico (USD) como referidor
+      spent: { type: Number, default: 0 },      // Total usado en compras (USD)
+      withdrawn: { type: Number, default: 0 },  // Total retirado fuera de la plataforma (USD)
+
+      // Historial de movimientos de referidos (para auditoría/UI).
+      transactions: [
+        {
+          type: {
+            type: String,
+            enum: ["earned", "spent", "withdrawn", "adjustment"],
+            required: true,
+          },
+          amount: { type: Number, required: true },
+          description: { type: String, default: "" },
+          refType: {
+            type: String,
+            enum: ["order", "withdrawal", "admin", "checkout"],
+            default: "order",
+          },
+          refId: { type: mongoose.Schema.Types.ObjectId },
+          status: {
+            type: String,
+            enum: ["pending", "completed", "failed"],
+            default: "completed",
+          },
+          createdAt: { type: Date, default: Date.now },
+        },
+      ],
+    },
+
+    // Quién refirió a este usuario (una sola vez, queda fijo). Sirve para
+    // métricas de adquisición. El reward concreto se registra por orden en
+    // el modelo Referral, no acá.
+    referredBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
+
     // Relaciones con otros modelos del Marketplace
     favorites: [{ type: Schema.Types.ObjectId, ref: "Product" }],
     purchases: [{ type: Schema.Types.ObjectId, ref: "Order" }],
@@ -325,7 +374,9 @@ const userSchema = new Schema(
 );
 
 // Índices para mejorar el rendimiento de búsqueda
-userSchema.index({ email: 1 });
+// ⚠️ NO declarar `userSchema.index({ email: 1 })` acá: el campo `email` ya
+// tiene `unique: true` (que crea su propio índice). Declarar ambos genera el
+// warning de Mongoose "Duplicate schema index on {email:1}".
 userSchema.index({ "wallet.address": 1 });
 
 const User = mongoose.model("User", userSchema);

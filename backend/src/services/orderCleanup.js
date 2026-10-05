@@ -45,9 +45,12 @@ export const runOrderCleanupOnce = async () => {
             // Buscamos órdenes que sigan en 'pending_payment', tengan más de 1 hora
             // y NO tengan una solicitud de cancelación o de liberación de garantía
             // pendiente (para no interferir con flujos que requieren acción manual).
-            const expiredOrders = await Order.find({
+                        const expiredOrders = await Order.find({
               status: "pending_payment",
               expiresAt: { $lt: new Date() },
+              // Las órdenes con pago en CRIPTO NO expiran: el dinero queda
+              // retenido en el escrow on-chain y solo vendedor/admin cancelan.
+              "payment.method": { $ne: "crypto" },
               "pendingRequest.exists": { $ne: true },
               "releaseRequest.exists": { $ne: true },
             });

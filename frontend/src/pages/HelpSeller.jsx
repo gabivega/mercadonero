@@ -84,7 +84,7 @@ export default function HelpSeller() {
       content: (
         <p>
           No, nunca. Mercado Nero es una plataforma descentralizada. Nosotros no tenemos acceso a tus claves, no abrimos cuentas bancarias a tu nombre ni guardamos tus criptomonedas en nuestros servidores. Vos sos el único custodio absoluto de tus fondos. Todo el proceso de garantía ocurre directamente entre tu wallet y el contrato inteligente en la red blockchain.
-          La plataforma solamente facilita la conexión entre los participantes y el contrato inteligente.
+          La plataforma solamente facilita la conexión entre los participantes.
         </p>
       ),
     },

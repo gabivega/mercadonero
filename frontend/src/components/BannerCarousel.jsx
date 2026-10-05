@@ -4,22 +4,30 @@ import { useNavigate } from 'react-router-dom'
 
 // Estructura de objetos para Desktop
 const desktopBanners = [ 
+  // {
+  //   image: '/assets/img/banner-desktop/warehouse.webp',
+  //   title: "Precios mayoristas, a tu alcance",
+  //   subtitle: "Sumate a pools de compra y obtené los mejores precios posibles",
+  //   button: "Ver Pooles activos",
+  //   url: "/compras-grupales",
+  //   overlay: "bg-black/70"
+  // },
   {
-    image: '/assets/img/banner-desktop/warehouse.webp',
-    title: "Precios mayoristas, a tu alcance",
-    subtitle: "Sumate a pools de compra y obtené los mejores precios posibles",
-    button: "Ver Pooles activos",
-    url: "/compras-grupales",
-    overlay: "bg-black/70"
+    image: '/assets/img/banner-desktop/referral.webp',
+    title: "Sistema de referidos",
+    subtitle: "Compartí productos y ganá una comisión en USDT por cada compra.",
+    button: "Ver productos habilitados",
+    url: "/referidos",
+    overlay: "bg-black/50"
   },
-  {
-    image: '/assets/img/banner-desktop/cash.webp',
-    title: "Vendé y cobrá por adelantado",
-    subtitle: "Mercado Nero es el único Marketplace del mundo donde podés cobrar por adelantado mientras protegemos a compradores, gracias al poder de los contratos inteligentes.",
-    button: "Empezar a vender",
-    url: "/vender",
-    overlay: "bg-black/40" // Capa oscura intermedia
-  },
+  // {
+  //   image: '/assets/img/banner-desktop/cash.webp',
+  //   title: "Vendé y cobrá por adelantado",
+  //   subtitle: "Mercado Nero es el único Marketplace del mundo donde podés cobrar por adelantado mientras protegemos a compradores, gracias al poder de los contratos inteligentes.",
+  //   button: "Empezar a vender",
+  //   url: "/vender",
+  //   overlay: "bg-black/40" // Capa oscura intermedia
+  // },
   {
     image: '/assets/img/banner-desktop/seller.webp',
     title: "Comisiones mas bajas del Mercado",
@@ -35,16 +43,23 @@ const desktopBanners = [
     button: "",
     overlay: "bg-gradient-to-r from-black/70 to-transparent" // Degradado estético de izquierda a derecha
   },
-    {
-    image: '/assets/img/banner-desktop/supermarket.webp',
-    title: "Al Super, sin salir de casa",
-    subtitle: "Miles de productos de supermercado disponibles con envío en el día. Comprá desde la comodidad de tu casa ahorrando tiempo y dinero.",
-    button: "Ver Productos",
-    overlay: "bg-black/60", // Sin capa extra
-    url: "/c/supermercado",
+  {
+    image: '/assets/img/banner-desktop/social.webp',
+    title: "Comprá en grupo, pagá menos",
+    subtitle: "Creá o unite a un grupo de compra y desbloqueá descuentos",
+    button: "",
+    overlay: "bg-black/50" // Degradado estético de izquierda a derecha
   },
+  //   {
+  //   image: '/assets/img/banner-desktop/supermarket.webp',
+  //   title: "Al Super, sin salir de casa",
+  //   subtitle: "Miles de productos de supermercado disponibles con envío en el día. Comprá desde la comodidad de tu casa ahorrando tiempo y dinero.",
+  //   button: "Ver Productos",
+  //   overlay: "bg-black/60", // Sin capa extra
+  //   url: "/c/supermercado",
+  // },
  {
-  image: '/assets/img/banner-desktop/referral.webp', // Tu nueva imagen
+  image: '/assets/img/banner-desktop/cashback.webp', // Tu nueva imagen
   title: "Cashback en USDT",
   subtitle: "Obtené un 2.5% en USDT de reintegro en todas tus compras.",
   // button: "Empezar a comprar",
@@ -54,20 +69,37 @@ const desktopBanners = [
 ]
 
 // Estructura de objetos para Mobile (Mismos textos, adaptados a su imagen vertical/cuadrada)
-const mobileBanners = [
- {
-    image: '/assets/img/banner-desktop/cash.webp',
-    title: "Vendé y cobrá por adelantado",
-    subtitle: "Mercado Nero es el único Marketplace del mundo donde podés cobrar por adelantado mientras protegemos a compradores y vendedores, gracias al poder de los contratos inteligentes.",
-    button: "Empezar a vender",
-    url: "/vender",
-    overlay: "bg-black/40" // Capa oscura intermedia
+const mobileBanners = [ 
+  // {
+  //   image: '/assets/img/banner-desktop/warehouse.webp',
+  //   title: "Precios mayoristas, a tu alcance",
+  //   subtitle: "Sumate a pools de compra y obtené los mejores precios posibles",
+  //   button: "Ver Pooles activos",
+  //   url: "/compras-grupales",
+  //   overlay: "bg-black/70"
+  // },
+  {
+    image: '/assets/img/banner-desktop/referral.webp',
+    title: "Sistema de referidos",
+    subtitle: "Compartí productos y ganá una comisión en USDT por cada compra.",
+    button: "Ver productos habilitados",
+    url: "/referidos",
+    overlay: "bg-black/50"
   },
+  // {
+  //   image: '/assets/img/banner-desktop/cash.webp',
+  //   title: "Vendé y cobrá por adelantado",
+  //   subtitle: "Mercado Nero es el único Marketplace del mundo donde podés cobrar por adelantado mientras protegemos a compradores, gracias al poder de los contratos inteligentes.",
+  //   button: "Empezar a vender",
+  //   url: "/vender",
+  //   overlay: "bg-black/40" // Capa oscura intermedia
+  // },
   {
     image: '/assets/img/banner-desktop/seller.webp',
     title: "Comisiones mas bajas del Mercado",
-    subtitle: "Comision fija FINAL del 3%, sin sorpresas. Aumentá tu rentabilidad vendiendo en Mercado Nero. Como comprador vas a encontrar los mejores precios del mercado.",
+    subtitle: "Comision fija FINAL del 3%, sin sorpresas. Aumentá tu rentabilidad vendiendo en Mercado Nero",
     button: "Empezar a vender",
+    url: "/vender",
     overlay: "bg-black/50" // Un poco más oscuro si la imagen brilla mucho
   },
   {
@@ -78,20 +110,28 @@ const mobileBanners = [
     overlay: "bg-gradient-to-r from-black/70 to-transparent" // Degradado estético de izquierda a derecha
   },
   {
-    image: '/assets/img/banner-desktop/cellphone.webp',
-    title: "Mejores Precios en celulares",
-    subtitle: "Encontrá los mejores precios del país en telefonía. Compra protegida y envíos a todo el pais.",
-    button: "Ver Ofertas",
-    overlay: "bg-black/60" // Sin capa extra
+    image: '/assets/img/banner-desktop/social.webp',
+    title: "Comprá en grupo, pagá menos",
+    subtitle: "Creá o unite a un grupo de compra y desbloqueá descuentos",
+    button: "",
+    overlay: "bg-black/50" // Degradado estético de izquierda a derecha
   },
-  {
-    image: '/assets/img/banner-desktop/supermarket.webp',
-    title: "Al Super, sin salir de casa",
-    subtitle: "Miles de productos de supermercado disponibles con envío en el día. Comprá desde la comodidad de tu casa ahorrando tiempo y dinero.",
-    button: "Ver Productos",
-    overlay: "bg-black/60", // Sin capa extra
-    url: "/c/supermercado",
-  },
+  //   {
+  //   image: '/assets/img/banner-desktop/supermarket.webp',
+  //   title: "Al Super, sin salir de casa",
+  //   subtitle: "Miles de productos de supermercado disponibles con envío en el día. Comprá desde la comodidad de tu casa ahorrando tiempo y dinero.",
+  //   button: "Ver Productos",
+  //   overlay: "bg-black/60", // Sin capa extra
+  //   url: "/c/supermercado",
+  // },
+ {
+  image: '/assets/img/banner-desktop/cashback.webp', // Tu nueva imagen
+  title: "Cashback en USDT",
+  subtitle: "Obtené un 2.5% en USDT de reintegro en todas tus compras.",
+  // button: "Empezar a comprar",
+  overlay: "bg-black/60", 
+  url: "/referidos", // O la ruta que le hayas asignado a la pestaña de creadores
+}
 ]
 
 export default function BannerCarousel() {

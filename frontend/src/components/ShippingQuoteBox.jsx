@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import axios from "axios";
-import { Truck, ChevronDown, ChevronUp, MapPin, Loader2 } from "lucide-react";
+import { Truck, ChevronDown, ChevronUp, MapPin, Loader2, Store } from "lucide-react";
 import { useUserStore } from "../store/useUserStore";
 import PostalCodeInput from "./PostalCodeInput";
+import PickupPointsModal, { usePickupPoints } from "./PickupPointsModal";
 import { toZipnovaState } from "../Utils/postalCodes";
 
 // ─────────────────────────────────────────────────────────────
@@ -83,6 +84,11 @@ export default function ShippingQuoteBox({ product, onQuoteChange }) {
   const [results, setResults] = useState(null);
   const [showAll, setShowAll] = useState(false);
 
+  // Modal de puntos de entrega (solo lectura en la ficha de producto).
+  // `pickupPoints` guarda los puntos de la opción cotizada que se está viendo.
+  const [showPointsModal, setShowPointsModal] = useState(false);
+  const [pickupPoints, setPickupPoints] = useState([]);
+
   // Datos manuales cuando no hay dirección guardada / no está logueado.
   // Zipnova exige CP + Ciudad + Provincia (a menos que mandemos un
   // destination.id de su address book, que no es el caso).
@@ -147,6 +153,10 @@ export default function ShippingQuoteBox({ product, onQuoteChange }) {
           items: [buildItem(product)],
           type_packaging: "dynamic",
           sort_by: "price",
+          // Pedimos a Zipnova que incluya, en cada resultado que aplique
+          // (ej. Correo Argentino, OCA), los puntos de entrega donde el
+          // comprador puede retirar su compra.
+          include_dropoff_points: 1,
         };
 
         const { data } = await axios.post(
@@ -232,6 +242,10 @@ export default function ShippingQuoteBox({ product, onQuoteChange }) {
   const cheapest = sorted?.[0] || null;
   const rest = sorted?.slice(1) || [];
 
+  // Puntos de entrega de la opción más barata (la que se muestra arriba).
+  // En la ficha solo los visualizamos, por eso limitamos a 5 en el modal.
+  const cheapestPoints = usePickupPoints(cheapest?.pickup_points || []);
+
   const deliveryLabel = (r) =>
     r?.delivery_time?.min != null
       ? `${r.delivery_time.min}-${r.delivery_time.max} días`
@@ -273,6 +287,7 @@ export default function ShippingQuoteBox({ product, onQuoteChange }) {
   // Resultado disponible
   if (cheapest) {
     return (
+      <>
       <div className="space-y-2">
         <div className="flex gap-2.5">
           <Truck className="w-4 h-4 shrink-0 mt-0.5 text-green-500" />
@@ -300,6 +315,25 @@ export default function ShippingQuoteBox({ product, onQuoteChange }) {
                 {showAll ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
               </button>
             )}
+
+            {/* PUNTOS DE ENTREGA (Correo Argentino, OCA, etc.): la opción más
+                barata ofrece sucursales donde el comprador puede retirar. Como
+                en la ficha solo informamos, mostramos un botón que abre un
+                modal con las primeras 5. */}
+            {cheapestPoints.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setPickupPoints(cheapest?.pickup_points || []);
+                  setShowPointsModal(true);
+                }}
+                className="mt-1.5 text-[#3483fa] text-xs hover:underline inline-flex items-center gap-1"
+              >
+                <Store size={12} />
+                Ver {Math.min(cheapestPoints.length, 5)} punto
+                {Math.min(cheapestPoints.length, 5) > 1 ? "s" : ""} de entrega
+              </button>
+            )}
           </div>
         </div>
 
@@ -311,6 +345,11 @@ export default function ShippingQuoteBox({ product, onQuoteChange }) {
                   {formatArs(r.amounts?.price_incl_tax)}
                 </span>{" "}
                 · {r.carrier?.name || "Logística"} · {deliveryLabel(r)}
+                {r?.pickup_points?.length > 0 && (
+                  <span className="text-[#3483fa] ml-1">
+                    · {r.pickup_points.length} puntos de entrega
+                  </span>
+                )}
               </li>
             ))}
           </ul>
@@ -338,6 +377,20 @@ export default function ShippingQuoteBox({ product, onQuoteChange }) {
           )}
         </p>
       </div>
+
+      {/* Modal de puntos de entrega — SOLO LECTURA en la ficha (el comprador
+          elige el punto definitivo recién en el checkout). Máximo 5 puntos. */}
+      <PickupPointsModal
+        open={showPointsModal}
+        onClose={() => setShowPointsModal(false)}
+        points={pickupPoints}
+        selectable={false}
+        limit={5}
+        serviceLabel={`${cheapest.carrier?.name || "Logística"}${
+          cheapest.service_type?.name ? ` · ${cheapest.service_type.name}` : ""
+        }`}
+      />
+      </>
     );
   }
 

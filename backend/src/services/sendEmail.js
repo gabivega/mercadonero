@@ -713,9 +713,198 @@ export const sendPoolActivityToVendor = async ({
       `,
     });
 
-    if (error) console.error("Error email de grupo al vendedor:", error);
+        if (error) console.error("Error email de grupo al vendedor:", error);
     return { data, error };
   } catch (err) {
     console.error("Exception en sendPoolActivityToVendor:", err);
+  }
+};
+
+/**
+ * 13. NOTIFICACIÓN AL COMPRADOR (Recordatorio para confirmar recepción de una
+ * orden con escrow crypto que lleva N días fondeada sin confirmar).
+ * Se dispara desde el panel de admin (botón "Notificar al comprador").
+ */
+export const sendEscrowReleaseReminderToBuyer = async ({
+  buyerEmail,
+  orderId,
+  amountUsdt,
+  daysSinceFunded,
+}) => {
+  try {
+    const shortOrderId = String(orderId).slice(-6).toUpperCase();
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [buyerEmail],
+      subject: `Recordatorio: confirmá la recepción de tu orden #${shortOrderId}`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+          <h2 style="color: #111;">Tu pago sigue retenido en garantía</h2>
+          <p>Tu orden <strong>#${shortOrderId}</strong> fue pagada con USDT y los fondos siguen retenidos en el escrow${daysSinceFunded ? ` desde hace ${daysSinceFunded} días` : ""}.</p>
+          <div style="background-color: #f4f4f5; padding: 15px; border-radius: 6px; margin: 15px 0;">
+            <p style="margin: 0;"><strong>Número de orden:</strong> #${shortOrderId}</p>
+            ${amountUsdt != null ? `<p style="margin: 5px 0 0 0;"><strong>Monto retenido:</strong> US$ ${amountUsdt} USDT</p>` : ""}
+          </div>
+          <p style="font-size: 13px; color: #555;">
+            Si ya recibiste tu producto, ingresá a la plataforma y pulsá <strong>"Recibí el producto"</strong> para liberar los fondos al vendedor.
+          </p>
+          <p style="font-size: 13px; color: #b45309;">
+            Si no confirmás la recepción, la plataforma podrá liberar los fondos al vendedor luego de la verificación correspondiente.
+          </p>
+        </div>
+      `,
+    });
+    if (error) console.error("Error email recordatorio escrow al comprador:", error);
+    return { data, error };
+  } catch (err) {
+    console.error("Exception en sendEscrowReleaseReminderToBuyer:", err);
+  }
+};
+
+/**
+ * 14. NOTIFICACIÓN AL VENDEDOR (El escrow fue liberado / el comprador confirmó
+ * la recepción). Fondos enviados a su wallet.
+ */
+export const sendEscrowReleasedToVendor = async ({
+  vendorEmail,
+  orderId,
+  sellerNetUsd,
+  txHash,
+}) => {
+  try {
+    const shortOrderId = String(orderId).slice(-6).toUpperCase();
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [vendorEmail],
+      subject: `Escrow liberado - Orden #${shortOrderId}`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+          <h2 style="color: #111;">¡Tus fondos fueron liberados!</h2>
+          <p>El escrow de la orden <strong>#${shortOrderId}</strong> fue liberado y los USDT ya fueron enviados a tu billetera.</p>
+          <div style="background-color: #f4f4f5; padding: 15px; border-radius: 6px; margin: 15px 0;">
+            <p style="margin: 0;"><strong>Número de orden:</strong> #${shortOrderId}</p>
+            ${sellerNetUsd != null ? `<p style="margin: 5px 0 0 0;"><strong>Monto recibido (neto):</strong> US$ ${sellerNetUsd} USDT</p>` : ""}
+            ${txHash ? `<p style="margin: 5px 0 0 0; font-size: 12px;"><strong>Tx:</strong> <code>${txHash}</code></p>` : ""}
+          </div>
+          <p style="font-size: 13px; color: #555;">Podés ver el detalle completo en tu panel, sección <strong>"Mis Ventas"</strong>.</p>
+        </div>
+      `,
+    });
+    if (error) console.error("Error email escrow liberado al vendedor:", error);
+    return { data, error };
+  } catch (err) {
+    console.error("Exception en sendEscrowReleasedToVendor:", err);
+  }
+};
+
+/**
+ * 15. NOTIFICACIÓN AL COMPRADOR (El escrow fue reembolsado a su billetera).
+ */
+export const sendEscrowRefundedToBuyer = async ({
+  buyerEmail,
+  orderId,
+  amountUsdt,
+  txHash,
+}) => {
+  try {
+    const shortOrderId = String(orderId).slice(-6).toUpperCase();
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [buyerEmail],
+      subject: `Reembolso procesado - Orden #${shortOrderId}`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+          <h2 style="color: #111;">Tu reembolso fue enviado</h2>
+          <p>La orden <strong>#${shortOrderId}</strong> fue cancelada y los USDT del escrow fueron devueltos a tu billetera.</p>
+          <div style="background-color: #f4f4f5; padding: 15px; border-radius: 6px; margin: 15px 0;">
+            <p style="margin: 0;"><strong>Número de orden:</strong> #${shortOrderId}</p>
+            ${amountUsdt != null ? `<p style="margin: 5px 0 0 0;"><strong>Monto reembolsado:</strong> US$ ${amountUsdt} USDT</p>` : ""}
+            ${txHash ? `<p style="margin: 5px 0 0 0; font-size: 12px;"><strong>Tx:</strong> <code>${txHash}</code></p>` : ""}
+          </div>
+        </div>
+      `,
+    });
+    if (error) console.error("Error email reembolso escrow al comprador:", error);
+    return { data, error };
+  } catch (err) {
+    console.error("Exception en sendEscrowRefundedToBuyer:", err);
+  }
+};
+
+/**
+ * 16. NOTIFICACIÓN AL COMPRADOR (El pedido está listo para retirar en sucursal).
+ */
+export const sendPickupReadyToBuyer = async ({
+  buyerEmail,
+  orderId,
+  pickupLocation = {},
+  note,
+  amount,
+}) => {
+  try {
+    const shortOrderId = String(orderId).slice(-6).toUpperCase();
+    const loc = pickupLocation || {};
+    const addressLine = [loc.street, loc.streetNumber].filter(Boolean).join(" ");
+    const cityLine = [loc.city, loc.state].filter(Boolean).join(", ");
+    const where = loc.name || addressLine || "la sucursal del vendedor";
+
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [buyerEmail],
+      subject: `🎉 ¡Tu pedido está listo para retirar! Orden #${shortOrderId}`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+          <h2 style="color: #111;">¡Tu pedido te espera!</h2>
+          <p>El vendedor marcó la orden <strong>#${shortOrderId}</strong> como lista para retirar en sucursal.</p>
+
+          <div style="background-color: #f4f4f5; padding: 15px; border-radius: 6px; margin: 15px 0;">
+            <p style="margin: 0 0 8px 0; font-size: 13px; font-weight: bold; color: #333;">Punto de retiro:</p>
+            <p style="margin: 5px 0;"><strong>${where}</strong></p>
+            ${addressLine ? `<p style="margin: 3px 0; color: #555;">${addressLine}${cityLine ? ` — ${cityLine}` : ""}</p>` : ""}
+            ${loc.zipcode ? `<p style="margin: 3px 0; color: #555;">CP ${loc.zipcode}</p>` : ""}
+            ${loc.hours ? `<p style="margin: 8px 0 3px 0;"><strong>Horarios:</strong> ${loc.hours}</p>` : ""}
+            ${loc.references ? `<p style="margin: 3px 0;"><strong>Referencias:</strong> ${loc.references}</p>` : ""}
+            ${note ? `<p style="margin: 10px 0 0 0; border-top: 1px solid #e4e4e7; padding-top: 8px;"><strong>Nota del vendedor:</strong> ${note}</p>` : ""}
+          </div>
+
+          <p>Cuando retires tu pedido, confirmá la recepción desde la plataforma para completar la compra.</p>
+          ${amount != null ? `<p style="color: #555; font-size: 13px;">Total de la orden: <strong>$${amount}</strong></p>` : ""}
+        </div>
+      `,
+    });
+    if (error) console.error("Error email pickup-ready al comprador:", error);
+    return { data, error };
+  } catch (err) {
+    console.error("Exception en sendPickupReadyToBuyer:", err);
+  }
+};
+
+/**
+ * 17. NOTIFICACIÓN AL COMPRADOR (El vendedor confirmó la entrega en sucursal).
+ */
+export const sendPickupConfirmedToBuyer = async ({
+  buyerEmail,
+  orderId,
+  amount,
+}) => {
+  try {
+    const shortOrderId = String(orderId).slice(-6).toUpperCase();
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [buyerEmail],
+      subject: `✅ Entrega registrada - Orden #${shortOrderId}`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+          <h2 style="color: #111;">Entrega registrada</h2>
+          <p>El vendedor registró la entrega de la orden <strong>#${shortOrderId}</strong> en la sucursal.</p>
+          <p>Si ya retiraste tu pedido, confirmá la recepción desde la plataforma para completar la compra y liberar los fondos.</p>
+          ${amount != null ? `<p style="color: #555; font-size: 13px;">Total de la orden: <strong>$${amount}</strong></p>` : ""}
+        </div>
+      `,
+    });
+    if (error) console.error("Error email pickup-confirmed al comprador:", error);
+    return { data, error };
+  } catch (err) {
+    console.error("Exception en sendPickupConfirmedToBuyer:", err);
   }
 };

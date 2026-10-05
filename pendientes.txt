@@ -120,3 +120,6 @@ cuando se crea un grupo de compra y el user no tiene imagen de perfil, se ve rot
 [ ] Front de ADMIN: botón "Cerrar grupo" que llame a closePool (hoy es solo endpoint).
 [ ] CreatePoolModal: no envía `units` (usa 1). Agregar selector de unidades.
 [ ] Revisar decimales reales del USDT testnet (0x337610...) — front y back asumen 18.
+en referidos, si no estas logueado, te muestra un "ejemplo" que se ve muy feo. usar un product card reales
+cuando presionas el boton de compartir un enlace de referidos, funciona recien a la segunda vez
+activar notificacion in-app para comprador cuando seller habilita el retiro por sucursal (email ya es enviado)

@@ -226,7 +226,7 @@ export default function ElitImportModal({
             </h3>
             <p className="text-[11px] text-gray-500 dark:text-gray-400">
               Costo proveedor:{' '}
-              <b>${cost.toLocaleString('es-AR')}</b> · Sugerido (+15%):{' '}
+              <b>${cost.toLocaleString('es-AR')}</b> · Sugerido (+20%):{' '}
               <b className="text-[#F26722]">${suggested.toLocaleString('es-AR')}</b>
             </p>
           </div>

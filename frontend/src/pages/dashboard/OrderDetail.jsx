@@ -13,9 +13,11 @@ import {
   UploadCloud,
   MessageSquare,
   Sparkles,
-    Star,
-  Hourglass,
+        Star,
+    Hourglass,
   ShieldCheck,
+  Gift,
+  Wallet,
 } from "lucide-react";
 import Swal from "sweetalert2";
 import { useUserStore } from "../../store/useUserStore";
@@ -24,12 +26,14 @@ import ShippingForm from "../../components/ShippingForm";
 import PaymentAction from "../../components/PaymentAction";
 import ConfirmPaymentAction from "../../components/ConfirmPaymentAction";
 import ShippingStatusCard from "../../components/ShippingStatusCard";
+import PickupActionCard from "../../components/PickupActionCard";
 import OrderInfoAccordion from "../../components/OrderInfoAccordion";
 import CancelOrderAction from "../../components/CancelOrderAction";
 import LoadingSpinner from "../../components/LoadingSpinner";
 import OrderRatings from "../../components/OrderRatings";
 import CollateralHoldCard from "../../components/CollateralHoldCard";
 import CashbackBadge from "../../components/CashbackBadge";
+import CryptoPaymentModal from "../../components/CryptoPaymentModal";
 
 export default function OrderDetail() {
     const { id } = useParams();
@@ -47,8 +51,14 @@ export default function OrderDetail() {
 
     // Referencia al bloque de calificaciones para hacer scroll cuando el
   // comprador confirma la recepción y queremos incentivarlo a calificar.
-  const ratingsRef = useRef(null);
+    const ratingsRef = useRef(null);
   const [justConfirmed, setJustConfirmed] = useState(false);
+
+  // Controla la reapertura del modal de pago cripto desde el detalle de la
+  // orden. Sirve para el caso en que el comprador creó la orden pero NO firmó
+  // el fondeo en el checkout (cerró el modal / navegó antes de pagar): desde acá
+  // puede completar el pago sin volver a comprar.
+  const [showPayModal, setShowPayModal] = useState(false);
 
   const scrollToRatings = () => {
     // Pequeño delay para dejar que el estado se actualice y Swal se cierre.
@@ -438,8 +448,12 @@ export default function OrderDetail() {
 
                     {role === "buyer" && order.status === "pending_payment" && (
             <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
-              {order.payment?.method === "crypto" ? (
-                <EscrowPaymentStatus order={order} onUpdate={fetchOrder} />
+                            {order.payment?.method === "crypto" ? (
+                <EscrowPaymentStatus
+                  order={order}
+                  onUpdate={fetchOrder}
+                  onPayClick={() => setShowPayModal(true)}
+                />
               ) : (
                 <PaymentAction
                   orderId={order._id}
@@ -551,36 +565,61 @@ export default function OrderDetail() {
               />
             </section>
           )}
-                    {(role === "buyer" &&
+                                        {(role === "buyer" &&
             (order.status === "paid" || order.status === "shipped")) && (
-            <ShippingStatusCard
-              order={order}
-              role={role}
-              onUpdate={() => {
-                fetchOrder();
-                setJustConfirmed(true);
-                scrollToRatings();
-              }}
-            />
-          )}
-
-                    {role === "seller" && order.status === "paid" && !order.pendingRequest?.exists && (
-            <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
-              <ShippingForm
-                orderId={order._id}
+            order.deliveryMethod === "pickup" ? (
+              <PickupActionCard
+                order={order}
+                role={role}
                 onUpdate={() => {
-                  // Refrescar la orden
                   fetchOrder();
+                  setJustConfirmed(true);
+                  scrollToRatings();
                 }}
               />
+            ) : (
+              <ShippingStatusCard
+                order={order}
+                role={role}
+                onUpdate={() => {
+                  fetchOrder();
+                  setJustConfirmed(true);
+                  scrollToRatings();
+                }}
+              />
+            )
+          )}
+
+                                        {role === "seller" && order.status === "paid" && !order.pendingRequest?.exists && (
+            <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
+              {order.deliveryMethod === "pickup" ? (
+                <PickupActionCard
+                  order={order}
+                  role={role}
+                  onUpdate={() => {
+                    fetchOrder();
+                  }}
+                />
+              ) : (
+                <ShippingForm
+                  orderId={order._id}
+                  onUpdate={() => {
+                    // Refrescar la orden
+                    fetchOrder();
+                  }}
+                />
+              )}
             </section>
           )}
                     <OrderInfoAccordion 
             order={order} 
             role={role === 'seller' ? 'seller' : 'buyer'}/>
 
-          {/* CASHBACK: el comprador aquí ve cuánto reintegro le generó esta compra al completarse */}
-          {role === "buyer" && order.status === "completed" && (
+                    {/* CASHBACK: el comprador aquí ve cuánto reintegro le generó esta
+              compra al completarse. Solo si efectivamente acreditó un monto. */}
+          {role === "buyer" &&
+            order.status === "completed" &&
+            (order.cashback?.earnedUsd || 0) > 0 && (
             <section className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 p-6 rounded-2xl border border-emerald-200 dark:border-emerald-900/40">
               <div className="flex items-start gap-4">
                 <div className="p-3 bg-white dark:bg-zinc-900 rounded-xl shrink-0">
@@ -597,21 +636,55 @@ export default function OrderDetail() {
                     </b>{" "}
                     de reintegro. El importe ya está disponible en tu billetera
                     de la plataforma y podés consultarlo en{" "}
-                                        <button
-                    onClick={() => navigate("/billetera")}
-                    className="text-[#3483fa] hover:underline font-semibold"
+                    <button
+                      onClick={() => navigate("/billetera")}
+                      className="text-[#3483fa] hover:underline font-semibold"
                     >
-                    Mi Billetera
+                      Mi Billetera
                     </button>
                     .
                   </p>
-                  {order.cashback?.feePercentUsed ? (
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">
-                    Reintegro calculado sobre la comisión de la plataforma
-                    ({(order.cashback.feePercentUsed * 100).toFixed(0)}% de
-                    la comisión aplicada).
-                    </p>
-                  ) : null}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* REFERIDO: si la orden nació referida (compraste por un enlace ?ref=),
+              te acreditamos tu mitad del reward como reintegro. Card aparte del
+              cashback, con identidad propia (violeta = referidos). */}
+          {role === "buyer" &&
+            order.status === "completed" &&
+            order.referral?.referrer &&
+            (order.referral?.buyerUsd || 0) > 0 && (
+            <section className="bg-gradient-to-r from-violet-50 to-fuchsia-50 dark:from-violet-950/30 dark:to-fuchsia-950/30 p-6 rounded-2xl border border-violet-200 dark:border-violet-900/40">
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-white dark:bg-zinc-900 rounded-xl shrink-0">
+                  <Gift className="text-violet-600 dark:text-violet-400" size={24} />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-black uppercase italic dark:text-white text-sm flex items-center gap-2">
+                    ¡Reintegro por Referido!
+                  </h4>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-300 mt-1">
+                    Compraste por un enlace compartido, así que te acreditamos{" "}
+                    <b className="text-violet-600 dark:text-violet-400">
+                      US$ {(order.referral?.buyerUsd || 0).toFixed(2)}
+                    </b>{" "}
+                    de reintegro
+                    {order.referral?.percent > 0 && (
+                      <span className="text-zinc-500 dark:text-zinc-400">
+                        {" "}({order.referral.percent}% del producto, repartido en partes iguales)
+                      </span>
+                    )}
+                    . Ya está disponible en tu billetera y podés consultarlo en{" "}
+                    <button
+                      onClick={() => navigate("/billetera")}
+                      className="text-[#3483fa] hover:underline font-semibold"
+                    >
+                      Mi Billetera
+                    </button>
+                    .
+                  </p>
                 </div>
               </div>
             </section>
@@ -712,8 +785,33 @@ export default function OrderDetail() {
               {order.shippingAddress.city}, {order.shippingAddress.province}
             </p>
           </section>
-                </div> */}
+                                </div> */}
       </div>
+
+      {/* ──────────────────────────────────────────────────────────
+          MODAL DE PAGO CRIPTO (Escrow) — reabrible desde el detalle.
+          Se usa cuando la orden quedó en pending_payment sin fondeo (el
+          comprador cerró el modal en el checkout, cambió de dispositivo, etc.).
+          Al completarse el pago, onSuccess refresca la orden (pasa a "paid").
+      ────────────────────────────────────────────────────────── */}
+      {showPayModal && order.payment?.method === "crypto" && (
+        <CryptoPaymentModal
+          order={{
+            ...order,
+            // El modal resuelve la wallet del vendedor desde sellerWallet.
+            sellerWallet: order.seller?.walletAddress || order.sellerWallet,
+          }}
+                    getAccessToken={getAccessToken}
+          // Desde el detalle NO descartamos la orden al cerrar: el comprador
+          // puede reintentar el pago cuando quiera.
+          autoRollbackOnClose={false}
+          onClose={() => setShowPayModal(false)}
+          onSuccess={() => {
+            setShowPayModal(false);
+            fetchOrder();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -724,7 +822,7 @@ export default function OrderDetail() {
 // Reemplaza al PaymentAction (datos bancarios del vendedor), que NO
 // aplica para pagos en cripto.
 // ──────────────────────────────────────────────────────────────
-function EscrowPaymentStatus({ order, onUpdate }) {
+function EscrowPaymentStatus({ order, onUpdate, onPayClick }) {
   const { getAccessToken } = usePrivy();
   const [checking, setChecking] = useState(false);
   const isDark = document.documentElement.classList.contains("dark");
@@ -842,26 +940,43 @@ function EscrowPaymentStatus({ order, onUpdate }) {
         </div>
       </div>
 
-      {!isFunded && (
-        <button
-          onClick={checkFunding}
-          disabled={checking}
-          className="w-full group relative overflow-hidden py-4 bg-zinc-900 dark:bg-white text-white dark:text-black rounded-2xl font-black uppercase tracking-widest transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-50"
-        >
-          <div className="flex items-center justify-center gap-2 relative z-10">
-            {checking ? (
-              <>
-                <LoadingSpinner size="sm" />
-                Verificando...
-              </>
-            ) : (
-              <>
-                <CheckCircle size={18} />
-                Verificar fondeo del escrow
-              </>
-            )}
-          </div>
-        </button>
+            {!isFunded && (
+        <div className="space-y-3">
+          {/* BOTÓN PRINCIPAL: completar el pago. Reabre el modal de fondeo del
+              escrow (idéntico al checkout) por si el comprador cerró el modal o
+              no llegó a firmar la transacción. */}
+          {onPayClick && (
+            <button
+              onClick={onPayClick}
+              className="w-full group relative overflow-hidden py-4 bg-[#F26722] hover:bg-[#d95514] text-white rounded-2xl font-black uppercase tracking-widest transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
+            >
+              <Wallet size={18} />
+              Completar pago en USDT
+            </button>
+          )}
+
+          {/* BOTÓN SECUNDARIO: verificar on-chain. Útil si el comprador ya firmó
+              el fondeo pero la sincronización con el backend no se reflejó. */}
+          <button
+            onClick={checkFunding}
+            disabled={checking}
+            className="w-full group relative overflow-hidden py-3 bg-transparent border-2 border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-2xl font-bold uppercase tracking-widest text-xs transition-all hover:scale-[1.01] active:scale-95 disabled:opacity-50"
+          >
+            <div className="flex items-center justify-center gap-2 relative z-10">
+              {checking ? (
+                <>
+                  <LoadingSpinner size="sm" />
+                  Verificando...
+                </>
+              ) : (
+                <>
+                  <CheckCircle size={16} />
+                  Ya pagué, verificar fondeo
+                </>
+              )}
+            </div>
+          </button>
+        </div>
       )}
 
       <div className="mt-4 flex items-center justify-center gap-2 text-[10px] text-zinc-400 font-bold uppercase tracking-widest">

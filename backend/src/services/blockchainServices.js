@@ -170,13 +170,25 @@ export async function lockVendorCollateral(orderId, vendorAddress, amountInToken
 
 /**
  * ACCIÓN 2: LIBERAR COLATERAL Y COBRAR FEE (Flujo exitoso: comprador confirma o pasan 7 días)
+ *
+ * @param {string} orderId      ID de la orden.
+ * @param {string} vendorAddress Wallet del vendedor.
+ * @param {number} feeAmountUsd  COMISIÓN TOTAL a retener (en USD), ya calculada
+ *   en el backend = baseFee (3%) + reward de referidos. Se descuenta del
+ *   colateral congelado en un SOLO saque: el contrato libera al vendedor
+ *   (lock - fee) y envía el fee a la main wallet de la plataforma. Desde ahí
+ *   se paga luego el reward a referidos. NO se recalcula acá para que coincida
+ *   exactamente con lo que la orden registró en `financials.platformFeeUsd`.
  */
-export async function releaseVendorCollateral(orderId, vendorAddress, montoOrden) {
+export async function releaseVendorCollateral(orderId, vendorAddress, feeAmountUsd) {
   try {
     console.log(`[Blockchain] Solicitando liberación de la Orden: ${orderId}...`);
-    console.log("monto orden:", montoOrden);
-    // Llamada al método releaseOrderCollateral del contrato
-    const feeAmountInWei = ethers.parseUnits((montoOrden * 0.03).toString(), 18);
+    console.log("fee total a cobrar (USD):", feeAmountUsd);
+    // Llamada al método releaseOrderCollateral del contrato.
+    // Redondeamos a 6 decimales para evitar notación científica de JS en
+    // números muy chicos y mantener precisión estable con parseUnits.
+    const safeFeeUsd = Math.max(0, Number(feeAmountUsd) || 0);
+    const feeAmountInWei = ethers.parseUnits(safeFeeUsd.toFixed(6), 18);
     const tx = await poolContract.releaseOrderCollateral(orderId, vendorAddress, USDT_TESTNET_ADDRESS, feeAmountInWei);
     console.log(`[Blockchain] Tx de liberación enviada: ${tx.hash}`);
 

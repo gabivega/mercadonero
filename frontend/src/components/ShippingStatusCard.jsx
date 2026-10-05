@@ -114,7 +114,7 @@ export default function ShippingStatusCard({ order, role, onUpdate }) {
           await Swal.fire({
             title: '¡ORDEN FINALIZADA!',
             text: isCrypto
-              ? 'Gracias por confirmar. Los USDT del escrow fueron liberados al vendedor.'
+              ? 'Gracias por confirmar. Los USDT del contrato fueron liberados al vendedor.'
               : 'Gracias por confirmar. Se ha completado la orden.',
             icon: 'success',
             confirmButtonColor: '#F26722',

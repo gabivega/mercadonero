@@ -270,11 +270,10 @@ export default function Header() {
                   </Link>
                 ))}
               <Link
-                to="/compras-grupales"
+                to="/referidos"
                 className="flex items-center gap-1.5 text-sm text-white dark:text-gray-300 hover:text-white/80 dark:hover:text-white/80 transition-colors font-medium"
               >
-                {/* <Users size={16} /> */}
-                Compras Grupales
+                Referidos
               </Link>
             </nav>
           </div>

@@ -189,7 +189,7 @@ export function DepositAddressCard({ address: addressProp }) {
  */
 export default function WalletRequiredNotice({
   title = "Necesitás una billetera Web3",
-  message = "Para comprar en grupo tu pago se congela en un contrato inteligente en USDT. Activá tu billetera para continuar.",
+  message = "Para comprar en grupo tu pago se congela en un contrato inteligente en USDT. Activá tu billetera para continuar, es totalmente gratis.",
   onCreated,
   compact = false,
 }) {

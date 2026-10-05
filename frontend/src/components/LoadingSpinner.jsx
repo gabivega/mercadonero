@@ -1,14 +1,26 @@
 import React from "react";
 
 export default function LoadingSpinner({ size = "md", text = "Cargando...", fullScreen = false }) {
+  // ⚠️ Tailwind NO tiene `border-3` por defecto (solo border, 2, 4, 8).
+  // Usamos `border-[3px]` (arbitrary value) para el tamaño md, que sí compila.
   const sizeClasses = {
     sm: "w-5 h-5 border-2",
-    md: "w-10 h-10 border-3",
+    md: "w-10 h-10 border-[3px]",
     lg: "w-16 h-16 border-4",
     xl: "w-24 h-24 border-4",
   };
 
   const spinnerSize = sizeClasses[size] || sizeClasses.md;
+
+  // Tamaño (ancho/alto) separado del grosor de borde, para dibujar el "track"
+  // de fondo con las mismas dimensiones sin repetir el grosor de borde.
+  const sizeOnly = {
+    sm: "w-5 h-5",
+    md: "w-10 h-10",
+    lg: "w-16 h-16",
+    xl: "w-24 h-24",
+  };
+  const trackSize = sizeOnly[size] || sizeOnly.md;
 
   // Estilo inline de respaldo para asegurar el giro al 100% si falla la clase de Tailwind
   const spinAnimationStyle = {
@@ -26,8 +38,8 @@ export default function LoadingSpinner({ size = "md", text = "Cargando...", full
       `}</style>
       
       {/* Círculo de fondo sutil (Track) */}
-      <div className={`${spinnerSize.split(' ')[0]} ${spinnerSize.split(' ')[1]} ${spinnerSize.split(' ')[2]} border-gray-200/60 dark:border-gray-800/60 rounded-full absolute`} />
-      
+      <div className={`${trackSize} border-2 border-gray-200/60 dark:border-gray-800/60 rounded-full absolute`} />
+
       {/* Círculo giratorio de color (Glow) */}
       <div 
         style={spinAnimationStyle}
@@ -37,8 +49,10 @@ export default function LoadingSpinner({ size = "md", text = "Cargando...", full
   );
 
   if (fullScreen) {
+    // z-index por debajo del container de SweetAlert2 (1060) para que el modal
+    // de Swal SIEMPRE quede por encima del overlay de carga y no quede tapado.
     return (
-      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-white/70 dark:bg-black/70 backdrop-blur-md transition-all duration-300">
+      <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/70 dark:bg-black/70 backdrop-blur-md transition-all duration-300">
         <div className="flex flex-col items-center gap-4 p-6 bg-white dark:bg-zinc-900 rounded-2xl shadow-xl border border-gray-100 dark:border-zinc-800/50">
           {spinnerElement}
           {text && (

@@ -102,7 +102,7 @@ export default function CreatePoolModal({
           <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
             Al crear el grupo se <b>congela tu saldo en USDT</b> en un contrato
             inteligente. <b>No podés cancelar</b>: si el grupo no se completa,
-            se te cobra el precio del tier alcanzado y, si quedás solo, se
+            se te cobra el precio del nivel alcanzado y, si quedás solo, se
             liberan los fondos al expirar.
           </p>
         </div>

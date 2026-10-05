@@ -265,4 +265,77 @@ export async function setEscrowFeeBps(newFeeBps) {
   }
 }
 
+/**
+ * HERRAMIENTA DE LECTURA: Devuelve la feeWallet y el admin actuales del contrato.
+ * Útil para mostrarlos en el panel de admin.
+ */
+export async function getEscrowConfig() {
+  try {
+    const [feeBps, feeWallet, adminAddress] = await Promise.all([
+      escrowContract.feeBps(),
+      escrowContract.feeWallet(),
+      escrowContract.admin(),
+    ]);
+    return {
+      success: true,
+      feeBps: Number(feeBps),
+      feeWallet,
+      admin: adminAddress,
+    };
+  } catch (error) {
+    console.error(
+      "[Escrow Error] Fallo al leer config del contrato:",
+      error.reason || error.message,
+    );
+    return { success: false, error: error.reason || error.message };
+  }
+}
+
+/**
+ * ACCIÓN ADMIN: ACTUALIZAR LA FEEWALLET DEL CONTRATO.
+ * Solo el admin puede hacerlo (el backend firma con la wallet admin).
+ * Permite rotar la wallet que cobra el fee sin redeployar el contrato.
+ * Luego de la tx, verifica on-chain que la feeWallet cambió realmente.
+ */
+export async function setEscrowFeeWallet(newFeeWallet) {
+  try {
+    if (!ethers.isAddress(newFeeWallet)) {
+      return { success: false, error: "Dirección de wallet inválida." };
+    }
+    console.log(`[Escrow] Solicitando actualizar feeWallet a ${newFeeWallet}...`);
+
+    const tx = await escrowContract.setFeeWallet(newFeeWallet);
+    console.log(`[Escrow] Tx de actualización de feeWallet enviada: ${tx.hash}`);
+    const receipt = await tx.wait();
+    console.log(`[Escrow] feeWallet actualizada en bloque: ${receipt.blockNumber}`);
+
+    // Verificación real on-chain.
+    const readBack = await getEscrowConfig();
+    const normalizedExpected = ethers.getAddress(newFeeWallet);
+    const normalizedActual = readBack.success
+      ? ethers.getAddress(readBack.feeWallet)
+      : "";
+    if (!readBack.success || normalizedActual !== normalizedExpected) {
+      console.warn(
+        `[Escrow] ⚠️ La tx ${tx.hash} se minó pero feeWallet sigue en ${readBack.feeWallet}.`,
+      );
+      return {
+        success: false,
+        txHash: tx.hash,
+        currentFeeWallet: readBack.feeWallet,
+        error:
+          "La transacción se minó pero la feeWallet on-chain no cambió. Se requiere intervención manual.",
+      };
+    }
+
+    return { success: true, txHash: tx.hash, feeWallet: normalizedActual };
+  } catch (error) {
+    console.error(
+      "[Escrow Error] Fallo al actualizar feeWallet:",
+      error.reason || error.message,
+    );
+    return { success: false, error: error.reason || error.message };
+  }
+}
+
 export { ESCROW_FEE_BPS };

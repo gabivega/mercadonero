@@ -93,7 +93,7 @@ export default function Home() {
 
       {/* Comprá en grupo — productos (estándar) con Social Selling habilitado */}
       <ProductCarousel
-        title="Comprá en grupo"
+        title="Comprá en grupo y ahorrá"
         category="social-selling"
         sectionId="social-selling"
       />
@@ -111,15 +111,16 @@ export default function Home() {
       <HowToBuy />
 
       <ProductCarousel
-        title="Celulares y Teléfonos"
-        category="celulares-y-telefonos"
-        sectionId="celularesytelefonos"
+          title="Notebooks y Accesorios"
+        category="computacion"
+        subCategory="notebooks-y-accesorios"
+        sectionId="notebooksyaccesorios"
       />
 
       <ProductCarousel
-        title="Ropa y accesorios"
-        category="ropa-y-accesorios"
-        sectionId="ropa-y-accesorios"
+        title="Consolas y Accesorios"
+        category="consolas-y-videojuegos"
+        sectionId="consolas-y-videojuegos"
       />
 
 

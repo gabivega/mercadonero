@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   ShoppingCart,
   Heart,
-  Share2,
   Truck,
   Shield,
   CreditCard,
@@ -21,13 +20,13 @@ import { useCartStore } from "../store/useCartStore";
 import LoadingSpinner from "../components/LoadingSpinner";
 import Swal from "sweetalert2";
 import CashbackBadge from "../components/CashbackBadge";
+import ReferralShareBox from "../components/ReferralShareBox";
 import SocialSellingSection from "../components/SocialSellingSection";
 import SocialSellingBanner from "../components/SocialSellingBanner";
 import ShippingQuoteBox from "../components/ShippingQuoteBox";
 import PickupOption from "../components/PickupOption";
 import { useUserStore } from "../store/useUserStore";
 import { productUrl } from "../Utils/productUrl";
-import { showCopiedToast } from "../Utils/copiedToast";
 
 /**
  * Inyecta metadatos SEO (title, description, canonical, Open Graph y
@@ -316,12 +315,11 @@ export default function ProductDetail() {
 
         {/* Contenedor Principal.
             El grid tiene DOS filas lógicas (implícitas):
-              - Fila 1: [izquierda: imágenes + características] [derecha: compra]
-              - Fila 2 (ancho completo, md:col-span-3): descripción, social
-                selling, opiniones y preguntas.
-            Así la columna de compra NO estira todo el layout y el contenido
-            inferior aprovecha el ancho completo. */}
-        <div className="bg-white dark:bg-[#121212] rounded-sm shadow-sm border border-gray-200 dark:border-gray-800 grid grid-cols-1 md:grid-cols-3 overflow-hidden">
+              - Fila 1: [izquierda: imágenes + descripción] [derecha: compra]
+              - Fila 2 (ancho completo, md:col-span-3): opiniones y preguntas.
+            OJO: NO usar `overflow-hidden` en este contenedor — rompería el
+            `position: sticky` de la columna de compra. */}
+        <div className="bg-white dark:bg-[#121212] rounded-sm shadow-sm border border-gray-200 dark:border-gray-800 grid grid-cols-1 md:grid-cols-3">
           {/* COLUMNA IZQUIERDA (Fila 1): Fotos y Características */}
           <div className="border-r border-gray-100 dark:border-gray-800 p-4 md:p-6 order-2 md:order-1 md:col-span-2">
             <div className="hidden md:flex flex-col md:flex-row gap-6">
@@ -392,10 +390,24 @@ export default function ProductDetail() {
               </div>
             </div> */}
 
+            {/* DESCRIPCIÓN — se muestra acá (columna izquierda) para equilibrar
+                la altura con la columna de compra y evitar el hueco vacío que
+                quedaba debajo de las imágenes en productos con poco texto. */}
+            <div className="hidden md:block border-t border-gray-100 dark:border-gray-800 pt-6">
+              <h2 className="text-xl mb-4 dark:text-white font-medium">
+                Descripción
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 text-[16px] whitespace-pre-line leading-relaxed">
+                {product.description}
+              </p>
+            </div>
           </div>
 
-          {/* COLUMNA DERECHA (Fila 1): Compra (Compacta) */}
-          <div className="order-1 md:order-2 p-4 md:p-5 bg-white dark:bg-[#121212]">
+          {/* COLUMNA DERECHA (Fila 1): Compra (Compacta).
+              Sticky en desktop: al scrollear, la caja de compra acompaña para
+              no perderse. `self-start` es REQUERIDO para que el sticky funcione
+              dentro de un grid item (si no, el item se estira toda la altura). */}
+          <div className="order-1 md:order-2 p-4 md:p-5 bg-white dark:bg-[#121212] md:self-start md:sticky md:top-20">
             <div className="space-y-3 border border-gray-200 dark:border-gray-800 rounded-lg p-4 bg-white dark:bg-[#121212]">
               <div className="text-[12px] text-gray-500">
                 {/* Solo mostramos Nuevo/Usado si NO es un clasificado */}
@@ -462,22 +474,6 @@ export default function ProductDetail() {
                 {product.name}
               </h1>
 
-              {/* Compartir: copia el enlace SEO del producto. Ayuda a generar
-                  enlaces entrantes (tráfico orgánico). */}
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(productUrl(product));
-                    showCopiedToast("Compartí el enlace del producto");
-                  } catch {
-                    /* noop */
-                  }
-                }}
-                className="text-xs font-semibold text-gray-500 dark:text-gray-400 flex items-center gap-1 hover:text-[#3483fa] transition-colors"
-              >
-                <Share2 size={14} /> Compartir
-              </button>
               {/* 📱 1. GALERÍA PARA MOBILE (Visible solo en pantallas menores a md) */}
               <div className="flex flex-col gap-4 md:hidden mb-6">
               {/* Imagen Principal Mobile */}
@@ -681,6 +677,15 @@ export default function ProductDetail() {
                 )}
               </div>
 
+              {/* ── PROGRAMA DE REFERIDOS ──
+                  Va DEBAJO de los botones de compra (no arriba del precio, que
+                  rompía la jerarquía visual). Caja doble: botón "Compartir y
+                  ganar" (para quien comparte) y, si el visitante llegó por un
+                  enlace ?ref=, una banda con su reintegro como incentivo. */}
+              <div className="pt-2">
+                <ReferralShareBox product={product} />
+              </div>
+
               {/* SOCIAL SELLING: CTA compacto → hace scroll a la sección de
                   compra en grupo (columna izquierda). Solo productos. */}
               {product.listingType === "product" &&
@@ -735,9 +740,9 @@ export default function ProductDetail() {
             </div>
           </div>
 
-          {/* FILA 2: ancho completo (md:col-span-3). Descripción, Compra en
-              Grupo (pools), Opiniones y Preguntas aprovechan todo el ancho
-              debajo de la zona de imágenes + compra. */}
+          {/* FILA 2: ancho completo (md:col-span-3). Opiniones y Preguntas
+              aprovechan todo el ancho debajo de la zona de imágenes + compra.
+              (La descripción va en la columna izquierda en desktop y acá en mobile.) */}
           <div className="order-3 md:col-span-3 border-t border-gray-100 dark:border-gray-800 p-4 md:p-6">
              {/* SOCIAL SELLING: Compra en Grupo (pools) — el gancho principal,
                 arriba de todo en el bloque ancho para que se vea ni bien se
@@ -753,8 +758,10 @@ export default function ProductDetail() {
                 </div>
               )}  */}
 
-            {/* Descripción */}
-            <div className="pb-8">
+            {/* Descripción — SOLO en mobile/tablet. En desktop ya se muestra
+                en la columna izquierda (debajo de las imágenes) para equilibrar
+                la altura de las columnas. */}
+            <div className="pb-8 md:hidden">
               <h2 className="text-xl mb-4 dark:text-white font-medium">
                 Descripción
               </h2>

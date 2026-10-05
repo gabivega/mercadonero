@@ -163,9 +163,14 @@ const SearchResults = () => {
           <>
             {Array.isArray(products) && products.length > 0 ? (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6 flex-1 w-full">
+                {/* Grid de ANCHO FIJO (170px = ancho de la ProductCard). Con
+                    auto-fill el navegador mete tantas columnas como entren: en
+                    mobile angosto cae a UNA centrada, sin estirar las cards. */}
+                <div className="grid grid-cols-[repeat(auto-fill,170px)] gap-6 justify-center flex-1 w-full">
                   {products.map((p) => (
-                    <ProductCard key={p._id} product={p} />
+                    <div key={p._id} className="w-[170px]">
+                      <ProductCard product={p} />
+                    </div>
                   ))}
                 </div>
 

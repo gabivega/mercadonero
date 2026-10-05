@@ -152,13 +152,61 @@ const orderSchema = new Schema(
       shippedAt: { type: Date },
       deliveredAt: { type: Date },
       otherProviderDetail: { type: String }, // Por si eligen "Otro"
+      // ────────────────────────────────────────────────
+      // PUNTO DE ENTREGA (Zipnova: Correo Argentino / OCA, etc.)
+      // Sucursal donde el COMPRADOR retira su compra cuando el servicio
+      // elegido no es entrega a domicilio. Snapshot del punto al momento de
+      // la compra (usa `pickup_points` de la cotización de Zipnova).
+      // ────────────────────────────────────────────────
+      pickupPoint: {
+        pointId: { type: Schema.Types.Mixed, default: null }, // id de Zipnova
+        name: { type: String, default: "" },
+        street: { type: String, default: "" },
+        streetNumber: { type: String, default: "" },
+        city: { type: String, default: "" },
+        state: { type: String, default: "" },
+        zipcode: { type: String, default: "" },
+        openHours: { type: String, default: "" },
+        phone: { type: String, default: "" },
+      },
     },
     financials: {
       usdRate: { type: Number, required: true }, // Cotización usada al momento de la orden
       totalUsd: { type: Number, required: true }, // Valor total de la orden en USD
-      platformFeeUsd: { type: Number, required: true }, // El 3% en USD
+      // Comisión TOTAL que se descuenta del colateral del vendedor en un solo
+      // saque on-chain. = baseFeeUsd (3%) + referralFeeUsd (reward de referidos).
+      // El contrato recibe este monto como `feeAmount` al liberar y lo manda a
+      // la main wallet de la plataforma; de ahí se paga el reward a los referidos.
+      platformFeeUsd: { type: Number, required: true },
+      // Desglose (auditoría). baseFeeUsd es la comisión fija de Nero (3%);
+      // referralFeeUsd es el % del producto destinado al Programa de Referidos
+      // (referidor + comprador, 50/50). Si no hay referido, referralFeeUsd = 0
+      // y platformFeeUsd === baseFeeUsd.
+      baseFeeUsd: { type: Number, default: 0 },
+      referralFeeUsd: { type: Number, default: 0 },
+      referralPercent: { type: Number, default: 0 },
       shippingCostUsd: { type: Number, default: 0 }, // Costo de envío en USD (si aplica)
       sellerNetReleaseUsd: { type: Number, required: true }, // Lo que efectivamente recibe el vendedor
+    },
+
+    // ────────────────────────────────────────────────
+    // REFERIDOS (reintegros por compartir) - auditoría por orden
+    // Cuando la orden nace referida (el comprador llegó por un enlace ?ref=)
+    // guardamos quién refirió y el % ofrecido por el producto. Al completarse
+    // se acredita el reward repartido 50/50 (ver referralService).
+    // ────────────────────────────────────────────────
+    referral: {
+      // Usuario que compartió el enlace (referidor). null = sin referido.
+      referrer: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+      // % total ofrecido por el producto al momento de crear la orden.
+      percent: { type: Number, default: 0 },
+      // Si la recompensa ya fue acreditada (evita doble acreditación).
+      creditAccrued: { type: Boolean, default: false },
+      // ── Montos acreditados (se completan al acreditar, para mostrar en la
+      //    ficha de la orden sin consultar otra colección) ──
+      totalUsd: { type: Number, default: 0 },    // reward total repartido
+      referrerUsd: { type: Number, default: 0 }, // parte del referidor
+      buyerUsd: { type: Number, default: 0 },    // reintegro del COMPRADOR
     },
 
     // ────────────────────────────────────────────────
@@ -174,7 +222,11 @@ const orderSchema = new Schema(
       // Si el cashback de esta orden fue acreditado (evita acreditación doble).
       creditAccrued: { type: Boolean, default: false },
     },
-    expiresAt: { type: Date, required: true },
+    // Fecha de expiración del plazo de pago. Para órdenes por TRANSFERENCIA
+    // bancaria es obligatoria (15 min para pagar/notificar). Para órdenes con
+    // pago en CRIPTO (escrow) NO aplica: el dinero queda retenido on-chain y
+    // la orden solo puede cancelarla el vendedor o el admin (nunca expira sola).
+    expiresAt: { type: Date, default: null },
 
     // ────────────────────────────────────────────────
     // PAGO CON CRIPTOMONEDAS (Escrow NeroEscrow)
@@ -247,11 +299,27 @@ const orderSchema = new Schema(
     // que todavía no fue cancelada (Mongoose solo valida el enum si no es null).
     cancelledBy: { type: String, enum: ["buyer", "seller", "admin", "system"], default: null },
 
+    // ────────────────────────────────────────────────
+    // RETIRO EN SUCURSAL (deliveryMethod === "pickup")
+    // No aplica tracking de correo: el vendedor prepara el pedido y lo deja
+    // disponible en el local; avisa al comprador cuando está listo para
+    // retirar (con un mensaje/nota opcional) y luego confirma la entrega.
+    // ────────────────────────────────────────────────
+    pickupDetails: {
+      // El vendedor marcó el pedido como listo para retirar.
+      readyForPickup: { type: Boolean, default: false },
+      readyAt: { type: Date },
+      // Mensaje/nota del vendedor (horario, referencia, quién atiende, etc.).
+      readyNote: { type: String, default: "" },
+      // El vendedor o el comprador confirmó que el producto fue retirado.
+      pickedUp: { type: Boolean, default: false },
+      pickedUpAt: { type: Date },
+    },
+
     // Solicitud de cancelación pendiente (cuando el pago ya fue abonado y
     // falta que el vendedor reembolse para cerrar la cancelación).
     pendingRequest: {
       exists: { type: Boolean, default: false },
-      initiator: { type: String, enum: ["buyer", "seller"], default: "buyer" },
       paidStatus: { type: String, enum: ["not_paid", "paid"], default: "paid" },
       status: {
         type: String,

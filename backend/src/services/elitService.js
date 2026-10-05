@@ -16,6 +16,26 @@ import cloudinary from '../config/cloudinary.js';
 
 const ELIT_BASE_URL = process.env.ELIT_BASE_URL || 'https://clientes.elit.com.ar/v1/api';
 
+// Markup sugerido por defecto sobre el costo del proveedor (+20%).
+// Igual que en el adapter del frontend; el backend necesita su propia copia
+// porque no puede importar código del cliente.
+export const DEFAULT_ELIT_MARKUP = Number(process.env.ELIT_SYNC_MARKUP) || 0.2;
+
+/**
+ * Calcula un precio de venta "comercial" a partir del costo del proveedor.
+ * Réplica de priceWithMarkup del adapter del frontend: redondeo a múltiplos
+ * de 10 hacia arriba para precios lindos.
+ * @param {number} cost
+ * @param {number} [markup=DEFAULT_ELIT_MARKUP]
+ * @returns {number}
+ */
+export function priceWithMarkup(cost, markup = DEFAULT_ELIT_MARKUP) {
+  const base = Number(cost) || 0;
+  if (base <= 0) return 0;
+  const raw = base * (1 + markup);
+  return Math.ceil(raw / 10) * 10;
+}
+
 const elitClient = axios.create({
   baseURL: ELIT_BASE_URL,
   timeout: 30000,
@@ -188,5 +208,91 @@ export async function uploadRemoteImagesToCloudinary(urls = [], folder = 'elit')
   }
 
   return { images, failed };
+}
+
+/**
+ * Trae TODO el catálogo de Elit paginando automáticamente (limit máx. 100).
+ *
+ * Pensado para barridos completos (full sync) o conciliaciones. Recorre el
+ * paginador hasta agotar `total`. Corta ante error de red propagando el error
+ * normalizado.
+ *
+ * @param {Object} [filters] Filtros extra a propagar (store, actualizacion...).
+ * @param {{ pageSize?: number, maxPages?: number, onPage?: Function }} [opts]
+ * @returns {Promise<{items: Object[], total: number, pages: number}>}
+ */
+export async function fetchAllElitProducts(filters = {}, opts = {}) {
+  const pageSize = Math.min(Math.max(Number(opts.pageSize) || 100, 1), 100);
+  const maxPages = Number(opts.maxPages) || 500; // tope defensivo
+
+  const items = [];
+  let total = null;
+  let pages = 0;
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const offset = (page - 1) * pageSize + 1; // Elit: offset base 1
+    const data = await fetchElitProducts({ ...filters, limit: pageSize, offset });
+
+    const batch = Array.isArray(data?.resultado) ? data.resultado : [];
+    items.push(...batch);
+    pages = page;
+
+    if (total === null) {
+      total = Number(data?.paginador?.total) || 0;
+    }
+
+    opts.onPage?.(page, batch.length, total);
+
+    // Condiciones de corte: tanda vacía o ya trajimos todo lo que hay.
+    if (batch.length === 0) break;
+    if (total > 0 && items.length >= total) break;
+  }
+
+  return { items, total: total ?? items.length, pages };
+}
+
+/**
+ * Trae de Elit un conjunto puntual de productos por su id (código único).
+ *
+ * Se usa en la sincronización selectiva: dado el conjunto de productos que
+ * tenemos publicados en NUESTRA base, pedimos a Elit sólo esos ids, en lotes
+ * (Elit soporta `id` como filtro de a uno). Devuelve un Map<id, elitProduct>.
+ *
+ * @param {(number|string)[]} ids
+ * @param {{ concurrency?: number }} [opts]
+ * @returns {Promise<Map<number, Object>>}
+ */
+export async function fetchElitProductsByIds(ids = [], opts = {}) {
+  const concurrency = Math.min(Math.max(Number(opts.concurrency) || 5, 1), 10);
+  const map = new Map();
+
+  // Normalizamos y quitamos duplicados/inválidos.
+  const cleanIds = [...new Set(
+    ids
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0)
+  )];
+
+  // Procesamos en lotes concurrentes para no saturar la API de Elit.
+  for (let i = 0; i < cleanIds.length; i += concurrency) {
+    const chunk = cleanIds.slice(i, i + concurrency);
+    const results = await Promise.all(
+      chunk.map(async (id) => {
+        try {
+          const data = await fetchElitProducts({ id, limit: 1 });
+          const item = Array.isArray(data?.resultado) ? data.resultado[0] : null;
+          return { id, item };
+        } catch (error) {
+          return { id, item: null, error };
+        }
+      })
+    );
+
+    for (const { id, item } of results) {
+      if (item) map.set(id, item);
+    }
+  }
+
+  return map;
 }
 

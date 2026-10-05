@@ -9,6 +9,12 @@ import { PrivyProvider } from "@privy-io/react-auth";
 import { bsc, bscTestnet } from "viem/chains";
 import logoDark from "./assets/img/logo-white-mobile.png";
 import logoLight from "./assets/img/logo-orange-mobile.png";
+import { captureReferralFromUrl } from "./Utils/referralTracker";
+
+// Capturamos `?ref=<userId|código>` UNA vez, al bootear la app, y lo dejamos
+// persistido en localStorage. Así la próxima compra del visitante queda
+// atribuida a quien compartió el enlace, aunque navegue antes de comprar.
+captureReferralFromUrl();
 
 const privyAppId = import.meta.env.VITE_PRIVY_APP_ID;
 

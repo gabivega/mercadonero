@@ -3,7 +3,7 @@ import { usePrivy, useWallets, useCreateWallet } from '@privy-io/react-auth';
 import { createPublicClient, http, formatUnits, createWalletClient, custom, parseUnits } from 'viem';
 import { bscTestnet } from 'viem/chains';
 
-import { Wallet, RefreshCcw, ArrowUpRight, Copy, PlusCircle, Sparkles, BadgePercent, ChevronDown } from 'lucide-react';
+import { Wallet, RefreshCcw, ArrowUpRight, Copy, PlusCircle, Sparkles, BadgePercent, ChevronDown, Gift, Users, History } from 'lucide-react';
 import axios from 'axios';
 import SendTokenModal from '../../components/SendTokenModal';
 import Swal from 'sweetalert2';
@@ -58,9 +58,27 @@ export default function WalletPage() {
   const [sendForm, setSendForm] = useState({ to: '', amount: '' });
   const [isSending, setIsSending] = useState(false);
 
-  // Estados de Cashback / Reintegros
+    // Estados de Cashback / Reintegros
   const [cashback, setCashback] = useState(null);
   const [cashbackLoading, setCashbackLoading] = useState(false);
+
+  // Estados de Referidos (recompensas por compartir). Comparten el mismo
+  // fondo de recompensas que el cashback: se muestran en dos tarjetas pero
+  // el total combinado es la suma de ambos saldos.
+  const [referral, setReferral] = useState(null);
+  const [referralLoading, setReferralLoading] = useState(false);
+
+  // Historial unificado (cashback + referidos): se consulta bajo demanda al
+  // desplegar la tabla, para no traer movimientos que el usuario no va a ver.
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [historyTxs, setHistoryTxs] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historySource, setHistorySource] = useState("all"); // all | cashback | referral
+
+  // Modal de retiro (sirve tanto para cashback como para referidos).
+  const [withdrawModal, setWithdrawModal] = useState(null); // { source, balance, minUsd, allow }
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
 
   // Verificación directa en el objeto user de Privy
   const hasWallet = Boolean(user?.wallet?.address);
@@ -172,7 +190,121 @@ export default function WalletPage() {
       console.error("Error cargando cashback:", err);
             setCashback(null);
     } finally {
-      setCashbackLoading(false);
+            setCashbackLoading(false);
+    }
+  };
+
+  // Carga el saldo de referidos (recompensas por compartir) del usuario.
+  const fetchReferral = async () => {
+    setReferralLoading(true);
+    try {
+            const token = await getAccessToken();
+            const res = await axios.get(
+              `${import.meta.env.VITE_SERVER_URL}/api/referral`,
+              { headers: { Authorization: `Bearer ${token}` } },
+            );
+            setReferral(res.data.referral || null);
+    } catch (err) {
+            console.error("Error cargando referidos:", err);
+            setReferral(null);
+    } finally {
+            setReferralLoading(false);
+    }
+  };
+
+  // Consulta el historial unificado al desplegar la tabla. Trae ambos
+  // endpoints en paralelo y mergea las transacciones por fecha desc.
+  const fetchHistory = async () => {
+    setHistoryLoading(true);
+    try {
+            const token = await getAccessToken();
+            const [cbRes, refRes] = await Promise.all([
+              axios.get(`${import.meta.env.VITE_SERVER_URL}/api/cashback`, {
+                headers: { Authorization: `Bearer ${token}` },
+              }),
+              axios.get(`${import.meta.env.VITE_SERVER_URL}/api/referral`, {
+                headers: { Authorization: `Bearer ${token}` },
+              }),
+            ]);
+
+            const mapTx = (arr, source) =>
+              (arr || []).map((tx) => ({ ...tx, source }));
+
+            const merged = [
+              ...mapTx(cbRes.data?.transactions, "cashback"),
+              ...mapTx(refRes.data?.transactions, "referral"),
+            ].sort(
+              (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0),
+            );
+
+            setHistoryTxs(merged);
+    } catch (err) {
+            console.error("Error cargando historial de recompensas:", err);
+            setHistoryTxs([]);
+    } finally {
+            setHistoryLoading(false);
+    }
+  };
+
+  // Abre el modal de retiro para la fuente indicada ("cashback" | "referral").
+  const openWithdrawModal = (source) => {
+    const info =
+            source === "cashback"
+              ? { balance: cashback?.balance ?? 0, minUsd: cashback?.minWithdrawalUsd ?? 5, allow: cashback?.allowWithdraw !== false }
+              : { balance: referral?.balance ?? 0, minUsd: referral?.minWithdrawalUsd ?? 5, allow: referral?.allowWithdraw !== false };
+    setWithdrawAmount("");
+    setWithdrawModal({ source, ...info });
+  };
+
+  // Confirma el retiro: descuenta el saldo al instante (sin aprobación),
+  // igual que el cashback. El envío on-chain se resuelve aparte.
+  const handleWithdraw = async () => {
+    if (!withdrawModal) return;
+    const amount = Number(withdrawAmount);
+    const { source, balance, minUsd } = withdrawModal;
+
+    if (!amount || amount <= 0) {
+            return Swal.fire({ title: "Monto inválido", text: "Ingresá un monto mayor a 0.", icon: "warning", confirmButtonColor: "#F26722" });
+    }
+    if (amount < minUsd) {
+            return Swal.fire({ title: "Monto mínimo", text: `El mínimo de retiro es US$ ${minUsd}.`, icon: "warning", confirmButtonColor: "#F26722" });
+    }
+    if (amount > balance) {
+            return Swal.fire({ title: "Saldo insuficiente", text: "El monto supera tu saldo disponible.", icon: "warning", confirmButtonColor: "#F26722" });
+    }
+
+    try {
+            setIsWithdrawing(true);
+            const token = await getAccessToken();
+            await axios.post(
+              `${import.meta.env.VITE_SERVER_URL}/api/${source === "cashback" ? "cashback" : "referral"}/withdraw`,
+              { amountUsd: amount },
+              { headers: { Authorization: `Bearer ${token}` } },
+            );
+
+            const isDark = document.documentElement.classList.contains("dark");
+            Swal.fire({
+              title: "Retiro solicitado",
+              text: `Registramos tu retiro de US$ ${amount.toFixed(2)}. Se acreditará a tu wallet a la brevedad.`,
+              icon: "success",
+              background: isDark ? "#1f2937" : "#ffffff",
+              color: isDark ? "#f3f4f6" : "#1f2937",
+              confirmButtonColor: "#F26722",
+            });
+
+            setWithdrawModal(null);
+            // Refrescamos la fuente afectada y el historial si está abierto.
+            if (source === "cashback") await fetchCashback();
+            else await fetchReferral();
+            if (isHistoryOpen) fetchHistory();
+    } catch (err) {
+            const message =
+              err?.response?.data?.error ||
+              err?.response?.data?.message ||
+              "No se pudo procesar el retiro. Intentá nuevamente.";
+            Swal.fire({ title: "No se pudo retirar", text: message, icon: "error", confirmButtonColor: "#F26722" });
+    } finally {
+            setIsWithdrawing(false);
     }
   };
 
@@ -278,9 +410,11 @@ export default function WalletPage() {
 
             useEffect(() => {
         if (authenticated) {
-      // El cashback vive en la BD de la plataforma (no on-chain), por lo que
+            // El cashback vive en la BD de la plataforma (no on-chain), por lo que
       // lo cargamos siempre, incluso si todavía no tiene wallet web3 creada.
       fetchCashback();
+      // El saldo de referidos también vive en la BD: se carga siempre.
+      fetchReferral();
       // Verificamos si el usuario es vendedor (tiene publicaciones creadas).
       checkSellerByProducts();
       if (hasWallet) {
@@ -304,12 +438,12 @@ export default function WalletPage() {
             Activa tu Billetera
           </h2>
           <p className="text-gray-500 dark:text-gray-400 text-sm max-w-md mx-auto">
-            Actualmente no posees una billetera Web3 vinculada. Generala en un solo clic para operar, recibir pagos y gestionar tus garantías en Mercado Nero.
+            Actualmente no posees una billetera Web3 vinculada. Generala en un solo clic para operar, recibir pagos y gestionar tus garantías.
           </p>
         </div>
 
         <div className="p-4 bg-amber-50 dark:bg-amber-950/20 rounded-2xl border border-amber-200 dark:border-amber-900/30 text-left flex flex-col items-start gap-3">
-          <Sparkles className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" size={18} />
+          {/* <Sparkles className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" size={18} /> */}
           <p className="text-xs text-amber-800 dark:text-amber-300">
             Sin frases de recuperación ni instalaciones extras. Tu billetera estará resguardada de forma segura mediante tu cuenta de acceso.
           </p>
@@ -337,30 +471,37 @@ export default function WalletPage() {
           )}
         </button>
 
-        {/* Saldo acumulado de cashback (en BD, visible aunque no tenga wallet) */}
+                {/* Saldo acumulado de recompensas (cashback + referidos, en BD,
+            visible aunque todavía no tenga wallet web3 creada) */}
         <div className="w-full text-left mt-6 p-5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/30">
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2.5 bg-white dark:bg-zinc-900 rounded-xl shrink-0">
-              <BadgePercent className="text-emerald-600" size={20} />
+              <Gift className="text-emerald-600" size={20} />
             </div>
             <h3 className="font-bold text-sm dark:text-white">
-              Tu cashback acumulado
+              Tus recompensas acumuladas
             </h3>
           </div>
-          {cashbackLoading && !cashback ? (
+          {(cashbackLoading || referralLoading) && !cashback ? (
             <div className="py-3">
               <LoadingSpinner size="sm" text="Cargando saldo..." />
             </div>
           ) : (
             <>
               <p className="text-sm text-zinc-600 dark:text-zinc-300">
-                Saldo acumulado mediante cashback por tus compras:{" "}
+                Total disponible (cashback + referidos):{" "}
                 <b className="text-emerald-600 dark:text-emerald-400">
-                  US$ {(cashback?.balance ?? 0).toFixed(2)} USDT
+                  US$ {(((cashback?.balance ?? 0) + (referral?.balance ?? 0))).toFixed(2)} USDT
                 </b>
               </p>
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
+                Cashback: US$ {(cashback?.balance ?? 0).toFixed(2)} · Referidos: US$ {(referral?.balance ?? 0).toFixed(2)}
+              </p>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">
-                Activá tu wallet para poder utilizarlo.
+                Activá tu wallet para poder usarlas o retirarlas.
+              </p>
+              <p className="text-xs text-zinc-500 italic dark:text-zinc-400 mt-2">
+                *Retiros habilitados a partir de 5 USDT.
               </p>
             </>
           )}
@@ -435,23 +576,25 @@ export default function WalletPage() {
         </div>
       </div>
 
-            {/* ────────────────────────────────────────────────
-          CASHBACK / REINTEGROS
-          Muestra el total acumulado, el saldo disponible por canjear
-          y el historial de movimientos (reintegros por compras).
+                        {/* ────────────────────────────────────────────────
+          BILLETERA DE RECOMPENSAS
+          Un único fondo de recompensas (cashback + referidos) que se
+          presenta en DOS tarjetas para ver el desglose por fuente. El
+          total combinado es la suma de ambos saldos. El detalle de
+          movimientos se consulta bajo demanda (tabla desplegable).
       ──────────────────────────────────────────────── */}
       <section className="p-6 bg-white dark:bg-[#252525] rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <h3 className="font-bold text-lg flex items-center gap-2 dark:text-white">
-            <BadgePercent className="text-emerald-600" size={22} />
-            Reintegros (Cashback)
+            <Gift className="text-[#F26722]" size={22} />
+            Billetera de Recompensas
           </h3>
           <button
-            onClick={fetchCashback}
-            disabled={cashbackLoading}
-            className="flex items-center gap-1.5 text-xs text-emerald-600 font-medium hover:underline disabled:opacity-50"
+            onClick={() => { fetchCashback(); fetchReferral(); if (isHistoryOpen) fetchHistory(); }}
+            disabled={cashbackLoading || referralLoading}
+            className="flex items-center gap-1.5 text-xs text-[#F26722] font-medium hover:underline disabled:opacity-50"
           >
-            {cashbackLoading ? (
+            {(cashbackLoading || referralLoading) ? (
               <LoadingSpinner size="sm" />
             ) : (
               <RefreshCcw size={14} />
@@ -460,84 +603,200 @@ export default function WalletPage() {
           </button>
         </div>
 
-        {cashbackLoading && !cashback ? (
-          <div className="py-8 text-center">
-            <LoadingSpinner size="md" text="Cargando tus reintegros..." />
+        {/* Total combinado: cashback + referidos = mismo fondo */}
+        <div className="mb-5 p-5 rounded-2xl bg-gradient-to-r from-[#F26722]/10 to-emerald-500/10 border border-[#F26722]/20 flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 font-bold uppercase tracking-widest">
+              Total disponible en recompensas
+            </p>
+            <p className="text-3xl font-black text-[#F26722] mt-1">
+              US$ {(((cashback?.balance ?? 0) + (referral?.balance ?? 0))).toFixed(2)}
+            </p>
           </div>
-        ) : (
-          <>
-            {/* Resumen de importes */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
-              <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/30">
-                <p className="text-xs text-emerald-700 dark:text-emerald-300 font-medium uppercase tracking-wide">Saldo disponible</p>
-                <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
-                  US$ {(cashback?.balance ?? 0).toFixed(2)}
-                </p>
-              </div>
-              <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/30">
-                <p className="text-xs text-blue-700 dark:text-blue-300 font-medium uppercase tracking-wide">Total reintegrado</p>
-                <p className="text-2xl font-black text-blue-600 dark:text-blue-400 mt-1">
-                  US$ {(cashback?.earned ?? 0).toFixed(2)}
-                </p>
-              </div>
-              <div className="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800">
-                <p className="text-xs text-zinc-600 dark:text-zinc-400 font-medium uppercase tracking-wide">Usado / Retirado</p>
-                <p className="text-2xl font-black text-zinc-700 dark:text-zinc-300 mt-1">
-                  US$ {(((cashback?.spent ?? 0) + (cashback?.withdrawn ?? 0))).toFixed(2)}
-                </p>
-              </div>
-            </div>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-[16rem]">
+            Es un único fondo: podés retirarlo desde cualquiera de las dos fuentes.
+          </p>
+        </div>
 
-            {/* Actividad */}
-            <h4 className="text-sm font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-3">
-              Actividad
-            </h4>
-            {(cashback?.transactions && cashback.transactions.length > 0) ? (
-              <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                {cashback.transactions.map((tx, idx) => {
-                  const isEarned = tx.type === "earned";
-                  const isSpent = tx.type === "spent" || tx.type === "withdrawn";
-                  return (
-                    <li key={idx} className="py-3 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
-                          isEarned
-                            ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600"
-                            : isSpent
-                              ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-500"
-                              : "bg-blue-100 dark:bg-blue-900/40 text-blue-600"
-                        }`}>
-                          <BadgePercent size={18} />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium truncate dark:text-white">
-                            {tx.description || (isEarned ? "Reintegro" : "Movimiento")}
-                          </p>
-                          <p className="text-xs text-zinc-400">
-                            {tx.createdAt ? new Date(tx.createdAt).toLocaleDateString('es-AR', {
-                              day: '2-digit', month: '2-digit', year: 'numeric',
-                            }) : ""}
-                          </p>
-                        </div>
-                      </div>
-                      <span className={`text-sm font-bold shrink-0 ${
-                        Number(tx.amount) >= 0
-                          ? "text-emerald-600 dark:text-emerald-400"
-                          : "text-zinc-500 dark:text-zinc-400"
-                      }`}>
-                        {Number(tx.amount) >= 0 ? "+" : ""}US$ {Math.abs(Number(tx.amount)).toFixed(2)}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <p className="text-sm text-zinc-400 dark:text-zinc-500 py-4 text-center">
-                Todavía no tenés reintegros. Completá tus compras para acumular cashback.
+        {/* Dos tarjetas: Cashback y Referidos */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* TARJETA CASHBACK */}
+          <div className="p-5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/30 flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-white dark:bg-zinc-900 rounded-xl shrink-0">
+                <BadgePercent className="text-emerald-600" size={18} />
+              </div>
+              <span className="font-bold text-sm dark:text-white">Cashback</span>
+            </div>
+            <div>
+              <p className="text-xs text-emerald-700 dark:text-emerald-300 font-medium uppercase tracking-wide">Saldo disponible</p>
+              <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                US$ {(cashback?.balance ?? 0).toFixed(2)}
               </p>
-            )}
-          </>
-        )}
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
+                Reintegrado histórico: US$ {(cashback?.earned ?? 0).toFixed(2)}
+              </p>
+            </div>
+            <button
+              onClick={() => openWithdrawModal("cashback")}
+              disabled={(cashback?.balance ?? 0) < (cashback?.minWithdrawalUsd ?? 5)}
+              className="mt-auto w-full py-2.5 rounded-xl font-bold text-sm transition-all bg-emerald-600 hover:brightness-110 text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              title={(cashback?.balance ?? 0) < (cashback?.minWithdrawalUsd ?? 5) ? `Mínimo US$ ${cashback?.minWithdrawalUsd ?? 5}` : "Retirar cashback"}
+            >
+              Retirar
+            </button>
+          </div>
+
+          {/* TARJETA REFERIDOS */}
+          <div className="p-5 rounded-2xl bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900/30 flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-white dark:bg-zinc-900 rounded-xl shrink-0">
+                <Users className="text-[#F26722]" size={18} />
+              </div>
+              <span className="font-bold text-sm dark:text-white">Recompensas por Referidos</span>
+            </div>
+            <div>
+              <p className="text-xs text-orange-700 dark:text-orange-300 font-medium uppercase tracking-wide">Saldo disponible</p>
+              <p className="text-2xl font-black text-[#F26722]">
+                US$ {(referral?.balance ?? 0).toFixed(2)}
+              </p>
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
+                Ganado histórico: US$ {(referral?.earned ?? 0).toFixed(2)}
+                {referral?.referralsCount ? ` · ${referral.referralsCount} referido(s)` : ""}
+              </p>
+            </div>
+            <button
+              onClick={() => openWithdrawModal("referral")}
+              disabled={referral?.allowWithdraw === false || (referral?.balance ?? 0) < (referral?.minWithdrawalUsd ?? 5)}
+              className="mt-auto w-full py-2.5 rounded-xl font-bold text-sm transition-all bg-[#F26722] hover:brightness-110 text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              title={
+                referral?.allowWithdraw === false
+                  ? "Retiro de referidos deshabilitado"
+                  : (referral?.balance ?? 0) < (referral?.minWithdrawalUsd ?? 5)
+                    ? `Mínimo US$ ${referral?.minWithdrawalUsd ?? 5}`
+                    : "Retirar referidos"
+              }
+            >
+              Retirar
+            </button>
+          </div>
+        </div>
+
+        {/* Historial unificado bajo demanda */}
+        <div className="mt-5">
+          <button
+            onClick={() => {
+              const next = !isHistoryOpen;
+              setIsHistoryOpen(next);
+              // Consultamos la BD recién al abrir (no antes).
+              if (next) fetchHistory();
+            }}
+            className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors"
+          >
+            <span className="flex items-center gap-2 text-sm font-bold dark:text-white">
+              <History size={16} className="text-zinc-500" />
+              Ver historial de movimientos
+            </span>
+            <ChevronDown
+              size={18}
+              className={`text-zinc-400 transition-transform ${isHistoryOpen ? "rotate-180" : ""}`}
+            />
+          </button>
+
+          {isHistoryOpen && (
+            <div className="mt-3">
+              {/* Filtro por origen */}
+              <div className="flex items-center gap-2 mb-3">
+                {[
+                  { key: "all", label: "Todos" },
+                  { key: "cashback", label: "Cashback" },
+                  { key: "referral", label: "Referidos" },
+                ].map((opt) => (
+                  <button
+                    key={opt.key}
+                    onClick={() => setHistorySource(opt.key)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                      historySource === opt.key
+                        ? "bg-[#F26722] text-white"
+                        : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {historyLoading ? (
+                <div className="py-8 text-center">
+                  <LoadingSpinner size="md" text="Cargando historial..." />
+                </div>
+              ) : (() => {
+                const rows = historyTxs.filter(
+                  (tx) => historySource === "all" || tx.source === historySource,
+                );
+                if (rows.length === 0) {
+                  return (
+                    <p className="text-sm text-zinc-400 dark:text-zinc-500 py-6 text-center">
+                      {historySource === "referral"
+                        ? "Todavía no tenés recompensas por referidos."
+                        : historySource === "cashback"
+                          ? "Todavía no tenés movimientos de cashback."
+                          : "Todavía no tenés movimientos de recompensas."}
+                    </p>
+                  );
+                }
+                return (
+                  <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+                    <table className="w-full text-sm">
+                      <thead className="bg-zinc-50 dark:bg-zinc-900/60 text-zinc-500 dark:text-zinc-400">
+                        <tr className="text-left">
+                          <th className="px-4 py-2.5 font-bold text-xs uppercase tracking-wide">Fecha</th>
+                          <th className="px-4 py-2.5 font-bold text-xs uppercase tracking-wide">Origen</th>
+                          <th className="px-4 py-2.5 font-bold text-xs uppercase tracking-wide">Descripción</th>
+                          <th className="px-4 py-2.5 font-bold text-xs uppercase tracking-wide text-right">Monto</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                        {rows.map((tx, idx) => {
+                          const isEarned = tx.type === "earned";
+                          return (
+                            <tr key={idx} className="dark:text-zinc-200">
+                              <td className="px-4 py-2.5 whitespace-nowrap text-zinc-500 dark:text-zinc-400 text-xs">
+                                {tx.createdAt
+                                  ? new Date(tx.createdAt).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" })
+                                  : "—"}
+                              </td>
+                              <td className="px-4 py-2.5 whitespace-nowrap">
+                                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                                  tx.source === "referral"
+                                    ? "bg-orange-100 dark:bg-orange-950/40 text-[#F26722]"
+                                    : "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400"
+                                }`}>
+                                  {tx.source === "referral" ? <Users size={12} /> : <BadgePercent size={12} />}
+                                  {tx.source === "referral" ? "Referidos" : "Cashback"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5">
+                                {tx.description || (isEarned ? "Reintegro" : "Movimiento")}
+                              </td>
+                              <td className={`px-4 py-2.5 text-right font-bold whitespace-nowrap ${
+                                Number(tx.amount) >= 0
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-zinc-500 dark:text-zinc-400"
+                              }`}>
+                                {Number(tx.amount) >= 0 ? "+" : ""}US$ {Math.abs(Number(tx.amount)).toFixed(2)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </div>
       </section>
 
 
@@ -565,6 +824,82 @@ export default function WalletPage() {
             </div>
           )}
         </section>
+      )}
+
+      {/* MODAL DE RETIRO (cashback o referidos) */}
+      {withdrawModal && (
+        <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#161616] rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-5">
+            <div className="flex items-center gap-3">
+              <div className={`p-2.5 rounded-xl shrink-0 ${withdrawModal.source === "referral" ? "bg-orange-100 dark:bg-orange-950/40" : "bg-emerald-100 dark:bg-emerald-950/30"}`}>
+                {withdrawModal.source === "referral"
+                  ? <Users className="text-[#F26722]" size={20} />
+                  : <BadgePercent className="text-emerald-600" size={20} />}
+              </div>
+              <div>
+                <h3 className="font-black text-lg dark:text-white">
+                  Retirar {withdrawModal.source === "referral" ? "referidos" : "cashback"}
+                </h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Saldo disponible: US$ {withdrawModal.balance.toFixed(2)}
+                </p>
+              </div>
+            </div>
+
+            {withdrawModal.allow === false ? (
+              <p className="text-sm text-red-500">
+                El retiro está deshabilitado por la plataforma.
+              </p>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest">
+                    Monto (mín. US$ {withdrawModal.minUsd})
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      autoFocus
+                      value={withdrawAmount}
+                      onChange={(e) => setWithdrawAmount(e.target.value.replace(/[^\d.]/g, ""))}
+                      placeholder="0.00"
+                      className="w-full bg-gray-50 dark:bg-[#252525] border border-gray-200 dark:border-gray-800 rounded-2xl p-4 pr-16 text-sm outline-none focus:ring-2 focus:ring-[#F26722] dark:text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setWithdrawAmount(String(withdrawModal.balance))}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[#F26722] hover:underline"
+                    >
+                      Máx
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-zinc-400">
+                    La dirección de destino es tu wallet vinculada. El depósito se acredita a la brevedad.
+                  </p>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setWithdrawModal(null)}
+                    disabled={isWithdrawing}
+                    className="flex-1 py-3 rounded-2xl font-bold text-sm bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleWithdraw}
+                    disabled={isWithdrawing}
+                    className="flex-1 py-3 rounded-2xl font-bold text-sm bg-[#F26722] text-white hover:brightness-110 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isWithdrawing ? <LoadingSpinner size="sm" /> : null}
+                    Confirmar retiro
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       <SendTokenModal  

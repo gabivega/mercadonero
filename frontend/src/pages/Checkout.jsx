@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useCartStore } from "../store/useCartStore";
 import {
@@ -27,8 +27,10 @@ import LoadingSpinner from "../components/LoadingSpinner";
 import CryptoPaymentModal from "../components/CryptoPaymentModal";
 import DepositUsdtModal from "../components/DepositUsdtModal";
 import PickupOption from "../components/PickupOption";
+import CheckoutShippingSelector from "../components/CheckoutShippingSelector";
 import { getAuthenticatedWallet } from "../Utils/walletSelector";
 import { productPath } from "../Utils/productUrl";
+import { getReferral, clearReferral } from "../Utils/referralTracker";
 
 export default function Checkout() {
   const { sellerId } = useParams();
@@ -43,10 +45,14 @@ const [selectedAddress, setSelectedAddress] = useState(null);
   const { syncUser } = useSyncUser(setDbUser);
   const [isLoading, setIsLoading] = useState(false);
 
-  // ── MÉTODO DE ENTREGA: "shipping" (default) | "pickup" (retiro en sucursal)
+    // ── MÉTODO DE ENTREGA: "shipping" (default) | "pickup" (retiro en sucursal)
   // ── El comprador elige si recibe a domicilio o retira GRATIS en el local.
   const [deliveryMethod, setDeliveryMethod] = useState("shipping");
   const [selectedPickup, setSelectedPickup] = useState(null);
+  // Envío elegido en la COTIZACIÓN de Zipnova (opción seleccionada por el
+  // comprador). null = sin cotización (envío gratis, retiro, o aún cotizando).
+  // Es un objeto normalizado: { carrierName, serviceName, price, minDays, maxDays }.
+  const [selectedShipping, setSelectedShipping] = useState(null);
   // True sólo mientras se CREA la orden en el backend (overs crea el overlay
   // de pantalla completa). Se apaga apenas responde la API.
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
@@ -313,15 +319,49 @@ const handleSaveBasicData = async () => {
                                 if (!selectedAddress) {
       return Swal.fire({ icon: "warning", title: "Falta la dirección" });
     }
-    if (deliveryMethod === "pickup" && !selectedPickup) {
+        if (deliveryMethod === "pickup" && !selectedPickup) {
       return Swal.fire({
         icon: "warning",
         title: "Elegí un punto de retiro",
         text: "Seleccioná la sucursal donde vas a retirar tu compra.",
       });
     }
+    // Envío a domicilio con punto de entrega (Correo Argentino/OCA): hay que
+    // haber elegido la sucursal donde el comprador retira su compra.
+    if (
+      deliveryMethod === "shipping" &&
+      selectedShipping?.requiresPickupPoint &&
+      !selectedShipping?.pickupPoint
+    ) {
+      return Swal.fire({
+        icon: "warning",
+        title: "Elegí un punto de entrega",
+        text: "La opción de envío seleccionada requiere que elijas una sucursal donde retirar tu compra.",
+      });
+    }
 
     const isDark = document.documentElement.classList.contains("dark");
+
+        // ── GUARD: método elegido debe estar aceptado por TODOS los productos ──
+    // (El backend también lo valida, pero acá cortamos ANTES con un mensaje
+    // claro en vez del error tardío al crear la orden).
+    if (currentMethod === "crypto" && !acceptsCrypto) {
+      setPaymentMethod(acceptsTransfer ? "bank_transfer" : "crypto");
+      return Swal.fire({
+        icon: "warning",
+        title: "Método no disponible",
+        text: "Uno de los productos de este pedido no acepta pago con criptomonedas. Elegí otro método de pago.",
+        confirmButtonColor: "#3483fa",
+      });
+    }
+    if (currentMethod === "bank_transfer" && !acceptsTransfer) {
+      return Swal.fire({
+        icon: "warning",
+        title: "Método no disponible",
+        text: "Uno de los productos de este pedido no acepta transferencia bancaria. Elegí otro método de pago.",
+        confirmButtonColor: "#3483fa",
+      });
+    }
 
     // ════════════════════════════════════════════════════════════
     // FLUJO PAGO CON CRIPTO: la orden NO se crea hasta que el
@@ -374,11 +414,25 @@ const step1 = await Swal.fire({
         <p style="margin: 10px 0 0 0; font-size: 0.85rem;">👤 <b>Vendedor:</b> ${sellerName}</p>
       </div>
 
-            <div style="margin-bottom: 15px;">
+                        <div style="margin-bottom: 15px;">
         ${
           deliveryMethod === "pickup" && selectedPickup
             ? `<p style="margin: 5px 0;">📍 <b>Retiro en:</b> ${selectedPickup.name} — ${[selectedPickup.street, selectedPickup.streetNumber].filter(Boolean).join(" ")}, ${selectedPickup.city || ""}</p>`
             : `<p style="margin: 5px 0;">📍 <b>Envío a:</b> ${selectedAddress.street} ${selectedAddress.streetNumber}, ${selectedAddress.city}</p>`
+        }
+        ${
+          deliveryMethod === "shipping" && selectedShipping
+            ? `<p style="margin: 5px 0;">🚚 <b>Servicio:</b> ${selectedShipping.carrierName || "Logística"}${selectedShipping.serviceName ? ` · ${selectedShipping.serviceName}` : ""}${selectedShipping.price > 0 ? ` — $${Number(selectedShipping.price).toLocaleString()}` : " — GRATIS"}${
+                selectedShipping.minDays != null
+                  ? ` <span style="color:#6b7280;">(llega en ${selectedShipping.minDays}-${selectedShipping.maxDays} días)</span>`
+                  : ""
+              }</p>`
+            : ""
+        }
+        ${
+          deliveryMethod === "shipping" && selectedShipping?.pickupPoint
+            ? `<p style="margin: 5px 0;">🏪 <b>Punto de entrega:</b> ${selectedShipping.pickupPoint.name} — ${[selectedShipping.pickupPoint.street, selectedShipping.pickupPoint.streetNumber].filter(Boolean).join(" ")}, ${selectedShipping.pickupPoint.city || ""}</p>`
+            : ""
         }
         <p style="margin: 5px 0;">🚚 <b>Despacho:</b> El vendedor despacha en <b>${sellerProducts[0]?.shipping?.shippingTime || "48h"}</b></p>
         <p style="margin: 10px 0 0 0; font-size: 0.8rem; color: #10b981; display: flex; align-items: center; gap: 4px;">
@@ -414,7 +468,7 @@ const step1 = await Swal.fire({
                 const response = await axios.post(
           `${import.meta.env.VITE_SERVER_URL}/api/order/create`,
                     {
-            sellerId,
+                        sellerId,
             items: sellerProducts.map((p) => ({
               productId: p._id,
               quantity: p.quantity,
@@ -422,14 +476,36 @@ const step1 = await Swal.fire({
                         shippingAddress: selectedAddress,
             paymentMethod: currentMethod,
             token: currentMethod === "crypto" ? tokenChoice : undefined,
-            deliveryMethod,
+                        deliveryMethod,
             pickupLocation: deliveryMethod === "pickup" ? selectedPickup : undefined,
+            // Envío elegido por el comprador (cotización Zipnova). El backend lo
+            // usa para validar/registrar el costo real del envío. Para pickup o
+            // envío gratis va undefined (envío $0).
+                        shippingQuote:
+              deliveryMethod === "shipping" && selectedShipping
+                ? {
+                    price: selectedShipping.price,
+                    carrierName: selectedShipping.carrierName,
+                    serviceName: selectedShipping.serviceName,
+                    // Punto de entrega elegido (solo servicios con sucursales).
+                    // El backend lo registra en la orden para que el vendedor sepa
+                    // a qué sucursal enviar (o que el comprador retira ahí).
+                    pickupPoint: selectedShipping.pickupPoint || undefined,
+                  }
+                : undefined,
+            // Atribución de referidos: id del usuario que compartió el enlace
+            // (capturado desde ?ref= y persistido). El backend lo valida y, si
+            // el producto tiene referido activo, lo guarda en la orden.
+            referrerId: getReferral() || undefined,
           },
           { headers: { Authorization: `Bearer ${token}` } },
         );
 
         // La orden ya se creó: apagamos el overlay y seguimos con el resto.
         setIsCreatingOrder(false);
+        // Consumimos el referido: ya quedó atribuido a esta orden, no debe
+        // arrastrarse a compras futuras del mismo comprador.
+        clearReferral();
                 const newOrderId = response.data.order._id;
 
         // 💳 CASO PAGO CON CRIPTO: abrimos el modal del escrow para que el
@@ -652,8 +728,9 @@ const step1 = await Swal.fire({
           <div style="background-color: ${isDark ? "#27272a" : "#f4f4f5"}; padding: 12px; border-radius: 10px; margin-bottom: 12px;">
             <p style="margin: 0 0 6px 0; font-weight: 700;">Detalle de la compra</p>
             <p style="margin: 3px 0; font-size: 0.82rem;">📦 Productos: $${total.toLocaleString()} ARS</p>
-            <p style="margin: 3px 0; font-size: 0.82rem;">🚚 Envío: ${shippingTotal.toLocaleString() > 0 ? "$" + shippingTotal.toLocaleString() + " ARS" : "GRATIS"}</p>
+                        <p style="margin: 3px 0; font-size: 0.82rem;">🚚 Envío: ${shippingTotal > 0 ? "$" + shippingTotal.toLocaleString() + " ARS" : (deliveryMethod === "pickup" ? "Retiro en sucursal (GRATIS)" : "GRATIS")}${deliveryMethod === "shipping" && selectedShipping ? ` · ${selectedShipping.carrierName || "Logística"}${selectedShipping.serviceName ? ` (${selectedShipping.serviceName})` : ""}` : ""}</p>
             <p style="margin: 6px 0 0 0; font-size: 0.82rem;">📍 Envío a: ${selectedAddress.street} ${selectedAddress.streetNumber}, ${selectedAddress.city}</p>
+            ${deliveryMethod === "shipping" && selectedShipping?.pickupPoint ? `<p style="margin: 3px 0 0 0; font-size: 0.82rem;">🏪 Punto de entrega: ${selectedShipping.pickupPoint.name} — ${[selectedShipping.pickupPoint.street, selectedShipping.pickupPoint.streetNumber].filter(Boolean).join(" ")}, ${selectedShipping.pickupPoint.city || ""}</p>` : ""}
           </div>
 
           <div style="padding: 10px; border-radius: 10px; margin-bottom: 10px; ${
@@ -686,7 +763,7 @@ const step1 = await Swal.fire({
       `,
       icon: hasBalance ? "question" : "warning",
       showCancelButton: true,
-      confirmButtonText: hasBalance ? "Fondear escrow y confirmar" : "Depositar USDT",
+      confirmButtonText: hasBalance ? "Confirmar compra" : "Depositar USDT",
       cancelButtonText: "Volver",
       confirmButtonColor: hasBalance ? "#F26722" : "#F26722",
       cancelButtonColor: isDark ? "#27272a" : "#6b7280",
@@ -721,17 +798,32 @@ const step1 = await Swal.fire({
             productId: p._id,
             quantity: p.quantity,
           })),
-                    shippingAddress: selectedAddress,
+                                        shippingAddress: selectedAddress,
           paymentMethod: "crypto",
           token: tokenChoice,
-          deliveryMethod,
+                    deliveryMethod,
           pickupLocation: deliveryMethod === "pickup" ? selectedPickup : undefined,
+          // Envío elegido por el comprador (cotización Zipnova).
+                    shippingQuote:
+            deliveryMethod === "shipping" && selectedShipping
+              ? {
+                  price: selectedShipping.price,
+                  carrierName: selectedShipping.carrierName,
+                  serviceName: selectedShipping.serviceName,
+                  // Punto de entrega elegido (ver comentario en el flujo transferencia).
+                  pickupPoint: selectedShipping.pickupPoint || undefined,
+                }
+              : undefined,
+          // Atribución de referidos (ver comentario en el flujo transferencia).
+          referrerId: getReferral() || undefined,
         },
         { headers: { Authorization: `Bearer ${token}` } },
       );
 
       // La orden cripto quedó creada: apagamos el overlay y abrimos el escrow.
       setIsCreatingOrder(false);
+      // Consumimos el referido una vez creada la orden.
+      clearReferral();
 
       const newOrder = response.data.order;
       if (!newOrder?._id) {
@@ -770,12 +862,39 @@ const step1 = await Swal.fire({
     );
   }, [cart, sellerId]);
 
-  // ¿El pedido permite RETIRO EN SUCURSAL? Basta con que algún producto del
+    // ¿El pedido permite RETIRO EN SUCURSAL? Basta con que algún producto del
   // vendedor tenga habilitado el retiro (shipping.delivery.pickup === true).
   const pickupAvailable = useMemo(
     () => sellerProducts.some((p) => p.shipping?.delivery?.pickup === true),
     [sellerProducts],
   );
+
+    // ── MÉTODOS DE PAGO HABILITADOS PARA ESTE PEDIDO ──
+  // Cada producto declara qué medios acepta (payment.acceptsTransfer /
+  // payment.acceptsCrypto). Para que un método esté disponible, TODOS los
+  // productos del carrito deben aceptarlo. El backend también lo valida, pero
+  // acá lo bloqueamos ANTES de dejar seleccionar la opción (evita el error
+  // tardío al crear la orden).
+  // Defaults alineados con el backend: acceptsTransfer=true, acceptsCrypto=false.
+  const acceptsTransfer = useMemo(
+    () => sellerProducts.every((p) => p.payment?.acceptsTransfer !== false),
+    [sellerProducts],
+  );
+  const acceptsCrypto = useMemo(
+    () =>
+      sellerProducts.length > 0 &&
+      sellerProducts.every((p) => p.payment?.acceptsCrypto === true),
+    [sellerProducts],
+  );
+
+  // Si el método elegido quedó deshabilitado (ej: algún producto no acepta
+  // cripto), caemos automáticamente a transferencia cuando ésta sí está
+  // disponible, para no arrastrar una selección inválida.
+  useEffect(() => {
+    if (paymentMethod === "crypto" && !acceptsCrypto && acceptsTransfer) {
+      setPaymentMethod("bank_transfer");
+    }
+  }, [paymentMethod, acceptsCrypto, acceptsTransfer]);
 
 // 2. Calculamos el total considerando el precio de oferta (item.sale.price)
 const total = useMemo(() => {
@@ -789,15 +908,104 @@ const total = useMemo(() => {
   }, 0);
 }, [sellerProducts]);
 
-// CALCULO DEL COSTO DE ENVIO: Se toma el valor mas alto
-  const shippingTotal = useMemo(() => {
+// CALCULO DEL COSTO DE ENVIO
+//   • Retiro en sucursal → GRATIS.
+//   • Si TODOS los productos del vendedor tienen envío gratis → GRATIS.
+//   • Si hay cotización de Zipnova elegida → usamos SU precio (dinámico).
+//   • Fallback (aún sin cotizar / error): el costo fijo más alto del producto,
+//     solo para no mostrar 0 mientras llega la cotización.
+    const shippingTotal = useMemo(() => {
   // Si el comprador eligió RETIRO EN SUCURSAL, el envío es GRATIS.
   if (deliveryMethod === "pickup") return 0;
-  const costs = sellerProducts.map(p => p.shipping?.free ? 0 : (p.shipping?.cost || 0));
-  
-  // Si todos son gratis, el max será 0. Si hay costos, tomamos el mayor.
-  return Math.max(...costs);
-}, [sellerProducts, deliveryMethod]);
+
+  // ¿Todos los productos tienen envío gratis (o son digitales)?
+  const allFree = sellerProducts.every(
+    (p) => p.shipping?.free || p.shipping?.isDigital,
+  );
+  if (allFree) return 0;
+
+  // Cotización elegida (Zipnova). Es la ÚNICA fuente de verdad del costo de
+  // envío. Mientras no haya una opción cotizada seleccionada, NO inventamos un
+  // costo fijo de respaldo (antes eso mostraba precios/“Gratis” incorrectos en
+  // el resumen). Devolvemos 0 y mostramos un estado "A cotizar" hasta que
+  // llegue la cotización real.
+  if (selectedShipping && Number(selectedShipping.price) > 0) {
+    return Math.round(Number(selectedShipping.price));
+  }
+
+  return 0;
+}, [sellerProducts, deliveryMethod, selectedShipping]);
+
+// ¿Estamos esperando la cotización del envío? (Envío a domicilio, no gratis,
+// sin opción cotizada todavía.) Se usa para mostrar "A cotizar" en el resumen
+// en lugar de un "Gratis" engañoso.
+const shippingPending = useMemo(() => {
+  if (deliveryMethod === "pickup") return false;
+  const allFree = sellerProducts.every(
+    (p) => p.shipping?.free || p.shipping?.isDigital,
+  );
+  if (allFree) return false;
+  return !(selectedShipping && Number(selectedShipping.price) > 0);
+}, [sellerProducts, deliveryMethod, selectedShipping]);
+
+// ¿La opción de envío elegida EXIGE elegir un punto de entrega y todavía no
+// hay uno seleccionado? (Servicios tipo Correo Argentino/OCA con sucursales.)
+const pickupPointPending = useMemo(() => {
+  if (deliveryMethod !== "shipping") return false;
+  if (!selectedShipping) return false;
+  return (
+    Boolean(selectedShipping.requiresPickupPoint) &&
+    !selectedShipping.pickupPoint
+  );
+}, [deliveryMethod, selectedShipping]);
+
+// Handler ESTABLE para la opción de envío elegida. Normalizamos la opción
+// cruda que devuelve Zipnova al formato que usa el checkout:
+//   { price, carrierName, serviceName, minDays, maxDays }
+// Lo memoizamos para que la identidad de la función no cambie en cada render
+// (si cambiara, el efecto del selector se re-dispararía en loop). Además,
+// comparamos la huella del valor y evitamos setear si es idéntica.
+const handleShippingChange = useCallback((opt) => {
+  const next = opt
+    ? {
+        price: Number(opt.amounts?.price_incl_tax || 0),
+        carrierName: opt.carrier?.name || opt.carrier?.code || "Logística",
+        serviceName: opt.service_type?.name || opt.service_type?.code || "",
+        minDays: opt.delivery_time?.min ?? null,
+        maxDays: opt.delivery_time?.max ?? null,
+        // Punto de entrega elegido (solo servicios con pickup_points, ej.
+        // Correo Argentino/OCA). Lo normaliza el selector de envío.
+        pickupPoint: opt.pickupPoint || null,
+        // ¿La opción exige elegir un punto de entrega? El checkout lo usa para
+        // bloquear el botón de confirmar mientras no haya uno seleccionado.
+        requiresPickupPoint: Boolean(opt.requiresPickupPoint),
+      }
+    : null;
+
+  setSelectedShipping((prev) => {
+    if (!prev && !next) return prev;
+    if (
+      prev &&
+      next &&
+      prev.price === next.price &&
+      prev.carrierName === next.carrierName &&
+      prev.serviceName === next.serviceName &&
+      (prev.pickupPoint?.id ?? null) === (next.pickupPoint?.id ?? null)
+    ) {
+      return prev; // sin cambios reales: evitamos re-render
+    }
+    return next;
+  });
+}, []);
+
+// Si se elige RETIRO EN SUCURSAL (o el vendedor no ofrece envío cotizado),
+// limpiamos cualquier cotización previa: el selector de envío no está montado
+// en modo pickup, así que no puede notificar el null por sí mismo.
+useEffect(() => {
+  if (deliveryMethod === "pickup") {
+    setSelectedShipping(null);
+  }
+}, [deliveryMethod]);
 
 // ¿El pedido está listo para avanzar? El comprador SIEMPRE debe tener una
 // dirección cargada en su perfil (es dato obligatorio, independiente del
@@ -900,10 +1108,12 @@ if (!authenticated ||  !dbUser ) {
                       Envío a domicilio
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {shippingTotal > 0
-                      ? `Costo de envío: $${shippingTotal.toLocaleString()}`
-                      : "Recibí tu compra en tu dirección"}
+                                    <p className="text-xs text-gray-500 mt-1">
+                    {shippingPending
+                      ? "Calculá el costo según tu dirección"
+                      : shippingTotal > 0
+                        ? `Costo de envío: $${shippingTotal.toLocaleString()}`
+                        : "Recibí tu compra en tu dirección"}
                   </p>
                 </button>
 
@@ -950,12 +1160,30 @@ if (!authenticated ||  !dbUser ) {
     selectedAddress={selectedAddress}
   />
 
-              {selectedAddress && (
+                            {selectedAddress && (
                 <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg">
                   <p className="text-sm text-green-700 dark:text-green-400 font-medium capitalize">
                     Dirección seleccionada: {selectedAddress.street}{" "}
                     {selectedAddress.streetNumber}, {selectedAddress.city}
                   </p>
+                </div>
+              )}
+
+              {/* COTIZACIÓN DE ENVÍO (ZIPNOVA) — se suma al total transferir.
+                  Solo cuando hay dirección: cotizamos los productos del
+                  vendedor y el comprador elige la opción de envío. */}
+              {selectedAddress && (
+                <div className="mt-6 pt-6 border-t border-zinc-100 dark:border-zinc-800">
+                  <h4 className="flex items-center gap-2 font-bold text-gray-800 dark:text-gray-100 mb-4 text-sm">
+                    <Truck className="text-[#3483fa]" size={18} />
+                    Opciones de envío
+                  </h4>
+                                    <CheckoutShippingSelector
+                    products={sellerProducts}
+                    address={selectedAddress}
+                    deliveryMethod={deliveryMethod}
+                    onShippingChange={handleShippingChange}
+                  />
                 </div>
               )}
             </section>
@@ -989,12 +1217,14 @@ if (!authenticated ||  !dbUser ) {
               <CreditCard className="text-[#3483fa]" size={22} />
               Método de pago
             </h3>
-                        <div
-              onClick={() => { setPaymentMethod("bank_transfer"); }}
-              className={`flex flex-col sm:flex-row items-center justify-between p-4 border cursor-pointer rounded-lg ${
-                paymentMethod === "bank_transfer"
-                  ? "border-[#3483fa] bg-blue-50 dark:bg-blue-900/10"
-                  : "border-zinc-200 dark:border-zinc-700 bg-transparent"
+                                                <div
+              onClick={() => acceptsTransfer && setPaymentMethod("bank_transfer")}
+              className={`flex flex-col sm:flex-row items-center justify-between p-4 border rounded-lg ${
+                !acceptsTransfer
+                  ? "opacity-60 cursor-not-allowed border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900/40"
+                  : paymentMethod === "bank_transfer"
+                    ? "border-[#3483fa] bg-blue-50 dark:bg-blue-900/10 cursor-pointer"
+                    : "border-zinc-200 dark:border-zinc-700 bg-transparent cursor-pointer"
               }`}
             >
               <div className="flex items-center gap-3">
@@ -1003,14 +1233,20 @@ if (!authenticated ||  !dbUser ) {
                 }`}></div>
                 <div>
                   <p className="font-semibold text-sm dark:text-white">
-                    Transferencia o tarjeta de crédito
+                    Transferencia Bancaria
                   </p>
                   <p className="text-xs text-gray-500">
-                    Directo al vendedor y tu compra siempre está protegida.
+                    {acceptsTransfer
+                      ? "Directo al vendedor y tu compra siempre está protegida."
+                      : "No disponible: alguno de los productos de este pedido no acepta transferencia bancaria."}
                   </p>
                 </div>
               </div>
-                            {paymentMethod === "bank_transfer" ? (
+                            {!acceptsTransfer ? (
+                <span className="text-[10px] bg-zinc-400 dark:bg-zinc-600 text-white px-2 py-0.5 rounded font-bold mt-2 uppercase">
+                  No disponible
+                </span>
+              ) : paymentMethod === "bank_transfer" ? (
                 <span className="text-[10px] bg-[#3483fa] text-white px-2 py-0.5 rounded font-bold mt-2">
                   SELECCIONADO
                 </span>
@@ -1018,25 +1254,42 @@ if (!authenticated ||  !dbUser ) {
                 <span className="px-2 py-0.5 rounded font-bold"></span>
               )}
             </div>
-            <div
-              className="flex flex-col sm:flex-row items-center justify-between p-4 border mt-4 rounded-lg opacity-60 cursor-not-allowed select-none border-zinc-200 dark:border-zinc-700 bg-transparent"
-              title="Pago con criptomonedas próximamente"
-              // onClick={() => setPaymentMethod("crypto")}  -- EN PAUSA. Descomentar al reactivar el flujo crypto.
+                                                <div
+              onClick={() => acceptsCrypto && setPaymentMethod("crypto")}
+              className={`flex flex-col sm:flex-row items-center justify-between p-4 border mt-4 rounded-lg ${
+                !acceptsCrypto
+                  ? "opacity-60 cursor-not-allowed border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900/40"
+                  : paymentMethod === "crypto"
+                    ? "border-[#3483fa] bg-blue-50 dark:bg-blue-900/10 cursor-pointer"
+                    : "border-zinc-200 dark:border-zinc-700 bg-transparent cursor-pointer"
+              }`}
             >
               <div className="flex items-center gap-3">
-                <div className="w-4 h-4 rounded-full border-4 border-zinc-300 dark:border-zinc-600 hidden md:flex"></div>
+                <div className={`w-4 h-4 rounded-full border-4 hidden md:flex ${
+                  paymentMethod === "crypto" ? "border-[#3483fa]" : "border-zinc-300 dark:border-zinc-600"
+                }`}></div>
                 <div>
-                  <p className="font-semibold text-sm text-zinc-400 dark:text-zinc-500">
+                  <p className="font-semibold text-sm dark:text-white">
                     Pagar con Criptomonedas
                   </p>
-                  <p className="text-xs text-gray-400">
-                    Pagarás con USDT desde tu wallet. Fondos 100% protegidos en el contrato.
+                  <p className="text-xs text-gray-500">
+                    {acceptsCrypto
+                      ? "Pagarás con USDT desde tu wallet. Fondos 100% protegidos en el contrato."
+                      : "No disponible: alguno de los productos de este pedido no acepta pago con criptomonedas."}
                   </p>
                 </div>
               </div>
-              <span className="text-[10px] bg-zinc-400 text-white px-2 py-0.5 rounded font-bold mt-2">
-                PRÓXIMAMENTE
-              </span>
+              {!acceptsCrypto ? (
+                <span className="text-[10px] bg-zinc-400 dark:bg-zinc-600 text-white px-2 py-0.5 rounded font-bold mt-2 uppercase">
+                  No disponible
+                </span>
+              ) : paymentMethod === "crypto" ? (
+                <span className="text-[10px] bg-[#3483fa] text-white px-2 py-0.5 rounded font-bold mt-2">
+                  SELECCIONADO
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded font-bold"></span>
+              )}
             </div>
             {/* <div className="flex flex-col sm:flex-row items-center justify-between p-4 border mt-4 border-[#173768] bg-blue-50 dark:bg-blue-900/10 rounded-lg select-none">
               <div className="flex items-center gap-3">
@@ -1118,9 +1371,19 @@ if (!authenticated ||  !dbUser ) {
                 <span>Productos ({sellerProducts.length})</span>
                 <span>${total.toLocaleString()}</span>
               </div>
-                            <div className="flex justify-between text-sm text-green-600 font-bold">
-                <span>{deliveryMethod === "pickup" ? "Retiro en sucursal:" : "Envío: "}</span>
-                <span>{(shippingTotal.toLocaleString() > 0) ? ("$" + shippingTotal.toLocaleString()) : (deliveryMethod === "pickup" ? "Gratis" : "Gratis")} </span>
+                                                        <div
+                className={`flex justify-between text-sm font-bold ${
+                  shippingTotal > 0 ? "text-gray-600 dark:text-gray-400" : "text-green-600"
+                }`}
+              >
+                                <span>{deliveryMethod === "pickup" ? "Retiro en sucursal:" : "Envío: "}</span>
+                <span>
+                  {shippingPending
+                    ? "A cotizar"
+                    : shippingTotal > 0
+                      ? `$${shippingTotal.toLocaleString()}`
+                      : "Gratis"}
+                </span>
               </div>
               <div className="border-t dark:border-zinc-800 pt-4 flex justify-between">
                 <span className="text-lg font-bold dark:text-white">Total</span>
@@ -1130,11 +1393,11 @@ if (!authenticated ||  !dbUser ) {
               </div>
             </div>
 
-                                                                                                <button
+                                                                                                                                                                                                <button
               onClick={() => handleFinalConfirm(paymentMethod)}
-              disabled={isLoading || !deliveryReady || isProfileIncomplete(dbUser)}
+                            disabled={isLoading || !deliveryReady || isProfileIncomplete(dbUser) || shippingPending || pickupPointPending}
               className={`w-full py-4 rounded-md font-bold text-white transition-all flex items-center justify-center gap-2 ${
-                deliveryReady && !isProfileIncomplete(dbUser)
+                deliveryReady && !isProfileIncomplete(dbUser) && !shippingPending && !pickupPointPending
                   ? "bg-[#3483fa] hover:bg-[#2968c8]"
                   : "bg-gray-300 cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-500"
               }               disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -1142,12 +1405,22 @@ if (!authenticated ||  !dbUser ) {
               Confirmar compra <ChevronRight size={18} />
             </button>
                         {!deliveryReady && (
-              <div className="mt-2 text-red-500 text-sm">
-                {!selectedAddress
-                  ? "Por favor selecciona una dirección de envío para poder avanzar"
-                  : "Seleccioná un punto de retiro para poder avanzar"}
-              </div>
-            )}
+                          <div className="mt-2 text-red-500 text-sm">
+                            {!selectedAddress
+                              ? "Por favor selecciona una dirección de envío para poder avanzar"
+                              : "Seleccioná un punto de retiro para poder avanzar"}
+                          </div>
+                        )}
+                        {deliveryReady && shippingPending && (
+                          <div className="mt-2 text-amber-600 dark:text-amber-400 text-sm">
+                            Calculando el costo de envío para tu dirección...
+                          </div>
+                        )}
+                        {deliveryReady && !shippingPending && pickupPointPending && (
+                          <div className="mt-2 text-amber-600 dark:text-amber-400 text-sm">
+                            Elegí un punto de entrega para la opción de envío seleccionada.
+                          </div>
+                        )}
 
             <div className="mt-6 flex items-start gap-2">
               <ShieldCheck className="w-4 h-4 text-gray-400 mt-1" />
@@ -1361,10 +1634,26 @@ if (!authenticated ||  !dbUser ) {
           confirmó la orden (que ya quedó creada en el backend).
       ────────────────────────────────────── */}
             {showCryptoModal && cryptoOrder && (
-        <CryptoPaymentModal
+                <CryptoPaymentModal
           order={cryptoOrder}
           getAccessToken={getAccessToken}
-          onClose={() => { setShowCryptoModal(false); navigate("/compras"); }}
+          onClose={async () => {
+            // El modal ya disparó el rollback de la orden provisional (nunca
+            // fondeada). Avisamos al comprador y lo llevamos de vuelta al carrito
+            // para que pueda reintentar la compra cuando quiera.
+            setShowCryptoModal(false);
+            setCryptoOrder(null);
+            const isDark = document.documentElement.classList.contains("dark");
+            await Swal.fire({
+              icon: "info",
+              title: "Pago no completado",
+              text: "No se debitó ningún monto. Descartamos la orden y podés volver a intentar la compra cuando quieras.",
+              confirmButtonColor: "#3483fa",
+              background: isDark ? "#121212" : "#ffffff",
+              color: isDark ? "#f3f4f6" : "#1f2937",
+            });
+            navigate("/cart");
+          }}
           onSuccess={(updatedOrder) => {
             setShowCryptoModal(false);
             navigate(`/order/${updatedOrder._id}`);

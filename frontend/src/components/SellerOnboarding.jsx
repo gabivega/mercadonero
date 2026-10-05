@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Swal from "sweetalert2";
+import PostalCodeInput from "./PostalCodeInput";
 import {
   X,
   ShieldCheck,

@@ -1,4 +1,5 @@
 import { fetchElitProducts, uploadRemoteImagesToCloudinary } from '../services/elitService.js';
+import { buildSyncPreview, applySyncChanges } from '../services/elitSyncService.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Proxy de sólo lectura hacia la API de Elit.
@@ -131,4 +132,75 @@ export const importElitImages = async (req, res) => {
     });
   }
 };
+
+/**
+ * POST /api/elit/sync/preview
+ *
+ * Compara NUESTROS productos vinculados a Elit contra el catálogo del proveedor
+ * y devuelve la TABLA DE DIFERENCIAS. NO escribe nada en la base.
+ *
+ * Body (opcional): { defaultMarkup?, includeUnchanged? }
+ */
+export const previewElitSync = async (req, res) => {
+  try {
+    const { defaultMarkup, includeUnchanged } = req.body || {};
+
+    const preview = await buildSyncPreview({
+      defaultMarkup,
+      includeUnchanged,
+    });
+
+    return res.json({ success: true, ...preview });
+  } catch (error) {
+    console.error('[Elit] Error en preview de sync:', error?.elitBody || error.message);
+    const status = error?.status && error.status >= 400 && error.status < 600 ? error.status : 502;
+    return res.status(status).json({
+      success: false,
+      message: error?.message || 'No se pudo generar la vista previa de sincronización.',
+      elit: error?.elitBody || undefined,
+    });
+  }
+};
+
+/**
+ * POST /api/elit/sync/apply
+ *
+ * Aplica los cambios SELECCIONADOS por el usuario.
+ *
+ * Body: { changes: [{ productId, applyStock?, elitStock?, applyPrice?, newPrice?,
+ *                      markup?, elitCost?, markRemoved? }] }
+ */
+export const applyElitSync = async (req, res) => {
+  try {
+    const { changes } = req.body || {};
+
+    if (!Array.isArray(changes) || changes.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enviá un array "changes" con al menos un cambio a aplicar.',
+      });
+    }
+
+    // Límite defensivo por request.
+    const limited = changes.slice(0, 200);
+
+    const result = await applySyncChanges(limited);
+
+    return res.json({
+      success: result.errors.length === 0,
+      updated: result.updated.length,
+      skipped: result.skipped.length,
+      errors: result.errors.length,
+      detail: result,
+    });
+  } catch (error) {
+    console.error('[Elit] Error al aplicar sync:', error.message);
+    const status = error?.status && error.status >= 400 && error.status < 600 ? error.status : 500;
+    return res.status(status).json({
+      success: false,
+      message: error?.message || 'No se pudieron aplicar los cambios de sincronización.',
+    });
+  }
+};
+
 
