@@ -17,6 +17,7 @@ import referralRoutes from './src/routes/referralRoutes.js';
 import poolRoutes from './src/routes/poolRoutes.js';
 import shippingRoutes from './src/routes/shippingRoutes.js';
 import elitRoutes from './src/routes/elitRoutes.js';
+import flamingRoutes from './src/routes/flamingRoutes.js';
 import startOrderCleanup from './src/services/orderCleanup.js';
 import startElitSyncCron from './src/services/elitSyncCron.js';
 import { getSitemap } from './src/controllers/seoController.js';
