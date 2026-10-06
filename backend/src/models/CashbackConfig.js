@@ -7,7 +7,7 @@ const { Schema } = mongoose;
  * Se guarda como un documento único (singleton) que el admin gestiona
  * desde el panel. Así podemos:
  *   - Activar/desactivar el cashback a nivel global.
- *   - Cambiar el importe (% sobre la comisión) sin tocar código.
+ *   - Cambiar el importe (% sobre el subtotal de productos) sin tocar código.
  *   - Ajustar el umbral mínimo de retiro/uso.
  *   - Poner un tope de cashback por orden (opcional).
  *
@@ -22,10 +22,11 @@ const cashbackConfigSchema = new Schema(
     // Flag global: si es false, no se acumula cashback en ninguna orden.
     enabled: { type: Boolean, default: true },
 
-    // Porcentaje de la COMISIÓN (fee) del vendedor que se devuelve como
-    // cashback al comprador. Ej: 0.3 => se devuelve el 30% del fee (0.03*0.3 = 0.9%).
-    // Pensado como "importe" editable desde admin.
-    feePercent: { type: Number, default: 0.3 }, // % de la comisión que se reintegra
+    // Porcentaje del SUBTOTAL DE PRODUCTOS (sin envío) que se devuelve como
+    // cashback al comprador. Ej: 0.025 => se reintegra el 2.5% de los productos.
+    // Pensado como "importe" editable desde admin. La plataforma cobra 3% de
+    // comisión y reintegra este %; el neto que retiene es (3% - feePercent).
+    feePercent: { type: Number, default: 0.025 }, // % de los productos que se reintegra
 
     // Umbral mínimo (en USD) que debe alcanzar el balance para poder
     // retirar/usar el cashback. Antes de eso queda "pendiente de límite".
@@ -53,4 +54,5 @@ const CashbackConfig =
   mongoose.model("CashbackConfig", cashbackConfigSchema);
 
 export default CashbackConfig;
+
 

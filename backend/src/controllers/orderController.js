@@ -2722,7 +2722,7 @@ const confirmEscrowFunding = async (req, res) => {
     order.statusHistory.push({
       status: "paid",
       changedAt: new Date(),
-      comment: "El comprador fondeó el escrow en cripto (USDT). Fondos retenidos en el contrato.",
+      comment: "El comprador abonó con cripto (USDT). Fondos retenidos en el contrato.",
     });
     // Mapeamos a "paid" para que el vendedor pueda despachar (ya no está pendiente de pago).
     order.status = "paid";
@@ -2741,8 +2741,8 @@ const confirmEscrowFunding = async (req, res) => {
       createNotification({
         recipient: seller._id,
         type: "payment_confirmed",
-        title: "El comprador fondeó el escrow",
-        message: `El comprador depositó los USDT en el contrato de garantía para la orden #${order._id.toString().slice(-6).toUpperCase()}. Ya podés despachar.`,
+        title: "El comprador pagó la orden",
+        message: `El comprador depositó los USDT en el contrato para la orden #${order._id.toString().slice(-6).toUpperCase()}. Ya podés despachar.`,
         data: { orderId: order._id, totalAmount: order.totalAmount },
       }).catch((err) => console.error("Falló notif fondeo a vendedor:", err));
     }
@@ -3308,18 +3308,30 @@ const prepareEscrowFunding = async (req, res) => {
       });
     }
 
+        // Respuesta APLANADA a nivel raíz (tokenAddress, token, sellerWallet, etc.)
+    // porque el front (CryptoPaymentModal) lee estos campos directamente del
+    // body (prepared.tokenAddress / fund.sellerWallet / fund.tokenAddress). Si
+    // se dejan SOLO dentro de `funding`, el front recibe tokenAddress=undefined
+    // y muestra "No pudimos determinar la moneda de pago". Mantenemos `funding`
+    // por compatibilidad y exponemos gasDripped para el aviso de gas.
+    const fundingPayload = {
+      orderId: order._id.toString(),
+      contractAddress: process.env.ESCROW_CONTRACT_ADDRESS,
+      tokenAddress,
+      token: tokenSymbol,
+      sellerWallet: seller?.walletAddress || null,
+      buyerWallet,
+      requiredUsd,
+      feeBps: order.payment?.feeBps || undefined,
+    };
+
     return res.status(200).json({
       success: true,
-      funding: {
-        orderId: order._id.toString(),
-        contractAddress: process.env.ESCROW_CONTRACT_ADDRESS,
-        tokenAddress,
-        token: tokenSymbol,
-        sellerWallet: seller?.walletAddress || null,
-        buyerWallet,
-        requiredUsd,
-        feeBps: order.payment?.feeBps || undefined,
-      },
+      // Campos aplanados (lo que espera el front).
+      ...fundingPayload,
+      gasDripped: !!gas?.drip?.delivered,
+      // Compatibilidad: mismo objeto anidado.
+      funding: fundingPayload,
       gas,
     });
   } catch (error) {

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import CashbackBadge from "../components/CashbackBadge";
 import { productPath } from "../Utils/productUrl";
+import { formatMoney } from "../Utils/currencyFormatter";
 
 
 export default function Cart() {
@@ -19,12 +20,9 @@ export default function Cart() {
   const { cart, removeFromCart, updateQuantity, clearCart } = useCartStore();
   // console.log(cart)
 
-  const formatPrice = (val) =>
-    new Intl.NumberFormat("es-AR", {
-      style: "currency",
-      currency: "ARS",
-      maximumFractionDigits: 0,
-    }).format(val);
+  // Precio formateado en pesos con el formato unificado (es-AR, sin decimales):
+  //   16254 -> "16.254". Usamos el mismo util que el checkout.
+  const formatPrice = (val) => `$${formatMoney(val)}`;
 
   // Agrupamos por ID de vendedor para procesar órdenes individuales
   const groupedBySeller = cart.reduce((acc, item) => {
@@ -196,10 +194,7 @@ export default function Cart() {
                                 <div className="flex items-center gap-2">
                                   {/* Precio original tachado */}
                                   <span className="text-xs text-gray-400 line-through">
-                                    $
-                                    {(
-                                      item.price * item.quantity
-                                    ).toLocaleString()}
+                                    ${formatMoney(item.price * item.quantity)}
                                   </span>
                                   {/* Porcentaje de descuento (opcional, queda muy bien) */}
                                   <span className="text-xs text-green-500 font-medium">
@@ -212,19 +207,13 @@ export default function Cart() {
                                 </div>
                                 {/* Precio con descuento resaltado */}
                                 <p className="text-xl font-light dark:text-white">
-                                  $
-                                  {(
-                                    item.sale.price * item.quantity
-                                  ).toLocaleString()}
+                                  ${formatMoney(item.sale.price * item.quantity)}
                                 </p>
                               </>
                             ) : (
                               /* Precio normal si no hay oferta */
                               <p className="text-xl font-light dark:text-white">
-                                $
-                                {(
-                                  item.price * item.quantity
-                                ).toLocaleString()}
+                                ${formatMoney(item.price * item.quantity)}
                               </p>
                             )}
                           </div>

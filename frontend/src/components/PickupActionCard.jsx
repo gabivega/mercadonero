@@ -44,7 +44,7 @@ export default function PickupActionCard({ order, role, onUpdate }) {
     role === 'seller'
       ? 'Procesando la operación en sucursal...'
       : isCrypto
-        ? 'Procesando: liberando los USDT del escrow al vendedor...'
+        ? 'Procesando: liberando los USDT del contrato al vendedor...'
         : 'Procesando el retiro en sucursal...';
 
   // Instrucciones del punto de retiro (si el vendedor las cargó).

@@ -216,6 +216,7 @@ const orderSchema = new Schema(
       // Monto de cashback acreditado al comprador al completarse la orden.
       earnedUsd: { type: Number, default: 0 },
       // Tasa efectiva usada (feePercent de la config global o override).
+      // Es el % del SUBTOTAL de productos que se reintegró (ej: 0.025 = 2.5%).
       feePercentUsed: { type: Number, default: 0 },
       // Si el comprador usó cashback para descontar el pago de ESTA orden.
       usedInCheckout: { type: Number, default: 0 }, // USD descontados con cashback

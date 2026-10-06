@@ -251,6 +251,8 @@ const userSchema = new Schema(
 
     // ────────────────────────────────────────────────
     // CASHBACK (acumulado en BD, sin tocar blockchain)
+    // Reintegro al comprador = % del subtotal de productos (sin envío). La
+    // plataforma cobra 3% de comisión y reintegra feePercent (default 2.5%).
     // ────────────────────────────────────────────────
     cashback: {
       balance: { type: Number, default: 0 },   // Saldo acumulado disponible (USD)
@@ -261,7 +263,7 @@ const userSchema = new Schema(
       // Override por usuario: si se setea, anula la config global para ESTE user.
       // Puede servir para fidelizar usuarios de pago, dar un % distinto, etc.
       overrideEnabled: { type: Boolean, default: false },
-      overrideFeePercent: { type: Number },     // % de comisión a reintegrar (si override)
+      overrideFeePercent: { type: Number },     // % del subtotal de productos a reintegrar (si override)
       overrideMinWithdrawalUsd: { type: Number },
 
       // Historial opcional de movimientos de cashback (para auditoría/UI).

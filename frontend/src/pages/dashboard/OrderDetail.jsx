@@ -15,9 +15,11 @@ import {
   Sparkles,
         Star,
     Hourglass,
-  ShieldCheck,
-  Gift,
-  Wallet,
+    ShieldCheck,
+    Gift,
+    Wallet,
+    ExternalLink,
+    // RefreshCw, // usado por el botón de recargar (comentado por ahora)
 } from "lucide-react";
 import Swal from "sweetalert2";
 import { useUserStore } from "../../store/useUserStore";
@@ -34,6 +36,7 @@ import OrderRatings from "../../components/OrderRatings";
 import CollateralHoldCard from "../../components/CollateralHoldCard";
 import CashbackBadge from "../../components/CashbackBadge";
 import CryptoPaymentModal from "../../components/CryptoPaymentModal";
+import { formatMoney } from "../../Utils/currencyFormatter";
 
 export default function OrderDetail() {
     const { id } = useParams();
@@ -67,29 +70,67 @@ export default function OrderDetail() {
     }, 350);
   };
 
-  useEffect(() => {
-    fetchOrder();
-  }, [id]);
-
-    const fetchOrder = async () => {
-    setFetching(true);
-    try {
-      const token = await getAccessToken();
-      const res = await axios.get(
-        `${import.meta.env.VITE_SERVER_URL}/api/order/${id}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
-      setOrder(res.data.order);
-      // console.log(res.data.order);
+      const fetchOrder = async () => {
+        setFetching(true);
+        try {
+          const token = await getAccessToken();
+          const res = await axios.get(
+            `${import.meta.env.VITE_SERVER_URL}/api/order/${id}`,
+            {
+              headers: { Authorization: `Bearer ${token}` },
+            },
+          );
+          setOrder(res.data.order);
+          // console.log(res.data.order);
         } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-      setFetching(false);
-    }
-  };
+          console.error(err);
+        } finally {
+          setLoading(false);
+          setFetching(false);
+        }
+      };
+
+      useEffect(() => {
+        fetchOrder();
+      }, [id]);
+
+      // Ref con la última versión de fetchOrder, para que el intervalo de
+      // auto-refresco NO dependa de ella y no se reinicie en cada render.
+      const fetchOrderRef = useRef(fetchOrder);
+      useEffect(() => {
+        fetchOrderRef.current = fetchOrder;
+      });
+
+      // ── AUTO-REFRESCO ──────────────────────────────────────────────
+      // Si la otra parte cambia el estado de la orden (p. ej. el vendedor marca el
+      // pedido como "listo para retirar"), esta pantalla se actualizaba recién al
+      // recargar. Acá consultamos la orden cada 20s, pero solo:
+      //   - mientras la pestaña está visible (no gastamos requests de fondo), y
+      //   - mientras la orden sigue "activa" (no en estados finales).
+      // Al volver a la pestaña también refrescamos una vez de inmediato.
+      useEffect(() => {
+        const isOrderActive =
+          !!order && !["completed", "cancelled", "expired"].includes(order.status);
+        if (!isOrderActive) return;
+
+        const interval = setInterval(() => {
+          if (document.visibilityState === "visible") {
+            fetchOrderRef.current?.();
+          }
+        }, 20000);
+
+        const onVisible = () => {
+          if (document.visibilityState === "visible") {
+            fetchOrderRef.current?.();
+          }
+        };
+        document.addEventListener("visibilitychange", onVisible);
+
+        return () => {
+          clearInterval(interval);
+          document.removeEventListener("visibilitychange", onVisible);
+        };
+      }, [order?.status, id]);
 
     const handleUploadProof = async (event) => {
     // Si es una subida "inline" desde la bandera de disputa, ya tenemos el file
@@ -248,6 +289,21 @@ export default function OrderDetail() {
       0,
     );
 
+    // ── PAGO: método, token y tipo de cambio ──
+    // Si la orden se abona con cripto, mostramos los importes también en USDT
+    // (en el detalle de cada ítem y en una tarjeta de resumen del importe).
+    const isCryptoOrder = order.payment?.method === "crypto";
+    const payToken = order.payment?.token || "USDT";
+    const usdRate = Number(order.financials?.usdRate) || 0;
+
+    // Total retenido en USDT. Preferimos el monto exacto que el backend fijó en
+    // el escrow (amountUsdRetained) y, si no está, lo derivamos de financials:
+    // total de productos en USD + costo de envío en USD.
+    const orderTotalUsdt =
+      Number(order.payment?.amountUsdRetained) ||
+      (Number(order.financials?.totalUsd) || 0) +
+        (Number(order.financials?.shippingCostUsd) || 0);
+
     // ⚠️ [POLÍTICA ACTUAL] El comprador SOLO puede cancelar mientras la orden NO
     // está marcada como pagada (aún en 'pending_payment'). Una vez que notificó
     // el pago ('verifying_payment') o el vendedor lo confirmó ('paid'), el
@@ -268,13 +324,27 @@ export default function OrderDetail() {
 
     return (
     <div className="max-w-5xl mx-auto p-4 md:p-8 space-y-8">
-      {/* Indicador global de actualización de la orden */}
-      {fetching && (
-        <div className="fixed top-16 right-4 z-50 flex items-center gap-2 bg-black/80 dark:bg-white/90 text-white dark:text-black px-4 py-2 rounded-full shadow-lg text-xs font-semibold">
-          <div className="w-3.5 h-3.5 border-2 border-white dark:border-black border-t-transparent rounded-full animate-spin" />
-          Actualizando orden...
-        </div>
-      )}
+            {/* Indicador global de actualización de la orden + botón de recargar.
+                [DESHABILITADO por ahora] El auto-refresco cada 20s (ver useEffect más
+                arriba) alcanza. El botón flotante quedaba "sticky" y con un color que
+                no encajaba; lo dejamos comentado hasta definir un diseño definitivo. */}
+            {/* {fetching ? (
+              <div className="fixed top-16 right-4 z-50 flex items-center gap-2 bg-black/80 dark:bg-white/90 text-white dark:text-black px-4 py-2 rounded-full shadow-lg text-xs font-semibold">
+                <div className="w-3.5 h-3.5 border-2 border-white dark:border-black border-t-transparent rounded-full animate-spin" />
+                Actualizando orden...
+              </div>
+            ) : (
+              <div className="fixed top-16 right-4 z-50">
+                <button
+                  onClick={() => fetchOrder()}
+                  title="Actualizar la orden"
+                  className="flex items-center gap-2 bg-white dark:bg-white/90 text-zinc-700 dark:text-black px-4 py-2 rounded-full shadow-lg border dark:border-zinc-700 text-xs font-semibold hover:bg-zinc-50 dark:hover:bg-white transition-colors"
+                >
+                  <RefreshCw size={14} />
+                  Recargar
+                </button>
+              </div>
+            )} */}
 
       {role === "seller" && (
         <h4
@@ -423,14 +493,22 @@ export default function OrderDetail() {
                   alt={item.title}
                   className="w-20 h-20 rounded-lg object-cover"
                 />
-                <div>
+                                <div>
                   <h4 className="font-semibold">{item.title}</h4>
                   <p className="text-sm text-gray-500">
                     Cantidad: {item.quantity}
                   </p>
                   <p className="font-bold text-[#3483fa]">
-                    ${item.price.toLocaleString()}
+                    ${formatMoney(item.price)}
                   </p>
+                  {/* Si la orden se paga en cripto, mostramos el equivalente
+                      estimado en USDT de este ítem (usando el tipo de cambio
+                      registrado en financials). */}
+                  {isCryptoOrder && usdRate > 0 && (
+                    <p className="text-xs font-semibold text-[#F26722]">
+                      ≈ {((Number(item.price) || 0) / usdRate).toFixed(2)} {payToken}
+                    </p>
+                  )}
                 </div>
               </div>
             ))}
@@ -446,7 +524,7 @@ export default function OrderDetail() {
               )}
           </section>
 
-                    {role === "buyer" && order.status === "pending_payment" && (
+                                        {role === "buyer" && order.status === "pending_payment" && (
             <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
                             {order.payment?.method === "crypto" ? (
                 <EscrowPaymentStatus
@@ -466,6 +544,21 @@ export default function OrderDetail() {
               )}
             </section>
           )}
+
+          {/* PRUEBA DE PAGO CRIPTO (para el VENDEDOR y para el comprador cuando
+              su orden ya está fondeada). Muestra el detalle del escrow y el hash
+              on-chain de la transacción, de modo que el vendedor pueda verificar
+              en BscScan que el pago está bloqueado antes de despachar.
+              - Comprador: ya ve la tarjeta en 'pending_payment'; se la mostramos
+                acá de nuevo cuando la orden ya avanzó (paid/shipped/completed).
+              - Vendedor: se le muestra en cualquier estado activo de la orden. */}
+          {isCryptoOrder &&
+            ["paid", "shipped", "completed"].includes(order.status) &&
+            (role === "buyer" || role === "seller") && (
+              <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
+                                <EscrowPaymentStatus order={order} onUpdate={fetchOrder} role={role} />
+              </section>
+            )}
                                                                                 {role === "seller" && (order.status === "verifying_payment" || order.status === "pending_payment") && (
             <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
               <ConfirmPaymentAction
@@ -822,10 +915,11 @@ export default function OrderDetail() {
 // Reemplaza al PaymentAction (datos bancarios del vendedor), que NO
 // aplica para pagos en cripto.
 // ──────────────────────────────────────────────────────────────
-function EscrowPaymentStatus({ order, onUpdate, onPayClick }) {
+function EscrowPaymentStatus({ order, onUpdate, onPayClick, role }) {
   const { getAccessToken } = usePrivy();
   const [checking, setChecking] = useState(false);
   const isDark = document.documentElement.classList.contains("dark");
+  const isSeller = role === "seller";
 
     const payment = order.payment || {};
   // El escrow está fondeado cuando el sub-estado de pago lo indica (on-chain
@@ -878,15 +972,15 @@ function EscrowPaymentStatus({ order, onUpdate, onPayClick }) {
         </h3>
       </div>
 
-      <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-6 font-medium leading-relaxed">
-        Esta compra se abona con USDT. Tus fondos quedaron retenidos en el
-        contrato escrow de Mercado Nero y se liberarán al vendedor recién cuando
-        confirmes la recepción del pedido.
+            <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-6 font-medium leading-relaxed">
+        {isSeller
+          ? "Esta venta se cobra con USDT. El comprador depositó el importe en el contrato inteligente de Mercado Nero: los fondos están bloqueados y liberados a tu favor cuando el comprador confirme la recepción. Podés verificar la transacción on-chain antes de despachar."
+          : "Esta compra se abona con USDT. Tus fondos quedaron retenidos en el contrato inteligente de Mercado Nero y se liberarán al vendedor recién cuando confirmes la recepción del pedido."}
       </p>
 
       <div className="bg-white dark:bg-[#252525] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 mb-6">
         <h4 className="text-xs font-black uppercase text-center tracking-widest text-[#F26722] mb-4">
-          Detalle del Escrow
+          Detalle de la operación
         </h4>
         <div className="space-y-3 md:px-[25%]">
           <div className="flex justify-between items-center flex-col sm:flex-row">
@@ -925,7 +1019,7 @@ function EscrowPaymentStatus({ order, onUpdate, onPayClick }) {
                 : "—"}
             </button>
           </div>
-          <div className="flex justify-between items-center flex-col sm:flex-row">
+                    <div className="flex justify-between items-center flex-col sm:flex-row">
             <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Estado del depósito</span>
             <span
               className={`text-sm font-bold ${
@@ -937,10 +1031,47 @@ function EscrowPaymentStatus({ order, onUpdate, onPayClick }) {
               {isFunded ? "✓ Fondeado" : "En espera de fondeo"}
             </span>
           </div>
+
+          {/* HASH DE LA TRANSACCIÓN DE FONDEO (prueba on-chain del pago).
+              Se muestra tanto al comprador como al vendedor una vez que el
+              escrow está fondeado. El vendedor puede abrir la transacción en
+              BscScan para verificar por su cuenta que los USDT están
+              efectivamente bloqueados en el contrato. */}
+          {payment.fundTxHash && (
+            <div className="flex justify-between items-center flex-col sm:flex-row">
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                Tx del fondeo
+              </span>
+              <a
+                href={`https://testnet.bscscan.com/tx/${payment.fundTxHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm font-mono font-bold text-[#3483fa] hover:underline"
+                title="Ver la transacción del pago en BscScan"
+              >
+                {payment.fundTxHash.slice(0, 8)}...{payment.fundTxHash.slice(-6)}
+                <ExternalLink size={13} />
+              </a>
+            </div>
+          )}
         </div>
       </div>
 
-            {!isFunded && (
+      {/* AVISO DE SEGURIDAD PARA EL VENDEDOR: prueba verificable de que el pago
+          está retenido en el escrow, con acceso directo a la transacción. */}
+      {isFunded && payment.fundTxHash && (
+        <div className="mb-6 p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 flex items-start gap-3">
+          <ShieldCheck className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" size={18} />
+          <div className="text-xs text-emerald-700 dark:text-emerald-300 leading-relaxed">
+            <b className="block uppercase tracking-wide mb-0.5">Pago verificado on-chain</b>
+            Los {totalUsdt > 0 ? totalUsdt.toFixed(2) : ""} {payment.token || "USDT"} están
+            bloqueados en el contrato inteligente. Podés verificar la transacción
+            en la blockchain antes de despachar el pedido.
+          </div>
+        </div>
+      )}
+
+                        {!isFunded && !isSeller && (
         <div className="space-y-3">
           {/* BOTÓN PRINCIPAL: completar el pago. Reabre el modal de fondeo del
               escrow (idéntico al checkout) por si el comprador cerró el modal o
@@ -979,10 +1110,7 @@ function EscrowPaymentStatus({ order, onUpdate, onPayClick }) {
         </div>
       )}
 
-      <div className="mt-4 flex items-center justify-center gap-2 text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
-        <ShieldCheck size={12} />
-        Tu pago está protegido en el contrato escrow
-      </div>
+
     </div>
   );
 }

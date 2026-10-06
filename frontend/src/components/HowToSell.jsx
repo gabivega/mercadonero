@@ -18,14 +18,14 @@ const [isOpen, setIsOpen] = useState(isExpanded);
     {
       id: 2,
       title: "Crear la publicación",
-      detail: "Completá el formulario con todos los datos requeridos, imágenes de alta calidad y elegí el método de envío de tu preferencia.",
+      detail: "Completá el formulario con todos los datos requeridos, imágenes de alta calidad. Elegí métodos de pago y envío de tu preferencia.",
       icon: FileText,
       iconColor: "text-orange-500 bg-orange-50 dark:bg-orange-950/30",
     },
     {
       id: 3,
-      title: "Colocar saldo en garantía",
-      detail: "Cargá USDT en tu billetera para que cuando ingrese una orden, el comprador quede protegido hasta que reciba el producto.",
+      title: "Cobrá por transferencia o USDT",
+      detail: "Cobrá por adelantado con transferencia bancaria o en USDT al completar el envio. Vendedores y compradores quedan protegidos durante todo el proceso.",
       icon: ShieldCheck,
       iconColor: "text-green-500 bg-green-50 dark:bg-green-950/30",
     },

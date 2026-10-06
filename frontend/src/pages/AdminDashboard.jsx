@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import AdminOrdersTable from "../components/AdminOrdersTable";
 import AdminUsersTable from "../components/AdminUsersTable";
+import AdminStats from "../components/AdminStats";
 import { usePrivy } from "@privy-io/react-auth";
 import { useUserStore } from "../store/useUserStore";
 
@@ -127,10 +128,13 @@ const AdminDashboard = () => {
           </button>
         </header>
 
-                <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+          {activeTab === "stats" && <AdminStats />}
           {activeTab === "orders" && <AdminOrdersTable />}
           {activeTab === "users" && <AdminUsersTable />}
-          {activeTab !== "orders" && activeTab !== "users" && (
+          {activeTab !== "stats" &&
+            activeTab !== "orders" &&
+            activeTab !== "users" && (
             <div className="h-64 flex items-center justify-center border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-[2.5rem]">
               <p className="text-zinc-400 font-medium italic">
                 Sección en desarrollo...

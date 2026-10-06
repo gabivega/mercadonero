@@ -66,9 +66,15 @@ export default function CryptoPaymentModal({
 
   // Token FIJO: viene del backend (prepare-funding) o del guardado en la orden.
   const tokenAddress =
-    prepared?.tokenAddress || order?.payment?.tokenAddress || "";
+    prepared?.tokenAddress ||
+    prepared?.funding?.tokenAddress ||
+    order?.payment?.tokenAddress ||
+    "";
   const tokenSymbol =
-    prepared?.token || order?.payment?.token || PAYMENT_TOKEN_SYMBOL;
+    prepared?.token ||
+    prepared?.funding?.token ||
+    order?.payment?.token ||
+    PAYMENT_TOKEN_SYMBOL;
   // Saldo insuficiente detectado por el backend (prepare-funding).
   const insufficient =
     !!prepError && /insuficiente|INSUFFICIENT_USDT/i.test(prepError);
@@ -92,8 +98,8 @@ export default function CryptoPaymentModal({
         { headers: { Authorization: `Bearer ${accessToken}` } },
       );
       if (data?.success) {
-        setPrepared(data);
-        if (data.gasDripped) {
+        setPrepared({ ...data?.funding, ...data });
+        if (data.gasDripped || data?.gas?.drip?.delivered) {
           setStatus("Te acreditamos un poco de BNB para cubrir el gas de la firma.");
         }
       } else {
@@ -169,8 +175,8 @@ export default function CryptoPaymentModal({
         if (!data.success) {
           throw new Error(data.message || "No se pudo preparar el pago.");
         }
-        fund = data;
-        setPrepared(data);
+        fund = { ...data?.funding, ...data };
+        setPrepared(fund);
       }
 
       // 1. Cambiar a BSC Testnet con la wallet activa.

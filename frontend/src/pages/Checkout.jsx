@@ -20,9 +20,7 @@ import { useUserStore } from "../store/useUserStore";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import AuthOnboarding from "../components/AuthOnboarding";
 import { useSyncUser } from "../Utils/userSync";
-
-
-
+import { formatMoney } from "../Utils/currencyFormatter";
 import LoadingSpinner from "../components/LoadingSpinner";
 import CryptoPaymentModal from "../components/CryptoPaymentModal";
 import DepositUsdtModal from "../components/DepositUsdtModal";
@@ -378,7 +376,7 @@ const handleSaveBasicData = async () => {
     <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 250px;">
       ${p.quantity}x ${p.name}
     </span>
-    <span style="font-weight: 600;">$${(p.sale?.price ? p.sale.price * p.quantity :p.price * p.quantity).toLocaleString()}</span>
+    <span style="font-weight: 600;">$${formatMoney(p.sale?.price ? p.sale.price * p.quantity : p.price * p.quantity)}</span>
   </div>
 `).join('');
 
@@ -393,19 +391,19 @@ const step1 = await Swal.fire({
           ${productListHtml}
         </div>
         <div style="background-color: ${isDark ? "#27272a" : "#f8fafc"}; padding: 10px; border-radius: 12px; margin-top: 10px;">
-          <p style="margin: 3px 0; display: flex; justify-content: space-between;">
+                    <p style="margin: 3px 0; display: flex; justify-content: space-between;">
             <span>📦 Subtotal Productos:</span>
-            <span style="font-weight: 700;">$${total.toLocaleString()}</span>
+            <span style="font-weight: 700;">$${formatMoney(total)}</span>
           </p>
           <p style="margin: 3px 0; display: flex; justify-content: space-between;">
             <span>🚚 Costo de Envío:</span>
             <span style="font-weight: 700; color: ${shippingTotal === 0 ? '#10b981' : 'inherit'}">
-              ${shippingTotal === 0 ? 'GRATIS' : `$${shippingTotal.toLocaleString()}`}
+              ${shippingTotal === 0 ? 'GRATIS' : `$${formatMoney(shippingTotal)}`}
             </span>
           </p>
                     <p style="margin: 8px 0 0 0; display: flex; justify-content: space-between; font-size: 1.1rem; border-top: 1px solid ${isDark ? "#3f3f46" : "#e5e7eb"}; pt-2">
             <b>Total Final:</b>
-            <span style="color: #3483fa; font-weight: 900;">$${finalTotal.toLocaleString()}</span>
+            <span style="color: #3483fa; font-weight: 900;">$${formatMoney(finalTotal)}</span>
           </p>
           <p style="margin: 8px 0 0 0; font-size: 0.85rem; color: #10b981; display: flex; align-items: center; gap: 4px;">
             ⚡ <span>Ganás <b>2.5%</b> de cashback en <b>USDT</b> sobre tus productos (se acredita al completar la compra).</span>
@@ -422,7 +420,7 @@ const step1 = await Swal.fire({
         }
         ${
           deliveryMethod === "shipping" && selectedShipping
-            ? `<p style="margin: 5px 0;">🚚 <b>Servicio:</b> ${selectedShipping.carrierName || "Logística"}${selectedShipping.serviceName ? ` · ${selectedShipping.serviceName}` : ""}${selectedShipping.price > 0 ? ` — $${Number(selectedShipping.price).toLocaleString()}` : " — GRATIS"}${
+            ? `<p style="margin: 5px 0;">🚚 <b>Servicio:</b> ${selectedShipping.carrierName || "Logística"}${selectedShipping.serviceName ? ` · ${selectedShipping.serviceName}` : ""}${selectedShipping.price > 0 ? ` — $${formatMoney(selectedShipping.price)}` : " — GRATIS"}${
                 selectedShipping.minDays != null
                   ? ` <span style="color:#6b7280;">(llega en ${selectedShipping.minDays}-${selectedShipping.maxDays} días)</span>`
                   : ""
@@ -588,7 +586,7 @@ const step1 = await Swal.fire({
         <p style="margin: 5px 0;"><b>Banco:</b> ${bankAccount?.bankName || 'No disponible'}</p>
         <p style="margin: 5px 0;"><b>Cuit/Cuil:</b> ${bankAccount?.cuitCuil || 'No disponible'}</p>
         <p style="margin: 10px 0 0 0; font-size: 1.1rem; color: #3483fa; font-weight: bold;">
-          Total: $${response.data.order.totalAmount.toLocaleString()}
+          Total: $${formatMoney(response.data.order.totalAmount)}
         </p>
       </div>
       <p>Transferí y presioná el botón de abajo para avisarle al vendedor.</p>
@@ -721,14 +719,14 @@ const step1 = await Swal.fire({
               ${usdtNeeded.toFixed(2)} <span style="font-size: 1rem; font-weight: 700;">USDT</span>
             </p>
             <p style="margin: 6px 0 0 0; font-size: 0.78rem; color: ${isDark ? "#a8a29e" : "#78716c"};">
-              ≈ $${finalTotal.toLocaleString()} ARS · Cotización: 1 USDT ≈ $${(quote.usdRate || 0).toFixed(2)} ARS
+              ≈ $${formatMoney(finalTotal)} ARS · Cotización: 1 USDT ≈ $${(quote.usdRate || 0).toFixed(2)} ARS
             </p>
           </div>
 
           <div style="background-color: ${isDark ? "#27272a" : "#f4f4f5"}; padding: 12px; border-radius: 10px; margin-bottom: 12px;">
             <p style="margin: 0 0 6px 0; font-weight: 700;">Detalle de la compra</p>
-            <p style="margin: 3px 0; font-size: 0.82rem;">📦 Productos: $${total.toLocaleString()} ARS</p>
-                        <p style="margin: 3px 0; font-size: 0.82rem;">🚚 Envío: ${shippingTotal > 0 ? "$" + shippingTotal.toLocaleString() + " ARS" : (deliveryMethod === "pickup" ? "Retiro en sucursal (GRATIS)" : "GRATIS")}${deliveryMethod === "shipping" && selectedShipping ? ` · ${selectedShipping.carrierName || "Logística"}${selectedShipping.serviceName ? ` (${selectedShipping.serviceName})` : ""}` : ""}</p>
+                        <p style="margin: 3px 0; font-size: 0.82rem;">📦 Productos: $${formatMoney(total)} ARS</p>
+                        <p style="margin: 3px 0; font-size: 0.82rem;">🚚 Envío: ${shippingTotal > 0 ? "$" + formatMoney(shippingTotal) + " ARS" : (deliveryMethod === "pickup" ? "Retiro en sucursal (GRATIS)" : "GRATIS")}${deliveryMethod === "shipping" && selectedShipping ? ` · ${selectedShipping.carrierName || "Logística"}${selectedShipping.serviceName ? ` (${selectedShipping.serviceName})` : ""}` : ""}</p>
             <p style="margin: 6px 0 0 0; font-size: 0.82rem;">📍 Envío a: ${selectedAddress.street} ${selectedAddress.streetNumber}, ${selectedAddress.city}</p>
             ${deliveryMethod === "shipping" && selectedShipping?.pickupPoint ? `<p style="margin: 3px 0 0 0; font-size: 0.82rem;">🏪 Punto de entrega: ${selectedShipping.pickupPoint.name} — ${[selectedShipping.pickupPoint.street, selectedShipping.pickupPoint.streetNumber].filter(Boolean).join(" ")}, ${selectedShipping.pickupPoint.city || ""}</p>` : ""}
           </div>
@@ -1111,8 +1109,8 @@ if (!authenticated ||  !dbUser ) {
                                     <p className="text-xs text-gray-500 mt-1">
                     {shippingPending
                       ? "Calculá el costo según tu dirección"
-                      : shippingTotal > 0
-                        ? `Costo de envío: $${shippingTotal.toLocaleString()}`
+                                            : shippingTotal > 0
+                        ? `Costo de envío: $${formatMoney(shippingTotal)}`
                         : "Recibí tu compra en tu dirección"}
                   </p>
                 </button>
@@ -1335,21 +1333,21 @@ if (!authenticated ||  !dbUser ) {
                     </p>
                   </div>
                   <div className="text-right">
-                    {item.sale.price > 0 ? (
+                                        {item.sale.price > 0 ? (
                       <>
                         {/* Precio de lista tachado */}
                         <p className="text-xs text-gray-400 line-through">
-                          ${(item.price * item.quantity).toLocaleString()}
+                          ${formatMoney(item.price * item.quantity)}
                         </p>
                         {/* Precio con descuento */}
                         <p className="text-sm font-bold text-green-600 dark:text-green-400">
-                          ${(item.sale.price * item.quantity).toLocaleString()}
+                          ${formatMoney(item.sale.price * item.quantity)}
                         </p>
                       </>
                     ) : (
                       /* Precio normal si no hay oferta */
                       <p className="text-sm font-medium dark:text-white">
-                        ${(item.price * item.quantity).toLocaleString()}
+                        ${formatMoney(item.price * item.quantity)}
                       </p>
                     )}
                   </div>
@@ -1367,9 +1365,9 @@ if (!authenticated ||  !dbUser ) {
             </h2>
 
             <div className="space-y-4 mb-6">
-              <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400">
+                            <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400">
                 <span>Productos ({sellerProducts.length})</span>
-                <span>${total.toLocaleString()}</span>
+                <span>${formatMoney(total)}</span>
               </div>
                                                         <div
                 className={`flex justify-between text-sm font-bold ${
@@ -1378,17 +1376,17 @@ if (!authenticated ||  !dbUser ) {
               >
                                 <span>{deliveryMethod === "pickup" ? "Retiro en sucursal:" : "Envío: "}</span>
                 <span>
-                  {shippingPending
+                                    {shippingPending
                     ? "A cotizar"
                     : shippingTotal > 0
-                      ? `$${shippingTotal.toLocaleString()}`
+                      ? `$${formatMoney(shippingTotal)}`
                       : "Gratis"}
                 </span>
               </div>
               <div className="border-t dark:border-zinc-800 pt-4 flex justify-between">
                 <span className="text-lg font-bold dark:text-white">Total</span>
-                <span className="text-lg font-bold dark:text-white">
-                  ${finalTotal.toLocaleString()}
+                                <span className="text-lg font-bold dark:text-white">
+                  ${formatMoney(finalTotal)}
                 </span>
               </div>
             </div>

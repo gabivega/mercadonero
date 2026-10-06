@@ -36,7 +36,7 @@ export async function resolveCashbackParams(user) {
 
   return {
     enabled,
-    feePercent, // % de la comisión (0..1) que se reintegra ej 0.3
+    feePercent, // % del SUBTOTAL de productos (0..1) que se reintegra. ej: 0.025 = 2.5%
     minWithdrawalUsd,
     maxPerOrderUsd: config.maxPerOrderUsd || 0,
     allowUseInCheckout: config.allowUseInCheckout,
@@ -48,16 +48,23 @@ export async function resolveCashbackParams(user) {
 /**
  * CALCULA el cashback que debería generar una orden para su comprador.
  *
- * Base de cálculo: sobre la COMISIÓN (fee) que paga el vendedor
- * (order.financials.platformFeeUsd), se reintegra un porcentaje (feePercent).
+ * Base de cálculo: sobre el SUBTOTAL DE PRODUCTOS en USD
+ * (order.financials.totalUsd, que NO incluye el envío), se reintegra un
+ * porcentaje (feePercent).
  *
- *   cashbackUsd = platformFeeUsd * feePercent
+ *   cashbackUsd = totalUsd * feePercent
+ *
+ * Ejemplo (feePercent = 0.025 → 2.5%): producto de $10.000 ARS con tasa d,
+ *   totalUsd       = 10.000 / d
+ *   baseFeeUsd     = totalUsd * 3%   → comisión de la plataforma
+ *   cashbackUsd    = totalUsd * 2.5% → reintegro al comprador
+ *   neto plataforma= baseFeeUsd - cashbackUsd (0.5% efectivo)
  *
  * Si existe tope por orden (maxPerOrderUsd), se limita.
  */
 export function calculateCashbackForOrder(order, params) {
-  const fee = Number(order.financials?.platformFeeUsd) || 0;
-  let cashback = fee * params.feePercent;
+  const productsUsd = Number(order.financials?.totalUsd) || 0;
+  let cashback = productsUsd * params.feePercent;
 
   // Redondeo a 2 decimales para evitar ruido de flotantes.
   cashback = Math.round(cashback * 100) / 100;

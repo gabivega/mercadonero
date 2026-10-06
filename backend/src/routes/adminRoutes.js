@@ -4,6 +4,7 @@ import {
   getAllOrders,
   getAllUsers,
   getUserById,
+  getStats,
 } from '../controllers/adminController.js';
 import {
   adminReleaseGuarantee,
@@ -34,6 +35,9 @@ import { isAdmin } from '../middleware/isAdmin.js';
 router.get('/orders', verifyPrivyToken, isAdmin, getAllOrders);
 router.get('/users', verifyPrivyToken, isAdmin, getAllUsers);
 router.get('/users/:id', verifyPrivyToken, isAdmin, getUserById);
+
+// Estadísticas globales del panel (KPIs, GMV, ganancias, tops).
+router.get('/stats', verifyPrivyToken, isAdmin, getStats);
 
 // Cancelación manual de la orden (solo admin). NO libera la garantía:
 // eso se resuelve aparte de forma manual con release-guarantee.

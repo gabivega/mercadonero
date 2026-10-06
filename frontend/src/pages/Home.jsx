@@ -83,11 +83,12 @@ export default function Home() {
       <BannerCarousel />
       {/* Recently Added Carousel */}
       {validProducts.length > 0 && (
-        <ProductCarousel
+                <ProductCarousel
           title="Recientemente Agregado"
           products={recentlyAdded}
                     sectionId="recently-added"
           category="recently-added" // 🔥 Le pasamos un flag claro en lugar de dejarlo undefined
+          random // 🔀 Mezcla los resultados en cada carga (12 al azar de los últimos 20)
         />
       )}
 

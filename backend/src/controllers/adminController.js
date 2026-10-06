@@ -2,6 +2,7 @@
 
 import Order from '../models/Order.js';
 import User from '../models/User.js';
+import Product from '../models/Product.js';
 
 export const getAllOrders = async (req, res) => {
   try {
@@ -192,12 +193,338 @@ export const getUserById = async (req, res) => {
       Order.countDocuments({ buyer: user._id }),
     ]);
 
-    res.status(200).json({
+        res.status(200).json({
       success: true,
       user: { ...user.toObject(), totalSales: salesCount, totalPurchases: purchasesCount },
     });
   } catch (error) {
     console.log(error);
     res.status(500).json({ message: "Error al obtener el usuario" });
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════
+// GET /api/admin/stats
+// Panel de estadísticas globales de Mercado Nero.
+//
+// Todo se calcula con agregaciones de Mongo sobre Order, Product y User.
+// Las métricas de dinero se basan en valores ya guardados por orden
+// (financials.*), para que sean auditables y no dependan de configs que
+// cambien con el tiempo.
+//
+// Criterios:
+//   - "Órdenes completadas": status === "completed".
+//   - "Órdenes abiertas": status en estados activos (ni completada,
+//     ni cancelada, ni expirada).
+//   - GMV ARS = suma de totalAmount (ARS) de órdenes COMPLETADAS.
+//   - GMV USD = suma de financials.totalUsd (subtotal productos) de
+//     COMPLETADAS. Se separa en "crypto" (payment.method === "crypto")
+//     vs "transferencia" (el resto).
+//   - Ganancia BRUTA = suma de financials.baseFeeUsd (comisión 3%).
+//   - Reintegros = cashback.earnedUsd (sale de la plataforma).
+//   - Ganancia NETA = bruta - cashback.
+//
+//   NOTA: el reward de referidos (financials.referralFeeUsd) NO se resta de la
+//   ganancia. Se descuenta del VENDEDOR on-chain (va sumado al fee) y la
+//   plataforma lo recibe en su wallet y lo reparte a los referidos; es un
+//   pass-through, no plata propia.
+// ════════════════════════════════════════════════════════════════════
+export const getStats = async (req, res) => {
+  try {
+    const OPEN_STATUSES = [
+      "awaiting_collateral",
+      "pending_payment",
+      "verifying_payment",
+      "paid",
+      "shipped",
+    ];
+    const COMPLETED = "completed";
+
+    // Métricas de dinero y conteos sobre órdenes (una sola pasada con $facet).
+    const [ordersAgg] = await Order.aggregate([
+      {
+        $facet: {
+          statusCounts: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+          completed: [{ $match: { status: COMPLETED } }, { $count: "count" }],
+          open: [{ $match: { status: { $in: OPEN_STATUSES } } }, { $count: "count" }],
+          disputes: [
+            { $match: { "dispute.exists": true, "dispute.status": "open" } },
+            { $count: "count" },
+          ],
+          money: [
+            { $match: { status: COMPLETED } },
+            {
+              $group: {
+                _id: null,
+                gmvArs: { $sum: "$totalAmount" },
+                gmvUsd: { $sum: "$financials.totalUsd" },
+                gmvUsdCrypto: {
+                  $sum: {
+                    $cond: [
+                      { $eq: ["$payment.method", "crypto"] },
+                      "$financials.totalUsd",
+                      0,
+                    ],
+                  },
+                },
+                gmvArsCrypto: {
+                  $sum: {
+                    $cond: [
+                      { $eq: ["$payment.method", "crypto"] },
+                      "$totalAmount",
+                      0,
+                    ],
+                  },
+                },
+                feeGrossUsd: { $sum: "$financials.baseFeeUsd" },
+                platformFeeUsd: { $sum: "$financials.platformFeeUsd" },
+                referralFeeUsd: { $sum: "$financials.referralFeeUsd" },
+                cashbackUsd: { $sum: "$cashback.earnedUsd" },
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    // Órdenes por método de pago (completadas).
+    const paymentMethodAgg = await Order.aggregate([
+      { $match: { status: COMPLETED } },
+      {
+        $group: {
+          _id: { $ifNull: ["$payment.method", "bank_transfer"] },
+          count: { $sum: 1 },
+          gmvUsd: { $sum: "$financials.totalUsd" },
+        },
+      },
+    ]);
+
+    // Top 5 vendedores por GMV (completadas).
+    const topSellersAgg = await Order.aggregate([
+      { $match: { status: COMPLETED } },
+      {
+        $group: {
+          _id: "$seller",
+          gmvUsd: { $sum: "$financials.totalUsd" },
+          orders: { $sum: 1 },
+        },
+      },
+      { $sort: { gmvUsd: -1 } },
+      { $limit: 5 },
+      {
+        $lookup: {
+          from: "users",
+          localField: "_id",
+          foreignField: "_id",
+          as: "seller",
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          sellerId: "$_id",
+          gmvUsd: 1,
+          orders: 1,
+          name: {
+            $ifNull: [
+              { $arrayElemAt: ["$seller.shop.name", 0] },
+              { $ifNull: [{ $arrayElemAt: ["$seller.username", 0] }, "—"] },
+            ],
+          },
+        },
+      },
+    ]);
+
+    // Top 5 categorías por unidades vendidas (completadas).
+    const topCategoriesAgg = await Order.aggregate([
+      { $match: { status: COMPLETED } },
+      { $unwind: "$itemsSnapshot" },
+      {
+        $group: {
+          _id: { $ifNull: ["$itemsSnapshot.category", "Sin categoría"] },
+          gmvUsd: {
+            $sum: {
+              $multiply: [
+                { $ifNull: ["$itemsSnapshot.price", 0] },
+                { $ifNull: ["$itemsSnapshot.quantity", 1] },
+              ],
+            },
+          },
+          units: { $sum: { $ifNull: ["$itemsSnapshot.quantity", 1] } },
+        },
+      },
+      { $sort: { units: -1 } },
+      { $limit: 5 },
+    ]);
+
+    // Productos: conteos por estado + suma de vistas/ventas.
+    const productsAgg = await Product.aggregate([
+      {
+        $group: {
+          _id: "$status",
+          count: { $sum: 1 },
+          views: { $sum: { $ifNull: ["$views", 0] } },
+          sold: { $sum: { $ifNull: ["$sold", 0] } },
+        },
+      },
+    ]);
+
+    // Top 5 productos más vistos.
+    const topViewedAgg = await Product.find({ status: { $ne: "deleted" } })
+      .sort({ views: -1 })
+      .limit(5)
+      .select("name views sold _id");
+
+    // Usuarios.
+    const now = new Date();
+    const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const start30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const [
+      totalUsers,
+      totalSellers,
+      newUsers30d,
+      newUsersMonth,
+      restrictedUsers,
+      cashbackBalanceAgg,
+    ] = await Promise.all([
+      User.countDocuments({}),
+      User.countDocuments({ "shop.active": true }),
+      User.countDocuments({ createdAt: { $gte: start30d } }),
+      User.countDocuments({ createdAt: { $gte: startMonth } }),
+      User.countDocuments({ "accounting.restricted": true }),
+      User.aggregate([
+        {
+          $group: {
+            _id: null,
+            balance: { $sum: "$cashback.balance" },
+            earned: { $sum: "$cashback.earned" },
+          },
+        },
+      ]),
+    ]);
+
+    // Normalización.
+    const statusMap = {};
+    for (const s of ordersAgg?.statusCounts || []) {
+      statusMap[s._id] = s.count;
+    }
+
+    const money = ordersAgg?.money?.[0] || {};
+    const gmvArs = money.gmvArs || 0;
+    const gmvUsd = money.gmvUsd || 0;
+    const gmvUsdCrypto = money.gmvUsdCrypto || 0;
+    const gmvUsdTransfer = gmvUsd - gmvUsdCrypto;
+
+        const feeGrossUsd = money.feeGrossUsd || 0; // 3% bruto (tu comisión)
+    const cashbackUsd = money.cashbackUsd || 0; // reintegro cashback (sale de tu bolsillo)
+    const referralFeeUsd = money.referralFeeUsd || 0; // pass-through a referidos (lo paga el vendedor)
+    // Ganancia neta: solo se resta el cashback. El reward de referidos NO es un
+    // costo de la plataforma (lo cubre el vendedor), por eso no se descuenta.
+    const feeNetUsd = feeGrossUsd - cashbackUsd;
+
+    const completedCount = ordersAgg?.completed?.[0]?.count || 0;
+    const openCount = ordersAgg?.open?.[0]?.count || 0;
+    const disputesOpen = ordersAgg?.disputes?.[0]?.count || 0;
+
+    let productsActive = 0;
+    let productsPaused = 0;
+    let productsOutOfStock = 0;
+    let productsDeleted = 0;
+    let totalViews = 0;
+    let totalProductSold = 0;
+    for (const p of productsAgg) {
+      if (p._id === "active") productsActive = p.count;
+      else if (p._id === "paused") productsPaused = p.count;
+      else if (p._id === "out_of_stock") productsOutOfStock = p.count;
+      else if (p._id === "deleted") productsDeleted = p.count;
+      totalViews += p.views || 0;
+      totalProductSold += p.sold || 0;
+    }
+    const totalProducts =
+      productsActive + productsPaused + productsOutOfStock + productsDeleted;
+
+    const avgTicketUsd = completedCount > 0 ? gmvUsd / completedCount : 0;
+    const closedCount =
+      completedCount + (statusMap.cancelled || 0) + (statusMap.expired || 0);
+    const completionRate =
+      closedCount > 0 ? (completedCount / closedCount) * 100 : 0;
+
+    res.status(200).json({
+      success: true,
+      stats: {
+        orders: {
+          total: Object.values(statusMap).reduce((a, b) => a + b, 0),
+          completed: completedCount,
+          open: openCount,
+          cancelled: statusMap.cancelled || 0,
+          expired: statusMap.expired || 0,
+          disputesOpen,
+          byStatus: statusMap,
+        },
+        gmv: {
+          ars: Math.round(gmvArs),
+          usd: Math.round(gmvUsd * 100) / 100,
+          usdCrypto: Math.round(gmvUsdCrypto * 100) / 100,
+          usdTransfer: Math.round(gmvUsdTransfer * 100) / 100,
+          arsCrypto: Math.round(money.gmvArsCrypto || 0),
+        },
+        revenue: {
+          feeGrossUsd: Math.round(feeGrossUsd * 100) / 100,
+          cashbackUsd: Math.round(cashbackUsd * 100) / 100,
+          referralFeeUsd: Math.round(referralFeeUsd * 100) / 100,
+          feeNetUsd: Math.round(feeNetUsd * 100) / 100,
+          platformFeeUsd: Math.round((money.platformFeeUsd || 0) * 100) / 100,
+        },
+        products: {
+          total: totalProducts,
+          active: productsActive,
+          paused: productsPaused,
+          outOfStock: productsOutOfStock,
+          views: totalViews,
+          sold: totalProductSold,
+        },
+        users: {
+          total: totalUsers,
+          sellers: totalSellers,
+          newLast30d: newUsers30d,
+          newThisMonth: newUsersMonth,
+          restricted: restrictedUsers,
+          cashbackBalanceUsd:
+            Math.round((cashbackBalanceAgg?.[0]?.balance || 0) * 100) / 100,
+          cashbackEarnedUsd:
+            Math.round((cashbackBalanceAgg?.[0]?.earned || 0) * 100) / 100,
+        },
+        averages: {
+          avgTicketUsd: Math.round(avgTicketUsd * 100) / 100,
+          completionRate: Math.round(completionRate * 10) / 10,
+        },
+        paymentMethods: paymentMethodAgg.map((p) => ({
+          method: p._id,
+          count: p.count,
+          gmvUsd: Math.round(p.gmvUsd * 100) / 100,
+        })),
+        topSellers: topSellersAgg.map((s) => ({
+          sellerId: s.sellerId,
+          name: s.name || "—",
+          orders: s.orders,
+          gmvUsd: Math.round(s.gmvUsd * 100) / 100,
+        })),
+        topCategories: topCategoriesAgg.map((c) => ({
+          category: c._id,
+          units: c.units,
+          gmvUsd: Math.round(c.gmvUsd * 100) / 100,
+        })),
+        topProducts: topViewedAgg.map((p) => ({
+          _id: p._id,
+          name: p.name,
+          views: p.views || 0,
+          sold: p.sold || 0,
+        })),
+      },
+    });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Error al obtener las estadísticas" });
   }
 };

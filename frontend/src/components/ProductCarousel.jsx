@@ -9,12 +9,22 @@ import axios from 'axios'
 import { useUserStore } from '../store/useUserStore';
 import { useNavigate } from 'react-router-dom';
 
-export default function ProductCarousel({ title, category, subCategory, sectionId = 'carousel' }) {
+export default function ProductCarousel({ title, category, subCategory, sectionId = 'carousel', random = false }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const { dbUser } = useUserStore()
   const navigate = useNavigate()
-  
+
+    // Mezcla aleatoria (Fisher–Yates). Trabaja sobre una copia, no muta el original.
+  const shuffle = (arr) => {
+    const copy = [...arr];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  };
+
   useEffect(() => {
 const fetchProducts = async () => {
   try {
@@ -40,7 +50,13 @@ const fetchProducts = async () => {
         )
       : allProducts;
 
-    setProducts(filtered.slice(0, 12)); // Nos quedamos con los 12 finales
+    // Si `random` está activo, mezclamos los resultados antes de recortar, para
+    // que cada carga del carrusel muestre una selección distinta (12 al azar
+    // entre los primeros 20). Si no, respetamos el orden del backend
+    // (más recientes primero).
+    const ordered = random ? shuffle(filtered) : filtered;
+
+    setProducts(ordered.slice(0, 12)); // Nos quedamos con los 12 finales
 
   } catch (error) {
     console.error("Error:", error);

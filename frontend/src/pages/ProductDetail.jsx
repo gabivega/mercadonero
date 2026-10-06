@@ -706,8 +706,7 @@ export default function ProductDetail() {
                       <span className="text-[#3483fa] cursor-pointer hover:underline">
                         Compra Protegida
                       </span>{" "}
-                      con Mercado Nero. Recibí el producto que esperabas o te
-                      devolvemos tu dinero.
+                      con Mercado Nero. Recibí el producto que esperabas o se te devuelve tu dinero.
                     </p>
                   </div>
 

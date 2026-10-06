@@ -3,16 +3,16 @@
 // Utilidades para calcular y mostrar el cashback (reintegro en USDT) que genera
 // cada producto. Reproduce EXACTAMENTE la mecánica del backend:
 //
-//   totalUsd       = precioARS / usdRate
-//   platformFeeUsd = totalUsd * 0.03      // comisión de la plataforma (3%)
-//   cashbackUsd    = platformFeeUsd * 0.3 // feePercent default (30% de la comisión)
+//   totalUsd       = precioARS / usdRate   // subtotal de productos (sin envío)
+//   cashbackUsd    = totalUsd * 0.025       // feePercent default (2.5% de productos)
 //
 // Dónde usdRate es la cotización del dólar cripto (dolarapi.com).
-// El resultado neto equivale al 0.9% del precio del producto en USD.
+// La plataforma cobra 3% de comisión y reintegra este 2.5% al comprador;
+// el neto que retiene es 0.5% del subtotal de productos.
 import axios from "axios";
 
 // ── Configuración sincronizada con el backend ──
-export const CASHBACK_FEE_PERCENT = 0.3;   // % de la comisión que se reintegra (feePercent default)
+export const CASHBACK_FEE_PERCENT = 0.025; // % del subtotal de productos que se reintegra (feePercent default)
 export const CASHBACK_PLATFORM_FEE = 0.03; // Comisión de la plataforma (3%)
 export const CASHBACK_LOW_DISPLAY = 2.5;   // % que se muestra cuando el monto es chico (< umbral)
 export const CASHBACK_MONTO_UMBRAL = 0.5;  // USDT: por debajo de este valor mostramos el %
@@ -63,8 +63,7 @@ export function calcCashbackUsd(priceArs, usdRate) {
   const rate = Number(usdRate) || 0;
   if (num <= 0 || rate <= 0) return 0;
   const totalUsd = num / rate;
-  const platformFeeUsd = totalUsd * CASHBACK_PLATFORM_FEE;
-  const cashback = platformFeeUsd * CASHBACK_FEE_PERCENT;
+  const cashback = totalUsd * CASHBACK_FEE_PERCENT;
   // Redondeo igual que el backend.
   return Math.round(cashback * 100) / 100;
 }
