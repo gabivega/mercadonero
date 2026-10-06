@@ -16,10 +16,10 @@ import User from "../models/User.js";
 import { ethers } from "ethers";
 import { quoteShipment } from "../services/zipnovaService.js";
 import {
-  sendOrderCreatedToBuyer,
-  sendOrderCreatedToBuyerEscrow,
-  sendOrderCreatedToVendor,
-    sendPaymentConfirmedToVendor,
+    sendOrderCreatedToBuyer,
+    sendOrderCreatedToVendor,
+      sendPaymentConfirmedToVendor,
+    sendVendorCryptoPaid,
   sendShippingDetailsToBuyer,
   sendPickupReadyToBuyer,
   sendPickupConfirmedToBuyer,
@@ -428,35 +428,24 @@ const createOrder = async (req, res) => {
         },
       });
 
-      const savedCryptoOrder = await newOrderCrypto.save();
+            const savedCryptoOrder = await newOrderCrypto.save();
 
-      // Notificaciones (comprador y vendedor).
-      // Al comprador va un mail específico de escrow (NO de transferencia
-      // bancaria): no le mostramos CBU/alias/titular ni instrucciones para
-      // transferir, porque en cripto el pago se hace firmando el fondeo del
-      // escrow desde su billetera.
-      sendOrderCreatedToBuyerEscrow({
-        buyerEmail: buyer.email,
-        orderId: savedCryptoOrder._id,
-        products: savedCryptoOrder.itemsSnapshot,
-        amountUsdt: (
-          financials.totalUsd + financials.shippingCostUsd
-        ).toFixed(2),
-      }).catch((err) => console.error("Falló notificación escrow a comprador:", err));
+      // ⚠️ IMPORTANTE — NO se envía NINGÚN email al crear la orden crypto.
+      // Motivo: el comprador todavía NO pagó (recién se abre el modal para
+      // fondear el escrow). Si cierra el modal sin pagar, la orden se descarta
+      // (rollback). Mandar un mail al vendedor acá generaría avisos de ventas
+      // que nunca existieron. El ÚNICO email al vendedor se envía cuando el
+      // comprador logra fondear el escrow (ver confirmEscrowFunding →
+      // sendVendorCryptoPaid). Al comprador tampoco hace falta un mail: ya está
+      // en el modal firmando el fondeo en ese instante.
 
-      sendOrderCreatedToVendor({
-        vendorEmail: seller.email,
-        orderId: savedCryptoOrder._id,
-        amount: savedCryptoOrder.totalAmount,
-        products: savedCryptoOrder.itemsSnapshot,
-        buyerName: buyer.firstName || buyer.username || "El comprador",
-      }).catch((err) => console.error("Falló notificación a vendedor:", err));
-
-      createNotification({
+      // Notificación in-app informativa al vendedor (no un mail): visibilidad
+      // temprana de que hay un comprador interesado, sin compromiso de pago.
+            createNotification({
         recipient: sellerId,
         type: "order_created",
-        title: "¡Nueva orden de compra (cripto)!",
-        message: `${buyer.firstName || buyer.username || "El comprador"} inició la orden #${savedCryptoOrder._id.toString().slice(-6).toUpperCase()} y abonará en USDT.`,
+        title: "Nuevo comprador interesado (cripto)",
+        message: `${buyer.firstName || buyer.username || "El comprador"} inició la orden #${savedCryptoOrder._id.toString().slice(-6).toUpperCase()} y está por abonar en USDT. Te avisaremos por mail cuando el pago quede confirmado en el contrato.`,
         data: { orderId: savedCryptoOrder._id, totalAmount: savedCryptoOrder.totalAmount },
       }).catch((err) => console.error("Falló notif in-app a vendedor:", err));
 
@@ -2728,14 +2717,25 @@ const confirmEscrowFunding = async (req, res) => {
     order.status = "paid";
     order.paymentVerifiedAt = new Date();
 
-    // Notificamos al vendedor que puede despachar.
+        // Notificamos al vendedor que puede despachar.
+    // EMAIL ÚNICO de venta crypto: acá es cuando el comprador REALMENTE pagó
+    // (escrow fondeado on-chain). Resume qué se vendió + confirmación de pago.
+    // NO se mandó ningún mail al crear la orden (evita avisos de ventas que
+    // nunca se pagan porque el comprador cerró el modal).
     const seller = await User.findById(order.seller);
     if (seller?.email) {
-      sendPaymentConfirmedToVendor({
+      sendVendorCryptoPaid({
         vendorEmail: seller.email,
         orderId: order._id,
         amount: order.totalAmount,
-      }).catch((err) => console.error("Falló notif pago al vendedor:", err));
+        amountUsdt: (
+          order.financials?.sellerNetReleaseUsd ??
+          order.payment?.sellerNetUsd ??
+          order.payment?.amountUsdRetained
+        ),
+        products: order.itemsSnapshot || [],
+        buyerName: "el comprador",
+      }).catch((err) => console.error("Falló email venta crypto al vendedor:", err));
     }
     if (seller) {
       createNotification({

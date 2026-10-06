@@ -444,11 +444,15 @@ export const getStats = async (req, res) => {
     const totalProducts =
       productsActive + productsPaused + productsOutOfStock + productsDeleted;
 
-    const avgTicketUsd = completedCount > 0 ? gmvUsd / completedCount : 0;
+        const avgTicketUsd = completedCount > 0 ? gmvUsd / completedCount : 0;
     const closedCount =
       completedCount + (statusMap.cancelled || 0) + (statusMap.expired || 0);
     const completionRate =
       closedCount > 0 ? (completedCount / closedCount) * 100 : 0;
+
+    // Margen efectivo: qué % del GMV en USD termina siendo ganancia neta.
+    // Con la política actual (3% fee - 2.5% cashback) ronda el 0.5%.
+    const effectiveMarginPct = gmvUsd > 0 ? (feeNetUsd / gmvUsd) * 100 : 0;
 
     res.status(200).json({
       success: true,
@@ -495,9 +499,10 @@ export const getStats = async (req, res) => {
           cashbackEarnedUsd:
             Math.round((cashbackBalanceAgg?.[0]?.earned || 0) * 100) / 100,
         },
-        averages: {
+                averages: {
           avgTicketUsd: Math.round(avgTicketUsd * 100) / 100,
           completionRate: Math.round(completionRate * 10) / 10,
+          effectiveMarginPct: Math.round(effectiveMarginPct * 100) / 100,
         },
         paymentMethods: paymentMethodAgg.map((p) => ({
           method: p._id,

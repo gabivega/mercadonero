@@ -41,13 +41,13 @@ export default function Ayuda() {
       content: (
         <>
           <p className="mb-2">
-           Es igual a cualquier plataforma de comercio electrónico, elegís el producto que necesitas y procedés al checkout, eligiendo tu dirección de envío. Tras tu confirmación, se crea una orden de compra.
-           Se muestran los datos bancarios del vendedor para que puedas realizar la transferencia.       
+           Es igual a cualquier plataforma de comercio electrónico, elegís el producto que necesitas y procedés al checkout, eligiendo tu dirección y método de envío. Tras tu confirmación, se crea una orden de compra.
+           Puedes abonar por transferencia bancaria directa o con criptomonedas (USDT).                 
           </p>
           <p>
-            No tenés que preocuparte por estafas porque la compra está protegida al 100%, ya que el vendedor tiene activos congelados en garantía dentro de un contrato inteligente.
-            Una vez realizado y notificado el pago, el vendedor procederá a despachar por el metodo seleccionado. Cuando se confirma que el producto te llegó correctamente, se le libera la garantía al vendedor.
+            No tenés que preocuparte por estafas porque la compra está protegida al 100%, ya que un contrato inteligente custodia tu dinero. Si abonás por transferencia bancaria, el vendedor previamente tiene que tener un depósito de garantía para cubrir el 100% del valor de la compra, y si abonas con USDT el saldo no se libera hasta que recibas el producto.
             <p>
+            Una vez realizado y notificado el pago, el vendedor procederá a despachar por el metodo seleccionado. Cuando se confirma que el producto te llegó correctamente, se le libera el saldo al vendedor.
             Tu compra está protegida durante todo el proceso.</p>
           </p>
         </>
@@ -69,7 +69,7 @@ export default function Ayuda() {
       icon: Truck,
       content: (
         <p>
-          Los métodos de envío (Correo Argentino, Andreani, Oca, y cadetería o retiro en persona) están detallados por el vendedor en la publicación. Una vez que realizás la transferencia y el vendedor la confirma, la plataforma habilita un canal para el seguimiento del despacho. El vendedor tiene la obligación de cargar el código de seguimiento para que puedas monitorear tu paquete.
+          La plataforma cuenta con integracion de distintos proveedores de logística, podrás consultar los costos y tiempos de envío con tu código postal. El vendedor puede tambien utilizar el método de envio que prefiera, o retiro en el local. Ofrecemos flexibilidad para ambas partes
         </p>
       ),
     },

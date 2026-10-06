@@ -9,7 +9,7 @@ import axios from 'axios'
 import { useUserStore } from '../store/useUserStore';
 import { useNavigate } from 'react-router-dom';
 
-export default function ProductCarousel({ title, category, subCategory, sectionId = 'carousel', random = false }) {
+export default function ProductCarousel({ title, category, subCategory, sectionId = 'carousel', random = false, exploreTo }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const { dbUser } = useUserStore()
@@ -78,8 +78,8 @@ const fetchProducts = async () => {
           </h2>
           <div className="h-1 w-12 bg-[#F26722] mt-1" />
         </div>
-       <button 
-  onClick={() => navigate(`/search?category=${category}`)} 
+              <button 
+  onClick={() => navigate(exploreTo || `/search?category=${category}`)} 
   className="text-[#F26722] text-xs font-black uppercase tracking-widest hover:opacity-80 transition-opacity bg-transparent border-none p-0 cursor-pointer inline-flex items-center"
 >
   Explorar todo →

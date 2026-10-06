@@ -146,6 +146,10 @@ const AdminStats = () => {
               <span className="text-sm font-black uppercase tracking-wide">Ganancia neta</span>
               <span className="text-lg font-black italic text-emerald-500">{usd(revenue.feeNetUsd)}</span>
             </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-zinc-500">Margen efectivo sobre GMV</span>
+              <span className="text-sm font-black text-emerald-500">{averages.effectiveMarginPct}%</span>
+            </div>
             <div className="flex justify-between items-center pt-2 border-t border-zinc-100 dark:border-zinc-800">
               <span className="text-[11px] text-zinc-400">
                 Reward de referidos pagado a referidos (lo cubre el vendedor, no es costo propio)

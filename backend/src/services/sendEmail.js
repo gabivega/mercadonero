@@ -495,6 +495,73 @@ export const sendOrderCreatedToBuyerEscrow = async ({
 };
 
 /**
+ * 3b. NOTIFICACIÓN AL VENDEDOR (Comprador PAGÓ con cripto — email ÚNICO).
+ * En órdenes crypto NO se avisa al vendedor al crear la orden (el comprador
+ * puede cerrar el modal sin pagar y la orden se descarta). Recién cuando el
+ * comprador fondea el escrow on-chain se envía este ÚNICO email que resume
+ * todo: qué se vendió, quién compró y que el pago ya está retenido en el
+ * Smart Contract. Reemplaza a la dupla "orden creada" + "pago confirmado".
+ */
+export const sendVendorCryptoPaid = async ({
+  vendorEmail,
+  orderId,
+  amount,
+  amountUsdt,
+  products = [],
+  buyerName,
+}) => {
+  try {
+    const shortOrderId = String(orderId).slice(-6).toUpperCase();
+    const productListHtml =
+      Array.isArray(products) && products.length > 0
+        ? `<ul style="margin: 10px 0; padding-left: 20px;">${products
+            .map((item) => `<li style="margin-bottom: 4px;">${item.title || item.name}</li>`)
+            .join("")}</ul>`
+        : '<p style="margin: 5px 0;">Sin detalle de productos</p>';
+
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [vendorEmail],
+      subject: `🛒 ¡Vendiste! Orden #${shortOrderId} pagada con cripto`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+          <h2 style="color: #111;">¡Tenés una nueva venta pagada!</h2>
+          <p>El comprador <strong>${buyerName}</strong> ya abonó la orden <strong>#${shortOrderId}</strong> con cripto. El pago quedó <strong>retenido y protegido en el Smart Contract (Escrow)</strong>.</p>
+
+          <div style="background-color: #f4f4f5; padding: 15px; border-radius: 6px; margin: 15px 0;">
+            <p style="margin: 0 0 8px 0; font-weight: bold; color: #333;">Productos:</p>
+            ${productListHtml}
+            ${
+              amountUsdt != null
+                ? `<p style="margin: 10px 0 0 0; border-top: 1px solid #e4e4e7; padding-top: 8px;"><strong>Cobrarás:</strong> US$ ${amountUsdt} USDT</p>`
+                : amount != null
+                  ? `<p style="margin: 10px 0 0 0; border-top: 1px solid #e4e4e7; padding-top: 8px;"><strong>Monto Total:</strong> $${amount} ARS</p>`
+                  : ""
+            }
+          </div>
+
+          <div style="background-color: #ecfdf5; border: 1px solid #6ee7b7; padding: 14px; border-radius: 6px; margin: 15px 0;">
+            <p style="margin: 0 0 6px 0; font-weight: bold; color: #065f46;">✅ Podés despachar</p>
+            <p style="margin: 0; font-size: 13px; color: #065f46;">
+              Los USDT del comprador ya están depositados en el escrow. Ingresá a la plataforma, sección <strong>"Mis Ventas"</strong>, para coordinar el envío del producto.
+            </p>
+          </div>
+
+          <p style="font-size: 13px; color: #555;">
+            Tus fondos se liberan a tu billetera cuando el comprador confirme la recepción.
+          </p>
+        </div>
+      `,
+    });
+
+    if (error) console.error("Error enviando email de venta crypto al vendedor:", error);
+    return { data, error };
+  } catch (err) {
+    console.error("Exception en sendVendorCryptoPaid:", err);
+  }
+};
+
+/**
  * 11. NOTIFICACIÓN AL VENDEDOR (Falta depósito de garantía / "awaiting_collateral")
  * Cuando un comprador inicia una orden pero el vendedor no tiene saldo de
  * garantía libre suficiente, la orden entra en espera. Avisamos por mail para

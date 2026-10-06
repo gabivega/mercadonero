@@ -10,6 +10,23 @@ export default function HelpSeller() {
   };
 
   const faqs = [
+        {
+      question: "¿Cómo y cuándo recibo el pago de la venta?",
+      icon: CheckCircle,
+      content: (
+        <>
+          <p className="mb-2">
+          Actualmente contamos con 2 formas de pago: Transferencia bancaria y Criptomonedas (USDT).
+          </p>
+          <p className="mb-2">
+            En el caso de transerencia bancaria, recibís el dinero en tu cuenta por adelantado (debes tener saldo en tu wallet como garantía).
+          </p>
+          <p>
+            En el caso de pago con criptomonedas, el comprador deposita los USDT en un contrato inteligente, y una vez que confirma la recepcion de tu producto, se libera automáticamente el saldo hacia tu wallet, descontando la comisión de la plataforma.
+          </p>
+        </>
+      ),
+    },
     {
       question: "¿Qué es el colateral en garantía y por qué debo dejarlo?",
       icon: Shield,
@@ -19,34 +36,32 @@ export default function HelpSeller() {
             El colateral es un depósito de respaldo que realizás en la blockchain para garantizar que vas a cumplir con el envío y las condiciones del producto publicado. 
           </p>
           <p>
-            Al no haber intermediarios centralizados que retengan el dinero, este colateral funciona como un seguro de confianza mutua. Se congela temporalmente en el contrato inteligente y se libera de forma automática en tu wallet una vez que el comprador confirma que recibió el producto en perfectas condiciones.
+            Cuando vendes un producto mediante transferencia bancaria, al no haber intermediarios centralizados que retengan el dinero, este colateral funciona como un seguro de protección al comprador. Se congela temporalmente en el contrato inteligente y se libera de forma automática en tu wallet una vez que el comprador confirma que recibió el producto en perfectas condiciones.
           </p>
         </>
       ),
     },   
     {
-      question: "¿Cómo y cuándo recibo el pago de la venta?",
-      icon: CheckCircle,
+      question: "¿Cómo puedo depositar USDT en mi billetera?",
+      icon: Shield,
       content: (
         <>
           <p className="mb-2">
-            A diferencia de las demás plataformas, recibís el pago por adelantado mediante una transferencia directa por parte del comprador (a tu CBU/CVU o alias bancario configurado).
-          </p>
-          <p className="mb-2">
-            La unica diferencia es que previamente deposites saldo en tu wallet, el cual se "congela" mientras se ejecuta la orden, a modo de garantía para proteger al comprador.
+            Para depositar USDT, vas a la sección de "billetera", y si no tienes una, la puedes crear con un solo click. Tu billetera tiene una direccion única, puedes copiarla para transferir saldo desde otras billeteras.
+            Alguna de las apps o plataformas mas populares para comprar USDT son Binance, Belo, Bitso, Ripio, Lemon, Arq, entre otros. 
           </p>
           <p>
-            Una vez que verificás el ingreso del dinero en tu cuenta bancaria, tenés la obligación de confirmar la recepción en la plataforma para proceder con el despacho del producto. Tu colateral permanecerá congelado resguardando la operación hasta el final del flujo.
-          </p>
+            Recuerda que por el momento sólo estamos trabajando con la red BSC (Binance Smart Chain), por lo que debes asegurarte de enviar USDT a tu billetera desde la misma red. En caso de enviar desde otra red, los fondos se perderán y no podremos recuperarlos.
+          </p>        
         </>
       ),
-    },
+    },   
     {
       question: "¿De dónde se descuenta la comisión de la plataforma?",
       icon: Percent,
       content: (
         <p>
-          La comisión por venta exitosa se descuenta del colateral congelado en garantía dentro del smart contract. Esto se realiza de forma automática una vez el comprador indica que reibió el producto correctamente.
+          La comisión por venta exitosa se descuenta automáticamente del contrato inteligente de la orden de compra, ya sea con pago por transferencia (se descuenta del colateral) o con crypto (se descuenta del saldo a liberar). Esto se realiza cuando el comprador indica que recibió el producto correctamente.
         </p>
       ),
     },
@@ -56,10 +71,10 @@ export default function HelpSeller() {
       content: (
         <>
           <p className="mb-2">
-            Si el comprador indica que el producto llegó dañado, tiene fallas o no coincide con lo publicado, se abre un periodo de disputa y el colateral en garantía permanecerá congelado en el contrato hasta que el conflicto se resuelva.
+            Si el comprador indica que el producto llegó dañado, tiene fallas o no coincide con lo publicado, se abre un periodo de disputa y el saldo permanecerá congelado en el contrato hasta que el conflicto se resuelva.
           </p>
           <p>
-            Si se determina que el reclamo es justo, el comprador podrá requerir la devolución de su dinero. En ese caso, deberás reembolsarle la transferencia bancaria y, una vez acreditado el retorno, el sistema liberará tu colateral de vuelta a tu wallet. Si no cumples con los reintegros, puedes ser suspendido definitivamente.
+            Si se determina que el reclamo es justo, el comprador podrá requerir la devolución de su dinero. En ese caso, deberás reembolsarle la transferencia bancaria (si pagó por transferencia) y, una vez acreditado el retorno, el sistema liberará tu colateral de vuelta a tu wallet. Si no cumples con el reintegro, se utilizará el saldo depositado en el contrato y puedes ser suspendido definitivamente.
           </p>
         </>
       ),
@@ -85,7 +100,8 @@ export default function HelpSeller() {
         <p>
           No, nunca. Mercado Nero es una plataforma descentralizada. Nosotros no tenemos acceso a tus claves, no abrimos cuentas bancarias a tu nombre ni guardamos tus criptomonedas en nuestros servidores. Vos sos el único custodio absoluto de tus fondos. Todo el proceso de garantía ocurre directamente entre tu wallet y el contrato inteligente en la red blockchain.
           La plataforma solamente facilita la conexión entre los participantes.
-        </p>
+          La billetera que creas en tu cuenta, es totalmente de tu propiedad, no conocemos las llaves privadas, no podemos acceder a tus fondos ni realizar ninguna accion, sin antes tener la autorizacion (firma) de tu parte.
+              </p>
       ),
     },
     {

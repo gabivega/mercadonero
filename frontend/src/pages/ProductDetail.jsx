@@ -14,9 +14,12 @@ import {
   MessageCircle,
 } from "lucide-react";
 import ProductCarousel from "../components/ProductCarousel"; // Reutilizamos para relacionados
+import PoolCarousel from "../components/PoolCarousel"; // Carousel de compras grupales (pools activos)
 import ProductQuestions from "../components/ProductQuestions"; // Preguntas y respuestas
 import ProductReviews from "../components/ProductReviews"; // Opiniones del producto
 import { useCartStore } from "../store/useCartStore";
+import { usePools } from "../Utils/usePools";
+import { adaptPools } from "../Utils/poolAdapter";
 import LoadingSpinner from "../components/LoadingSpinner";
 import Swal from "sweetalert2";
 import CashbackBadge from "../components/CashbackBadge";
@@ -148,6 +151,9 @@ export default function ProductDetail() {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Compras grupales (pools activos) para el carousel inferior.
+  const [pools, setPools] = useState([]);
+  const { fetchActivePools } = usePools();
   const { setDirectPurchase } = useCartStore();
   const { addToCart, cart, updateQuantity } = useCartStore();
   const dbUser = useUserStore((s) => s.dbUser);
@@ -194,6 +200,19 @@ export default function ProductDetail() {
       if (script) script.remove();
     };
   }, [id]);
+
+  // ── COMPRAS GRUPALES ──
+  // Cargamos los pools ACTIVOS (transversal, sin filtrar por categoría) para
+  // mostrarlos en un carousel debajo de "Productos similares".
+  useEffect(() => {
+    let alive = true;
+    fetchActivePools({ status: "open", limit: 12 }).then((list) => {
+      if (alive) setPools(adaptPools(list));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [fetchActivePools]);
 
   if (loading)
     return (
@@ -788,6 +807,16 @@ export default function ProductDetail() {
             title="Productos similares"
             category={product.category}
             sectionId="related"
+          />
+        </div>
+
+        {/* Compras grupales — carousel de pools ACTIVOS (transversal, sin
+            filtrar por categoría). El botón "Ver todos" lleva a /compras-grupales. */}
+        <div className="mt-10">
+          <PoolCarousel
+            title="Comprá en grupo y ahorrá"
+            pools={pools}
+            sectionId="group-buy"
           />
         </div>
       </div>

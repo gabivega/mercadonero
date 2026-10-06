@@ -563,7 +563,7 @@ export default function PoolDetail() {
                   />
                   <p>
                     Al unirte se congela tu saldo en USDT en un contrato
-                    inteligente (escrow). No podés cancelar; si el grupo no se
+                    inteligente. No podés cancelar; si el grupo no se
                     completa se cobra el precio del tier alcanzado y, si quedás
                     solo, se liberan los fondos al expirar.
                   </p>

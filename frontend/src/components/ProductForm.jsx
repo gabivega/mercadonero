@@ -82,7 +82,7 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
     // acceptsCrypto: pago en cripto/USDT vía escrow (default OFF).
     payment: {
       acceptsTransfer: true,
-      acceptsCrypto: false,
+      acceptsCrypto: true,
     },
     // Características clave-valor (ej: EAN, Garantía). Se precargan al importar
     // de un proveedor. Sin UI especial: viajan tal cual al backend.
@@ -962,6 +962,10 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                   Transferencia bancaria
                 </div>
               </label>
+              <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                Si activás transferencia bancaria, cobrás por adelantado. Debes colocar USDT como garantía en tu billetera.
+                Más información sobre como hacerlo <a href="ayuda/vender" target="_blank" rel="noreferrer" className="underline font-semibold">aquí</a>.
+              </p>
 
               {/* Criptomonedas (USDT) */}
               <label

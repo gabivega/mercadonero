@@ -752,7 +752,7 @@ const step1 = await Swal.fire({
 
           ${
             hasBalance
-              ? `<p style="font-size: 0.78rem; color: #10b981; display: flex; align-items: center; gap: 4px;">🛡️ Tus USDT quedarán protegidos en el contrato escrow hasta que recibas el pedido.</p>`
+              ? `<p style="font-size: 0.78rem; color: #10b981; display: flex; align-items: center; gap: 4px;">🛡️ Tus USDT quedarán protegidos en el contrato inteligente hasta que recibas el pedido.</p>`
               : `<p style="font-size: 0.78rem; color: ${isDark ? "#a8a29e" : "#78716c"};">
                    Depositá USDT en tu wallet para proceder con la compra. Usá el botón <b>"Depositar USDT"</b>.
                  </p>`

@@ -181,7 +181,7 @@ export default function Header() {
     setIsUserMenuOpen(false);
   };
 
-  const menuItems = ["Categorias", "Ofertas", "Vender", "Ayuda", ];
+  const menuItems = ["Categorias", "Ofertas", "Vender", "Ayuda", "Referidos" ];
 
 // if (isLoginOpen) {
 //   return (    
@@ -269,12 +269,12 @@ export default function Header() {
                     {item}
                   </Link>
                 ))}
-              <Link
+              {/* <Link
                 to="/referidos"
                 className="flex items-center gap-1.5 text-sm text-white dark:text-gray-300 hover:text-white/80 dark:hover:text-white/80 transition-colors font-medium"
               >
-                Referidos
-              </Link>
+                Afiliados
+              </Link> */}
             </nav>
           </div>
 
