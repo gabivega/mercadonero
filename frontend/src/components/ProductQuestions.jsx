@@ -127,15 +127,21 @@ export default function ProductQuestions({ productId, sellerId }) {
               onChange={(e) => setQuestionText(e.target.value)}
               placeholder="Ej: ¿Incluye cable de corriente?"
               maxLength={500}
-              className="flex-1 px-3 py-2 text-sm bg-white dark:bg-[#121212] border border-gray-300 dark:border-gray-600 rounded-md outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+              className="flex-1 min-w-0 px-3 py-2 text-sm bg-white dark:bg-[#121212] border border-gray-300 dark:border-gray-600 rounded-md outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
             />
+            {/* En mobile mostramos SOLO el ícono del avión de papel para que el
+                botón entre junto al input sin desbordar; en pantallas sm+
+                aparece el texto "Preguntar". shrink-0 evita que el botón se
+                comprima y min-w-0 en el input permite que este se encoja. */}
             <button
               type="submit"
               disabled={asking || !questionText.trim()}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-semibold disabled:opacity-40 transition-colors flex items-center gap-1"
+              aria-label="Preguntar"
+              title="Preguntar"
+              className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white p-2 sm:px-4 sm:py-2 rounded-md text-sm font-semibold disabled:opacity-40 transition-colors flex items-center gap-1"
             >
-              <Send size={14} />
-              Preguntar
+              <Send size={16} />
+              <span className="hidden sm:inline">Preguntar</span>
             </button>
           </div>
         </form>

@@ -29,6 +29,7 @@ import ScrollToTop from "./components/ScrollToTop";
 import Checkout from "./pages/Checkout";
 import OrderDetail from "./pages/dashboard/OrderDetail";
 import TermsAndConditions from "./pages/TermsAndConditions";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
 // import LoginPage from "./pages/LoginPage";
 import MyOrders from "./pages/dashboard/MyOrders";
 import AdminDashboard from "./pages/AdminDashboard";
@@ -46,6 +47,7 @@ import Mensajes from "./pages/dashboard/Mensajes";
 // import VirtualPet from "./components/VirtualPet/VirtualPet"; // Mascota "Nerito" deshabilitada temporalmente
 import ProveedorPanel from "./pages/dashboard/ProveedorPanel";
 import PickupLocations from "./pages/dashboard/PickupLocations";
+import AuthTest from "./pages/AuthTest";
 
 export default function App() {
   const theme = useSelector((s) => s.theme.mode);
@@ -69,6 +71,8 @@ export default function App() {
         <main className="w-full min-h-screen px-2">
           <Routes>
             {/* <Route path="/login" element={<LoginPage />} /> */}
+            {/* Ruta temporal de prueba de Supabase Auth (se borra al decidir) */}
+            <Route path="/auth-test" element={<AuthTest />} />
             <Route path="/" element={<Home />} />
                         <Route path="/post/:id" element={<PostDetail />} />
             {/* URL SEO-friendly de producto: /producto/<slug> */}
@@ -111,6 +115,7 @@ export default function App() {
             </Route>
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/terminos-y-condiciones" element={<TermsAndConditions />} />
+            <Route path="/politica-de-privacidad" element={<PrivacyPolicy />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
                 </main>

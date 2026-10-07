@@ -468,7 +468,13 @@ export const getProducts = async (req, res) => {
     if (category) {
       const lowerCategory = category.toLowerCase().trim();
 
-      if (lowerCategory === 'recently-added' || lowerCategory === 'undefined') {
+            if (lowerCategory === 'recently-added' || lowerCategory === 'undefined') {
+        // Recién agregados: NO mostramos productos usados. Queremos que lo
+        // primero que ve el usuario sean productos nuevos. Los usados quedan
+        // accesibles por búsqueda (y más adelante, carousel/página exclusiva).
+        // Usamos $ne (en vez de 'new') para no excluir productos viejos con
+        // `condition` vacío/ausente: sólo filtramos los explícitamente "used".
+        query.condition = { $ne: 'used' };
         sortOptions = { createdAt: -1 };
         isSpecialSection = true;
 
@@ -483,18 +489,23 @@ export const getProducts = async (req, res) => {
           { "sale.expiresAt": { $gt: new Date() } }
         ];
 
-        // 🔥 En lugar de ordenar por fecha, anulamos sortOptions para que Mongo traiga los primeros 50 que encuentre rápido
-                sortOptions = {}; 
+                                                // 🔥 En lugar de ordenar por fecha, anulamos sortOptions para que Mongo traiga los primeros 50 que encuentre rápido
+        sortOptions = {}; 
         isRandom = true; // 🔥 Activamos la aleatoriedad
         isSpecialSection = true;
-            } else if (lowerCategory === 'social-selling') {
+      } else if (lowerCategory === 'social-selling') {
         // Caso Compra en Grupo (Social Selling): productos de pago que tienen
         // habilitada la compra grupal (tiers de precio), sin importar si hay
         // pools activos. Sección especial: NO aplica filtro de categoría.
         query["socialSelling.enabled"] = true;
         query.listingType = "product"; // los clasificados no tienen pools
 
-        sortOptions = { createdAt: -1 };
+        // 🔥 Igual que "ofertas": barajamos para que cada carga del carousel
+        // muestre una selección distinta de productos con compra en grupo.
+        // Anulamos sortOptions para que Mongo traiga rápido y no ordenemos por
+        // fecha (el orden final lo define el shuffle Fisher-Yates de abajo).
+        sortOptions = {};
+        isRandom = true;
         isSpecialSection = true;
             } else if (lowerCategory === 'referral') {
               // Caso Programa de Referidos: productos que ofrecen reintegro por
@@ -591,7 +602,8 @@ export const getProducts = async (req, res) => {
       (p) => p.listingType !== "product" || (p.seller && p.seller.walletAddress),
     );
 
-    // 🔥 SI ES SECCIÓN DE OFERTAS, BARAJAMOS EL ARRAY (Algoritmo Fisher-Yates)
+                                // 🔥 BARAJAMOS cuando la sección es aleatoria (Ofertas / Compra en Grupo).
+    // Algoritmo Fisher-Yates: dejamos una selección distinta en cada carga.
     if (isRandom && products.length > 0) {
       for (let i = products.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));

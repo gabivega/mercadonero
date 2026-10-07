@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
-import { Gift, Share2, Check, Sparkles, Zap } from "lucide-react";
+import { Share2, Check, Sparkles, Zap } from "lucide-react";
 import {
   getUsdRate,
   calcReferralSplit,
@@ -59,6 +59,40 @@ export default function ReferralShareBox({ product }) {
   const gananciaLabel = usdRate ? formatUsdt(eachUsd) : `${percentEach}%`;
   const compradorLabel = usdRate ? formatUsdt(eachUsd) : `${percentEach}%`;
 
+  // Copia el enlace al portapapeles con varios fallbacks (clipboard API →
+  // execCommand). Devuelve true sólo si realmente se copió.
+  const copyToClipboard = async (text) => {
+    // 1) API moderna. Puede rechazar si el documento pierde el foco o por
+    //    permisos; lo tratamos como fallo y probamos el fallback.
+    if (navigator?.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        /* seguimos al fallback */
+      }
+    }
+    // 2) Fallback clásico con un textarea temporal (funciona aunque la
+    //    Clipboard API no esté disponible, p. ej. contexto no seguro).
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      // Fuera de pantalla para no hacer scroll ni parpadear.
+      textarea.style.position = "fixed";
+      textarea.style.top = "-1000px";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      textarea.setSelectionRange(0, text.length);
+      const ok = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      return ok;
+    } catch {
+      return false;
+    }
+  };
+
   const handleShare = async () => {
     // Sin sesión: abrimos el login de Privy (necesitamos el id para atribuir).
     if (!authenticated || !myId) {
@@ -68,8 +102,18 @@ export default function ReferralShareBox({ product }) {
 
     const shareUrl = buildReferralUrl(product, myId);
 
-    // 1) API nativa de compartir (móvil → WhatsApp, etc).
-    if (typeof navigator !== "undefined" && navigator.share) {
+    // 1) API nativa de compartir: sólo en móvil / donde esté soportada.
+    //    En desktop esta API suele no existir, así que casi siempre caemos al
+    //    copiado directo (evita el "primer click no hace nada").
+    const canUseNativeShare =
+      typeof navigator !== "undefined" &&
+      typeof navigator.share === "function" &&
+      // Heurística: dispositivos táctiles/móviles. Evita que en desktop se
+      // abra el share del sistema y, si se cancela, no quede feedback.
+      (navigator.maxTouchPoints > 0 ||
+        /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent));
+
+    if (canUseNativeShare) {
       try {
         await navigator.share({
           title: product?.name || "Mirá este producto",
@@ -78,19 +122,18 @@ export default function ReferralShareBox({ product }) {
         });
         return;
       } catch (err) {
-        // Cancelación explícita: salimos sin copiar.
+        // Cancelación explícita del usuario: no copiamos ni mostramos toast.
         if (err?.name === "AbortError") return;
         // Otro error: seguimos al fallback de copiar.
       }
     }
-    // 2) Fallback: copiar al portapapeles.
-    try {
-      await navigator.clipboard.writeText(shareUrl);
+
+    // 2) Fallback: copiar al portapapeles (con reintentos de API).
+    const ok = await copyToClipboard(shareUrl);
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2200);
       showCopiedToast("Con tu enlace ganás en cada compra");
-    } catch {
-      /* noop */
     }
   };
 
@@ -126,10 +169,7 @@ export default function ReferralShareBox({ product }) {
           Visible para cualquiera. Si no hay sesión, el botón abre el login
           (necesitamos el id para armar el ?ref=). Un único botón. */}
       <div className="rounded-xl border border-orange-200 dark:border-orange-900/40 bg-orange-50/60 dark:bg-orange-950/20 p-4 space-y-3">
-        <div className="flex items-start gap-3">
-          <div className="p-2 bg-[#F26722] text-white rounded-lg shrink-0 mt-0.5">
-            <Gift size={18} />
-          </div>
+        <div className="flex items-start gap-3">     
           <div className="min-w-0 flex-1">
             <p className="text-sm font-black text-gray-900 dark:text-white leading-tight">
               {SHARE_TITLE}{" "}

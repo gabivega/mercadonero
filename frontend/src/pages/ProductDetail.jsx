@@ -13,13 +13,10 @@ import {
   Award,
   MessageCircle,
 } from "lucide-react";
-import ProductCarousel from "../components/ProductCarousel"; // Reutilizamos para relacionados
-import PoolCarousel from "../components/PoolCarousel"; // Carousel de compras grupales (pools activos)
+import ProductCarousel from "../components/ProductCarousel"; // Reutilizamos para relacionados y compras grupales
 import ProductQuestions from "../components/ProductQuestions"; // Preguntas y respuestas
 import ProductReviews from "../components/ProductReviews"; // Opiniones del producto
 import { useCartStore } from "../store/useCartStore";
-import { usePools } from "../Utils/usePools";
-import { adaptPools } from "../Utils/poolAdapter";
 import LoadingSpinner from "../components/LoadingSpinner";
 import Swal from "sweetalert2";
 import CashbackBadge from "../components/CashbackBadge";
@@ -151,9 +148,6 @@ export default function ProductDetail() {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
-  // Compras grupales (pools activos) para el carousel inferior.
-  const [pools, setPools] = useState([]);
-  const { fetchActivePools } = usePools();
   const { setDirectPurchase } = useCartStore();
   const { addToCart, cart, updateQuantity } = useCartStore();
   const dbUser = useUserStore((s) => s.dbUser);
@@ -201,19 +195,6 @@ export default function ProductDetail() {
     };
   }, [id]);
 
-  // ── COMPRAS GRUPALES ──
-  // Cargamos los pools ACTIVOS (transversal, sin filtrar por categoría) para
-  // mostrarlos en un carousel debajo de "Productos similares".
-  useEffect(() => {
-    let alive = true;
-    fetchActivePools({ status: "open", limit: 12 }).then((list) => {
-      if (alive) setPools(adaptPools(list));
-    });
-    return () => {
-      alive = false;
-    };
-  }, [fetchActivePools]);
-
   if (loading)
     return (
       <div className="min-h-screen flex items-center justify-center dark:bg-gray-900 dark:text-white">
@@ -246,6 +227,26 @@ export default function ProductDetail() {
   const discount = product.sale?.active
     ? Math.round((1 - product.sale.price / product.price) * 100)
     : 0;
+
+  // ── STOCK APROXIMADO ──
+  // Para inventarios grandes no mostramos el número exacto (no exponemos la
+  // capacidad real del vendedor y comunicamos "hay de sobra" sin ruido).
+  // Escalones suaves para que no haya un salto brusco de "9" a "+100":
+  //   < 10      → número exacto (ahí la escasez real ayuda a decidir)
+  //   10–24     → "+10"
+  //   25–49     → "+25"
+  //   50–99     → "+50"
+  //   100–999   → "+100"
+  //   ≥ 1000    → "+1000"
+  const formatStock = (stock) => {
+    const n = Number(stock) || 0;
+    if (n < 10) return `${n}`;
+    if (n < 25) return "+10";
+    if (n < 50) return "+25";
+    if (n < 100) return "+50";
+    if (n < 1000) return "+100";
+    return "+1000";
+  };
 
   const handleBuyNow = () => {
     // 1. Verificamos si ya está en el carrito para no duplicar
@@ -621,10 +622,13 @@ export default function ProductDetail() {
                   <p className="text-sm font-semibold mb-1.5 dark:text-white">
                     Stock disponible
                   </p>
-                  <div className="inline-flex items-center px-2 py-1 bg-gray-50 dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 rounded text-sm">
-                    <span className="text-gray-500">Cantidad: </span>
+                  {/* flex-wrap + max-w-full: en anchos intermedios (768–980px) el
+                      span del stock aproximado ya no desborda el contenedor; baja
+                      a una segunda línea. whitespace-nowrap evita que los textos
+                      se partan feo dentro de su propia línea. */}
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 max-w-full px-2 py-1 bg-gray-50 dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 rounded text-sm">
                     <select
-                      className="bg-transparent font-bold text-gray-800 dark:text-gray-200 outline-none ml-1 cursor-pointer"
+                      className="bg-transparent font-bold text-gray-800 dark:text-gray-200 outline-none cursor-pointer min-w-0"
                       value={quantity}
                       onChange={(e) => setQuantity(Number(e.target.value))}
                     >
@@ -640,8 +644,8 @@ export default function ProductDetail() {
                       ))}
                     </select>
                     {product.stock > 6 && (
-                      <span className="text-xs text-gray-400 ml-2">
-                        ({product.stock} disponibles)
+                      <span className="text-xs text-gray-400 whitespace-nowrap">
+                        ({formatStock(product.stock)} disponibles)
                       </span>
                     )}
                   </div>
@@ -810,13 +814,16 @@ export default function ProductDetail() {
           />
         </div>
 
-        {/* Compras grupales — carousel de pools ACTIVOS (transversal, sin
-            filtrar por categoría). El botón "Ver todos" lleva a /compras-grupales. */}
+        {/* Compras grupales — productos con "Compra en Grupo" (social selling)
+            habilitada por el vendedor. El backend expone la sección especial
+            `social-selling` (productos de pago con tiers, sin filtrar por
+            categoría). El botón "Explorar todo" lleva a /compras-grupales. */}
         <div className="mt-10">
-          <PoolCarousel
+          <ProductCarousel
             title="Comprá en grupo y ahorrá"
-            pools={pools}
+            category="social-selling"
             sectionId="group-buy"
+            exploreTo="/compras-grupales"
           />
         </div>
       </div>

@@ -18,6 +18,7 @@ import poolRoutes from './src/routes/poolRoutes.js';
 import shippingRoutes from './src/routes/shippingRoutes.js';
 import elitRoutes from './src/routes/elitRoutes.js';
 import flamingRoutes from './src/routes/flamingRoutes.js';
+import testAuthRoutes from './src/routes/testAuthRoutes.js';
 import startOrderCleanup from './src/services/orderCleanup.js';
 import startElitSyncCron from './src/services/elitSyncCron.js';
 import { getSitemap } from './src/controllers/seoController.js';
@@ -65,6 +66,8 @@ try {
   app.use('/api/shipping', shippingRoutes);
   app.use('/api/elit', elitRoutes);
   app.use('/api/flaming', flamingRoutes);
+  // Ruta de prueba para validar Supabase Auth (temporal, se borra al decidir)
+  app.use('/api/test-auth', testAuthRoutes);
   // Sitemap dinámico para motores de búsqueda (SEO orgánico)
   app.get('/sitemap.xml', getSitemap);
   app.get('/', (req, res) => res.json({ success: true, message: 'API running' }));
@@ -79,5 +82,4 @@ try {
   console.error('DB connection failed', err);
   process.exit(1);
 }
-
 
