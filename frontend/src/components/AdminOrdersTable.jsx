@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Eye, RefreshCw, ExternalLink } from 'lucide-react';
 import axios from 'axios';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy } from "../Utils/authClient";
 import { formatMoney } from '../Utils/currencyFormatter';
 import AdminOrderModal from './AdminOrderModal';
 import LoadingSpinner from './LoadingSpinner';
@@ -42,7 +42,34 @@ const handleOpenModal = (order) => {
       return;
     }
 
-        if (action === 'release_guarantee') {
+                if (action === 'admin_complete') {
+      // El comprador confirmó la recepción (reception_confirmed). El admin cierra
+      // la orden y libera la garantía/escrow. El backend exige el buffer cumplido
+      // salvo que se fuerce.
+      const current = orders.find((o) => o._id === orderId) || selectedOrder;
+      const bufferOk =
+        current?.releaseEligibleAt && new Date(current.releaseEligibleAt) <= new Date();
+      const force = !bufferOk;
+      if (!window.confirm(force
+        ? 'El período de seguridad todavía NO se cumplió. ¿Forzar la liberación de la garantía y completar la orden igual? Quedará registrado en la auditoría.'
+        : '¿Completar la orden y liberar la garantía/escrow al vendedor?')) return;
+      try {
+        await axios.patch(
+          `${import.meta.env.VITE_SERVER_URL}/api/admin/orders/${orderId}/complete`,
+          { note: 'Completada desde panel admin', force },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        window.alert('Orden completada y garantía/escrow liberado.');
+        setSelectedOrder(null);
+        setIsModalOpen(false);
+        await refreshOrders(token);
+      } catch (err) {
+        window.alert(err?.response?.data?.message || 'No se pudo completar la orden.');
+      }
+      return;
+    }
+
+    if (action === 'release_guarantee') {
       if (!window.confirm('¿Liberar la garantía de esta orden manualmente? Confirmá que ya verificaste con el comprador que no abonó o que recibió su reintegro.')) return;
       try {
         await axios.patch(
@@ -166,8 +193,9 @@ const handleOpenModal = (order) => {
     const styles = {
       pending_payment: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
       verifying_payment: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-      paid: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+            paid: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
       shipped: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
+      reception_confirmed: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',
       completed: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
       cancelled: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400',
       expired: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400',
@@ -208,8 +236,9 @@ const handleOpenModal = (order) => {
               const statusLabels = {
                 pending_payment: 'Pago Pendiente',
                 verifying_payment: 'Verificando',
-                paid: 'Pagado',
+                                paid: 'Pagado',
                 shipped: 'En camino',
+                reception_confirmed: 'Recibido',
                 completed: 'Completado',
                 cancelled: 'Cancelado',
                 expired: 'Expirado',

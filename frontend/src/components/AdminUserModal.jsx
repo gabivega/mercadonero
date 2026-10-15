@@ -14,7 +14,7 @@ import {
   Clock,
 } from 'lucide-react';
 import axios from 'axios';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy } from "../Utils/authClient";
 import LoadingSpinner from './LoadingSpinner';
 
 /**
@@ -133,7 +133,12 @@ const AdminUserModal = ({ user, isOpen, onClose }) => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <InfoItem icon={Mail} label="Email" value={data.email} />
                   <InfoItem icon={CreditCard} label="DNI" value={data.dni} />
-                  <InfoItem icon={Hash} label="Privy ID" value={data.privyDid} mono />
+                  <InfoItem
+                    icon={Hash}
+                    label="Supabase ID"
+                    value={data.supabaseId || data.privyDid || data._id}
+                    mono
+                  />
                 </div>
               </section>
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Star, ThumbsUp, ThumbsDown, MessageSquarePlus } from "lucide-react";
 import axios from "axios";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../Utils/authClient";
 import RatingModal from "./RatingModal";
 import LoadingSpinner from "./LoadingSpinner";
 

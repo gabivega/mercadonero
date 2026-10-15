@@ -17,7 +17,7 @@ import { ethers } from "ethers";
 import Swal from "sweetalert2";
 import { AddressSection } from "../components/AddressSection";
 import { useUserStore } from "../store/useUserStore";
-import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { usePrivy, useWallets } from "../Utils/authClient";
 import AuthOnboarding from "../components/AuthOnboarding";
 import { useSyncUser } from "../Utils/userSync";
 import { formatMoney } from "../Utils/currencyFormatter";

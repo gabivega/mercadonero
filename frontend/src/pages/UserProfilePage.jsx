@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../Utils/authClient";
 import {
   ArrowLeft,
   BadgeCheck,

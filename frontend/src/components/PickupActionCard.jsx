@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Store, CheckCircle, PackageCheck, MapPin, Clock } from 'lucide-react';
 import axios from 'axios';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy } from "../Utils/authClient";
 import Swal from 'sweetalert2';
 import LoadingSpinner from './LoadingSpinner';
 
@@ -25,7 +25,6 @@ export default function PickupActionCard({ order, role, onUpdate }) {
   const [note, setNote] = useState('');
   const isDark = document.documentElement.classList.contains('dark');
 
-  const isCrypto = order.payment?.method === 'crypto';
   const pickup = order.pickupLocation || {};
   const details = order.pickupDetails || {};
 
@@ -43,9 +42,7 @@ export default function PickupActionCard({ order, role, onUpdate }) {
   const loadingText =
     role === 'seller'
       ? 'Procesando la operación en sucursal...'
-      : isCrypto
-        ? 'Procesando: liberando los USDT del contrato al vendedor...'
-        : 'Procesando el retiro en sucursal...';
+      : 'Confirmando el retiro de tu pedido...';
 
   // Instrucciones del punto de retiro (si el vendedor las cargó).
   const addressLine = [
@@ -169,11 +166,11 @@ export default function PickupActionCard({ order, role, onUpdate }) {
     }
   };
 
-  // ── COMPRADOR: confirmar que retiró el pedido (cierra la orden) ──
+  // ── COMPRADOR: confirmar que retiró el pedido (inicia el período de seguridad) ──
   const handleBuyerComplete = async () => {
     const confirm = await Swal.fire({
       title: '<span class="font-black uppercase italic">¿Retiraste tu pedido?</span>',
-      text: 'Confirma solo si ya tenés el producto y está en las condiciones acordadas. Se completa la orden y se liberan los fondos al vendedor. No puedes revertir esta acción.',
+      text: 'Confirmá solo si ya tenés el producto y está en las condiciones acordadas. Al confirmar, se inicia un período de seguridad antes de liberar los fondos al vendedor, durante el cual todavía podés reclamar si algo llegó mal.',
       icon: 'question',
       showCancelButton: true,
       confirmButtonColor: '#10b981',
@@ -198,10 +195,8 @@ export default function PickupActionCard({ order, role, onUpdate }) {
         // Apagamos el overlay antes del Swal (ver comentario en handleMarkReady).
         setLoading(false);
         await Swal.fire({
-          title: '¡ORDEN FINALIZADA!',
-          text: isCrypto
-            ? 'Gracias por confirmar. Los USDT del contrato fueron liberados al vendedor.'
-            : 'Gracias por confirmar. Se completó la orden.',
+          title: '¡RECEPCIÓN CONFIRMADA!',
+          text: 'Gracias por confirmar. Se activó el período de protección de tu compra: durante las próximas horas todavía podés reclamar si el producto llegó dañado o equivocado. Luego se liberarán los fondos al vendedor.',
           icon: 'success',
           confirmButtonColor: '#F26722',
           background: isDark ? '#18181b' : '#fff',

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../Utils/authClient";
 import { Share2, Check, Gift } from "lucide-react";
 import ProductCard from "./ProductCard";
 import {

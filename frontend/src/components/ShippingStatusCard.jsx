@@ -2,16 +2,14 @@ import React, { useState } from 'react';
 import { Truck, ExternalLink, Package, Clock, ShieldCheck, CheckCircle, AlertTriangle } from 'lucide-react';
 import Swal from 'sweetalert2';
 import axios from 'axios';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy } from "../Utils/authClient";
 import LoadingSpinner from './LoadingSpinner';
 
 export default function ShippingStatusCard({ order, role, onUpdate }) {
         const { status, shippingDetails } = order;
   const [loading, setLoading] = useState(false);
   const [disputing, setDisputing] = useState(false);
-  const { getAccessToken } = usePrivy();
-
-  const isCrypto = order.payment?.method === 'crypto';
+    const { getAccessToken } = usePrivy();
 
   // Opciones predeterminadas de problema que puede reportar el comprador.
   const ISSUE_OPTIONS = [
@@ -37,7 +35,17 @@ export default function ShippingStatusCard({ order, role, onUpdate }) {
   const externalUrl = trackingLinks[shippingDetails?.provider] || null;
 
   // Lógica de contenido según el estado
-  const getStatusContent = () => {
+    const getStatusContent = () => {
+    if (status === 'reception_confirmed') {
+      return {
+        title: "Recepción confirmada",
+        description: "Confirmaste que recibiste el pedido. Se activó el período de protección: si algo llegó mal, todavía podés abrir un reclamo. Pasado ese lapso, se liberan los fondos al vendedor.",
+        icon: <ShieldCheck className="text-emerald-500" />,
+        bgColor: "bg-emerald-500/10",
+        borderColor: "border-emerald-500/20"
+      };
+    }
+
     if (status === 'shipped' || status === 'completed') {
       return {
         title: "Producto en camino",
@@ -80,10 +88,10 @@ export default function ShippingStatusCard({ order, role, onUpdate }) {
 
   const content = getStatusContent();
 
-  const handleConfirmArrival = async () => {
+    const handleConfirmArrival = async () => {
     const result = await Swal.fire({
       title: '<span class="font-black uppercase italic">¿Recibiste tu pedido?</span>',
-      text: "Confirma solo si el producto está en tus manos y en las condiciones acordadas. Esta acción liberará los fondos al vendedor.",
+      text: "Confirmá solo si el producto está en tus manos y en las condiciones acordadas. Al confirmar, se inicia un período de seguridad antes de liberar los fondos al vendedor, durante el cual todavía podés reclamar si algo llegó mal.",
       icon: 'question',
       showCancelButton: true,
       confirmButtonColor: '#10b981', // Verde éxito
@@ -99,9 +107,10 @@ export default function ShippingStatusCard({ order, role, onUpdate }) {
       setLoading(true);
       const token = await getAccessToken();
       try {
-        // Llamada que confirma la recepción y dispara la liberación on-chain
-        // (del escrow en cripto o de la garantía en transferencia bancaria).
-        // Puede tardar unos segundos en confirmarse en la red.
+        // Llamada que confirma la recepción. El backend pasa la orden a
+        // 'reception_confirmed' e inicia el período de seguridad: la garantía
+        // (o el escrow) NO se libera todavía. La cierra y libera el ADMIN recién
+        // cuando se cumple el buffer (24h), dando ventana para reclamos.
         const { data } = await axios.patch(
           `${import.meta.env.VITE_SERVER_URL}/api/order/${order._id}`,
           { status: 'completed' },
@@ -112,10 +121,9 @@ export default function ShippingStatusCard({ order, role, onUpdate }) {
 
         if (data.success) {
           await Swal.fire({
-            title: '¡ORDEN FINALIZADA!',
-            text: isCrypto
-              ? 'Gracias por confirmar. Los USDT del contrato fueron liberados al vendedor.'
-              : 'Gracias por confirmar. Se ha completado la orden.',
+            title: '¡RECEPCIÓN CONFIRMADA!',
+            text:
+              'Gracias por confirmar. Se activó el período de protección de tu compra: durante las próximas horas todavía podés reclamar si el producto llegó dañado o equivocado. Luego se liberarán los fondos al vendedor.',
             icon: 'success',
             confirmButtonColor: '#F26722',
             customClass: { popup: 'rounded-[2.5rem]' },
@@ -238,11 +246,9 @@ export default function ShippingStatusCard({ order, role, onUpdate }) {
         // Overlay de pantalla completa con spinner y mensaje claro de que la
         // liberación (escrow/garantía) está en proceso. Puede demorar unos
         // segundos porque se confirma on-chain.
-        <LoadingSpinner
+                <LoadingSpinner
           fullScreen
-          text={isCrypto
-            ? 'Confirmando tu pedido: liberando los USDT del escrow al vendedor...'
-            : 'Confirmando tu pedido: liberando la garantía al vendedor...'}
+          text="Confirmando la recepción de tu pedido..."
         />
       )}
       <div className={`p-6 rounded-[2.5rem] border-2 ${content.borderColor} ${content.bgColor} transition-all duration-500`}>

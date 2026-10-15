@@ -1,7 +1,7 @@
 import express from "express";
 const router = express.Router();
 
-import verifyPrivyToken from "../middleware/auth.js";
+import verifyAuth from "../middleware/verifyAuth.js";
 import attachUser from "../middleware/attachUser.js";
 import { isAdmin } from "../middleware/isAdmin.js";
 import {
@@ -29,42 +29,42 @@ router.get("/product/:productId", getPoolsByProduct);
 
 // ── Protegidas (requieren sesión) ───────────────────────────────────
 // ⚠️ Debe ir ANTES de "/:id" (si no, "/seller" matchea como un id).
-router.get("/seller", verifyPrivyToken, attachUser, getSellerPools);
+router.get("/seller", verifyAuth, attachUser, getSellerPools);
 // Grupos en los que participa el usuario logueado (creador o miembro).
 // ⚠️ También ANTES de "/:id".
-router.get("/mine", verifyPrivyToken, attachUser, getBuyerPools);
+router.get("/mine", verifyAuth, attachUser, getBuyerPools);
 
 // Detalle de un pool por id (deep-link /pool/:id).
 router.get("/:id", getPoolById);
 
-router.post("/create", verifyPrivyToken, attachUser, createPool);
-router.post("/:id/join", verifyPrivyToken, attachUser, joinPool);
-router.delete("/:id/leave", verifyPrivyToken, attachUser, leavePool);
-router.patch("/:id/cancel", verifyPrivyToken, attachUser, cancelPool);
+router.post("/create", verifyAuth, attachUser, createPool);
+router.post("/:id/join", verifyAuth, attachUser, joinPool);
+router.delete("/:id/leave", verifyAuth, attachUser, leavePool);
+router.patch("/:id/cancel", verifyAuth, attachUser, cancelPool);
 // Rollback de un pool provisional (creación sin fondeo completado).
-router.delete("/:id/rollback", verifyPrivyToken, attachUser, rollbackPool);
+router.delete("/:id/rollback", verifyAuth, attachUser, rollbackPool);
 
 // ── ESCROW ON-CHAIN DEL GRUPO ───────────────────────────────────────
 // 1) Preparar el fondeo (datos + gas drip) antes de que el comprador firme.
 router.post(
   "/:id/prepare-funding",
-  verifyPrivyToken,
+  verifyAuth,
   attachUser,
   preparePoolFunding,
 );
 // 2) Confirmar el fondeo on-chain (verifica la tx + reserva stock).
 router.post(
   "/:id/escrow/fund",
-  verifyPrivyToken,
+  verifyAuth,
   attachUser,
   confirmPoolFunding,
 );
 // 3) Cerrar el grupo (SOLO ADMIN): fija precio final + crea las órdenes.
-router.post("/:id/close", verifyPrivyToken, isAdmin, closePool);
+router.post("/:id/close", verifyAuth, attachUser, isAdmin, closePool);
 // 4) Liberar la porción de un comprador (confirmó recepción).
 router.post(
   "/:id/release-member",
-  verifyPrivyToken,
+  verifyAuth,
   attachUser,
   releasePoolMember,
 );

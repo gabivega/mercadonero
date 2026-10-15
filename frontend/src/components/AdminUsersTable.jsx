@@ -10,7 +10,7 @@ import {
   ArrowUpDown,
 } from 'lucide-react';
 import axios from 'axios';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy } from "../Utils/authClient";
 import LoadingSpinner from './LoadingSpinner';
 import AdminUserModal from './AdminUserModal';
 

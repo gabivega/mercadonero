@@ -8,7 +8,6 @@ import userRoutes from './src/routes/userRoutes.js';
 import orderRoutes from './src/routes/orderRoutes.js';
 import cartRoutes from './src/routes/cartRoutes.js';
 import adminRoutes from './src/routes/adminRoutes.js';
-import transakRoutes from './src/routes/transakRoutes.js';
 import notificationRoutes from './src/routes/notificationRoutes.js';
 import messageRoutes from './src/routes/messageRoutes.js';
 import reviewRoutes from './src/routes/reviewRoutes.js';
@@ -54,9 +53,8 @@ try {
   app.use('/api/product', productRoutes);
   app.use('/api/user', userRoutes);
   app.use('/api/order', orderRoutes);
-  app.use('/api/cart', cartRoutes);
+    app.use('/api/cart', cartRoutes);
   app.use('/api/admin', adminRoutes);
-  app.use('/api/transak', transakRoutes);
     app.use('/api/notification', notificationRoutes);
   app.use('/api/message', messageRoutes);
     app.use('/api/review', reviewRoutes);

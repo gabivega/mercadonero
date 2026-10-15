@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { usePrivy, useWallets } from "../Utils/authClient";
 import { X, Copy, Check, Wallet, ExternalLink, ShieldCheck, Store } from "lucide-react";
 import { getAuthenticatedWallet } from "../Utils/walletSelector";
 

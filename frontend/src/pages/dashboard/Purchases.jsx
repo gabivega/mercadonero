@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy } from "../../Utils/authClient";
 import { useNavigate } from 'react-router-dom';
 import { Package, Clock, CheckCircle, AlertCircle, Truck, Ban, Users } from 'lucide-react';
 import LoadingSpinner from '../../components/LoadingSpinner';

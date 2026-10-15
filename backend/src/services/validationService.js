@@ -14,6 +14,24 @@
  */
 
 // ──────────────────────────────────────────────────────────────────────────
+// KILL-SWITCH DE VALIDACIÓN (SOLO DESARROLLO)
+// ──────────────────────────────────────────────────────────────────────────
+// Permite desactivar TEMPORALMENTE toda la validación (CBU/CVU/CUIT) para
+// trabajar cómodo durante el desarrollo, sin tener que saltear errores a mano.
+//
+// ⚠️ Seguridad: SOLO se activa cuando:
+//   1. `SKIP_BANK_VALIDATION === "true"` (habilitación EXPLÍCITA), y
+//   2. `NODE_ENV !== "production"` (NUNCA en producción).
+//
+// Es el equivalente al interruptor que ya existe en el front. Para reactivar
+// la validación real basta con borrar/poner en false la variable del .env.
+const isValidationSkipped = () =>
+  process.env.SKIP_BANK_VALIDATION === "true" &&
+  process.env.NODE_ENV !== "production";
+
+const skipValid = { valid: true };
+
+// ──────────────────────────────────────────────────────────────────────────
 // CBU
 // ──────────────────────────────────────────────────────────────────────────
 // Un CBU tiene 22 dígitos divididos en 2 bloques:
@@ -50,6 +68,7 @@ const verifyCBUBlock = (block, weights, checkDigit) => {
  * @returns {{ valid: boolean, reason?: string }}
  */
 export const validateCBU = (cbu) => {
+  if (isValidationSkipped()) return skipValid;
   if (!cbu) return { valid: false, reason: "El CBU es obligatorio." };
   const cleaned = String(cbu).replace(/[\s-]/g, "");
   if (!/^\d{22}$/.test(cleaned)) {
@@ -74,24 +93,37 @@ export const validateCBU = (cbu) => {
 // ──────────────────────────────────────────────────────────────────────────
 // CVU
 // ──────────────────────────────────────────────────────────────────────────
-// Un CVU tiene 23 dígitos. Suele empezar con "000000" (bancos que usan CVU /
-// cuentas sin CBU, ej. Mercado Pago). No tiene un estándar público tan rígido
-// como el CBU para dígito verificador, así que validamos formato + prefijo.
+// Un CVU tiene 23 dígitos y usa el MISMO esquema de dígito verificador que el
+// CBU (dos bloques con módulo 10). A diferencia del CBU, los primeros dígitos
+// identifican al PSP (billetera virtual) y muchos empiezan con ceros, pero
+// eso NO es obligatorio: exigir un prefijo fijo rechazaba CVUs reales. Por eso
+// validamos longitud + dígitos verificadores (igual que el CBU).
 // ──────────────────────────────────────────────────────────────────────────
 /**
- * Valida la sintaxis de un CVU (23 dígitos, prefijo estándar).
+ * Valida la sintaxis de un CVU (23 dígitos + dígitos verificadores).
  * @param {string} cvu
  * @returns {{ valid: boolean, reason?: string }}
  */
 export const validateCVU = (cvu) => {
+  if (isValidationSkipped()) return skipValid;
   if (!cvu) return { valid: false, reason: "El CVU es obligatorio." };
   const cleaned = String(cvu).replace(/[\s-]/g, "");
   if (!/^\d{23}$/.test(cleaned)) {
     return { valid: false, reason: "El CVU debe tener exactamente 23 dígitos numéricos." };
   }
-  if (!cleaned.startsWith("000000")) {
-    return { valid: false, reason: "El CVU ingresado parece no ser válido. Verificá que corresponda a una cuenta virtual o bancaria (CVU)." };
+
+  const block1 = cleaned.slice(0, 7);
+  const block1Check = cleaned[7];
+  const block2 = cleaned.slice(8, 21);
+  const block2Check = cleaned[21];
+
+  if (!verifyCBUBlock(block1, CBU_BLOCK_1_WEIGHTS, block1Check)) {
+    return { valid: false, reason: "El dígito verificador del primer bloque del CVU no es válido. Revisá que lo hayas escrito bien." };
   }
+  if (!verifyCBUBlock(block2, CBU_BLOCK_2_WEIGHTS, block2Check)) {
+    return { valid: false, reason: "El dígito verificador del segundo bloque del CVU no es válido. Revisá que lo hayas escrito bien." };
+  }
+
   return { valid: true };
 };
 
@@ -109,6 +141,7 @@ const CUIT_WEIGHTS = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
  * @returns {{ valid: boolean, reason?: string }}
  */
 export const validateCUIT = (cuit) => {
+  if (isValidationSkipped()) return skipValid;
   if (!cuit) return { valid: false, reason: "El CUIT/CUIL es obligatorio." };
   const cleaned = String(cuit).replace(/[\s-]/g, "");
   if (!/^\d{11}$/.test(cleaned)) {
@@ -135,6 +168,9 @@ export const validateCUIT = (cuit) => {
   return { valid: true };
 };
 
+// ──────────────────────────────────────────────────────────────────────────
+// VALIDACIÓN DE CUENTA BANCARIA
+// ──────────────────────────────────────────────────────────────────────────
 /**
  * Valida sintaxis de CBU o CVU según el tipo de cuenta elegido.
  * @param {"CBU" | "CVU"} type

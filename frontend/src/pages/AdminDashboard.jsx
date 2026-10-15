@@ -12,27 +12,14 @@ import {
 import AdminOrdersTable from "../components/AdminOrdersTable";
 import AdminUsersTable from "../components/AdminUsersTable";
 import AdminStats from "../components/AdminStats";
-import { usePrivy } from "@privy-io/react-auth";
+import { useAuth } from "../Utils/authClient";
 import { useUserStore } from "../store/useUserStore";
 
 const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState("orders");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const { user, authenticated, ready } = usePrivy();
-  const { isAdmin, dbUser } = useUserStore(); // Usamos el estado de Zustand
-  const ADMIN_ID = import.meta.env.VITE_ADMIN_PRIVY_ID;
-
-  // LOGS DE DEPURACIÓN
-  // console.log(
-  //   "PRIVY -> Ready:",
-  //   ready,
-  //   "Auth:",
-  //   authenticated,
-  //   "UserID:",
-  //   user?.id,
-  // );
-  // console.log("ZUSTAND -> isAdmin:", isAdmin, "dbUser:", !!dbUser);
-  // console.log("isAdmin", isAdmin);
+  const { authenticated, ready } = useAuth();
+  const { isAdmin } = useUserStore(); // isAdmin ahora deriva de dbUser.role
 
     const menuItems = [
     { id: "stats", label: "Estadísticas", icon: LayoutDashboard },
@@ -51,12 +38,11 @@ const AdminDashboard = () => {
     );
   }
 
-  // 2. LA CLAVE: Si Privy dice que estás autenticado y el ID coincide, 
-  // entrás, independientemente de lo que diga Zustand en ese microsegundo.
-  const isActuallyAdmin = authenticated && user?.id === ADMIN_ID;
+    // 2. LA CLAVE: hay que estar autenticado y tener rol admin en la BD.
+  const isActuallyAdmin = authenticated && isAdmin;
 
   // 3. VALIDACIÓN FINAL
-  // Si ya está ready y NO es el admin por ID de Privy, fuera.
+  // Si ya está ready y NO es admin (por rol en Mongo), fuera.
   if (!isActuallyAdmin) {
     return (
       <div className="h-screen flex items-center justify-center bg-black">

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { allCategories } from "../data/allCategories.js";
 import axios from "axios";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../Utils/authClient";
 import {
   Package,
   Image as ImageIcon,

@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { ShoppingCart, Heart, BadgeCheck, Users } from "lucide-react";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../Utils/authClient";
 import { useCartStore } from "../store/useCartStore";
 import { useFavoritesStore } from "../store/useFavoritesStore";
 import { useFavorites } from "../Utils/useFavorites";

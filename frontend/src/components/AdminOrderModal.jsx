@@ -15,8 +15,9 @@ const AdminOrderModal = ({ order, isOpen, onClose, onAction }) => {
     const styles = {
       pending_payment: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
       verifying_payment: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-      paid: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400",
+            paid: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400",
       shipped: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
+      reception_confirmed: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
       completed: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
       cancelled: "bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-400",
       expired: "bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400",
@@ -283,6 +284,32 @@ const AdminOrderModal = ({ order, isOpen, onClose, onAction }) => {
             </button>
           )}
 
+                    {/* ACCIÓN: RECEPTION_CONFIRMED (el comprador confirmó la recepción y
+              corre el período de seguridad/buffer). El admin CIERRA la orden y
+              libera la garantía/escrow manualmente con este botón. El backend
+              exige el buffer cumplido salvo que se fuerce. */}
+          {order.status === 'reception_confirmed' && (
+            <>
+              <div className="w-full">
+                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400 mb-1">
+                  El comprador confirmó la recepción
+                </p>
+                <p className="text-[11px] text-zinc-500">
+                  {order.releaseEligibleAt
+                    ? `Período de seguridad hasta: ${new Date(order.releaseEligibleAt).toLocaleString('es-AR')}. `
+                    : ''}
+                  Completá la orden para liberar la garantía/escrow al vendedor.
+                </p>
+              </div>
+              <button
+                onClick={() => onAction(order._id, 'admin_complete')}
+                className="flex-1 bg-emerald-600 text-white py-3 rounded-2xl font-black italic uppercase text-xs hover:bg-emerald-700 transition-colors"
+              >
+                Completar Orden y Liberar Garantía
+              </button>
+            </>
+          )}
+
           {/* ACCIÓN: SHIPPED (Arbitraje / El comprador no confirma) */}
           {order.status === 'shipped' && (
             <button 
@@ -344,7 +371,7 @@ const AdminOrderModal = ({ order, isOpen, onClose, onAction }) => {
             </button>
           )}
 
-          
+
           {/* RESOLUCION DE DISPUTA DE PAGO NO RECIBIDO (abierta por el vendedor).
               El comprador pudo subir su comprobante (order.paymentProof). */}
           {order.dispute?.exists &&

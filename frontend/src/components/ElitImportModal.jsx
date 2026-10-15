@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy } from "../Utils/authClient";
 import Swal from 'sweetalert2';
 import { X, ImageOff, CloudDownload, BadgeCheck } from 'lucide-react';
 import ProductForm from './ProductForm.jsx';

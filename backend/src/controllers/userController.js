@@ -865,8 +865,75 @@ export const getSellerPickupLocations = async (req, res) => {
       shopName: user.shop?.name || "",
       pickupLocations: active,
     });
-  } catch (error) {
+    } catch (error) {
     console.error("Error en getSellerPickupLocations:", error);
     res.status(500).json({ success: false, message: "Error al obtener los puntos de retiro." });
+  }
+};
+
+// ────────────────────────────────────────────────────────────────────────
+// WALLET WEB3 (Crossmint)
+// ────────────────────────────────────────────────────────────────────────
+// Persiste la dirección de la wallet EVM creada con Crossmint en el frontend.
+// El frontend es quien crea la wallet (Crossmint exige el JWT del usuario como
+// owner) y luego nos pasa la address para asociarla a la cuenta.
+//
+// Reglas:
+//   - Una sola wallet EVM por usuario (campo User.walletAddress, único).
+//   - Idempotente: si el usuario ya tiene wallet, devolvemos la existente.
+//   - Validamos el formato de la dirección EVM (0x + 40 hex).
+// ────────────────────────────────────────────────────────────────────────
+export const saveWallet = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { address } = req.body || {};
+
+    // 1. Validación de formato EVM (0x seguido de 40 caracteres hexadecimales).
+    const clean = String(address || "").trim().toLowerCase();
+    if (!/^0x[a-f0-9]{40}$/.test(clean)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Dirección de wallet inválida." });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Usuario no encontrado." });
+    }
+
+    // 2. Idempotencia: si ya tiene wallet, devolvemos la existente sin tocar nada.
+    if (user.walletAddress) {
+      return res.status(200).json({
+        success: true,
+        alreadyExists: true,
+        walletAddress: user.walletAddress,
+        message: "El usuario ya tiene una wallet asociada.",
+      });
+    }
+
+    // 3. La address es única en el índice: si otra cuenta ya la tiene, avisamos.
+    const taken = await User.findOne({ walletAddress: clean }).select("_id");
+    if (taken && String(taken._id) !== String(userId)) {
+      return res.status(409).json({
+        success: false,
+        message: "Esa wallet ya está asociada a otra cuenta.",
+      });
+    }
+
+    user.walletAddress = clean;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      walletAddress: user.walletAddress,
+      message: "Wallet asociada correctamente.",
+    });
+  } catch (error) {
+    console.error("Error en saveWallet:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Error al guardar la wallet." });
   }
 };

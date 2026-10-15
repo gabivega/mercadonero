@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "./authClient";
 import axios from "axios";
 import { useNotificationStore } from "../store/useNotificationStore";
 

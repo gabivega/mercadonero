@@ -1,10 +1,10 @@
 import express from 'express';
 const router = express.Router();
 import { getCart, syncCart } from '../controllers/cartController.js';
-import verifyPrivyToken from '../middleware/auth.js';
+import verifyAuth from '../middleware/verifyAuth.js';
 import attachUser from '../middleware/attachUser.js';
 
-router.get('/', verifyPrivyToken, attachUser, getCart);
-router.post('/synccart', verifyPrivyToken, attachUser, syncCart);
+router.get('/', verifyAuth, attachUser, getCart);
+router.post('/synccart', verifyAuth, attachUser, syncCart);
 
 export default router;

@@ -1,6 +1,6 @@
 // DashboardLayout.jsx
 import { Outlet, Navigate } from 'react-router-dom';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy } from "../Utils/authClient";
 import Sidebar from './Sidebar.jsx';
 
 const DashboardLayout = ({ children }) => { // <--- Agregamos children

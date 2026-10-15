@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy } from "../Utils/authClient";
 import Swal from 'sweetalert2';
 import {
   RefreshCw,

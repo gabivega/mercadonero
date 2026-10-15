@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { usePrivy, useWallets } from "../Utils/authClient";
 import { ethers } from "ethers";
 import axios from "axios";
 import { X, Wallet, ShieldCheck, AlertTriangle, CheckCircle2, ArrowRight, Fuel } from "lucide-react";

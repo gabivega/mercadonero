@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../Utils/authClient";
 import axios from "axios";
 import { MessageCircle, HelpCircle, Send } from "lucide-react";
 import LoadingSpinner from "./LoadingSpinner";

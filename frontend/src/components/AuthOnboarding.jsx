@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../Utils/authClient";
 import { MapPin, User, Phone, ArrowRight, CheckCircle, AlertCircle, X } from "lucide-react";
 
 
 import axios from "axios";
-import NeroLogin from "./NeroLogin";
+import SupabaseLogin from "./SupabaseLogin";
 import PostalCodeInput from "./PostalCodeInput";
 import { existeCP } from "../Utils/postalCodes";
 
@@ -334,20 +334,17 @@ export default function AuthOnboarding({ onComplete, onClose }) {
             Debes iniciar sesión para continuar con la compra. Si es tu primera
             vez, el registro se realiza de una forma muy simple y rápida.
           </p>
-          <button
-            // onClick={() => setIsNeroLogin(true)}
-            onClick={login}
+                    <button
+            onClick={() => setIsNeroLogin(true)}
             className="w-full py-4 bg-[#F26722] text-white rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] transition-transform"
           >
             Continuar con Email
           </button>
-          {/* <NeroLogin
-           isOpen={isNeroLogin} 
-      onClose={() => setIsNeroLogin(false)}
-      onLoginSuccess={() => onComplete()}
-        // Opcional: Aquí podrías navegar a otra página si quieres
-        // navigate('/dashboard');
-       /> */}
+          <SupabaseLogin
+            isOpen={isNeroLogin}
+            onClose={() => setIsNeroLogin(false)}
+            onLoginSuccess={() => onComplete()}
+          />
         </div>
       )}
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../../Utils/authClient";
 import {
     Clock,
   CheckCircle,
@@ -276,8 +276,11 @@ export default function OrderDetail() {
       label: "Verificando",
       icon: <AlertCircle size={20} />,
     },
-    { id: "paid", label: "Pagado", icon: <CheckCircle size={20} /> },
+        { id: "paid", label: "Pagado", icon: <CheckCircle size={20} /> },
     { id: "shipped", label: "En camino", icon: <Truck size={20} /> },
+    // El comprador confirmó la recepción. La garantía todavía NO se liberó:
+    // corre un período de seguridad (buffer) durante el cual puede reclamar.
+    { id: "reception_confirmed", label: "Recibido", icon: <ShieldCheck size={20} /> },
     { id: "completed", label: "Completado", icon: <Package size={20} /> },
   ];
 
@@ -513,9 +516,9 @@ export default function OrderDetail() {
               </div>
             ))}
 
-            {/* Cashback estimado (solo comprador, mientras la orden está activa) */}
+                        {/* Cashback estimado (solo comprador, mientras la orden está activa) */}
             {role === "buyer" &&
-              ["pending_payment", "verifying_payment", "paid", "shipped"].includes(
+              ["pending_payment", "verifying_payment", "paid", "shipped", "reception_confirmed"].includes(
                 order.status,
               ) && (
                 <div className="pt-3">
@@ -552,8 +555,8 @@ export default function OrderDetail() {
               - Comprador: ya ve la tarjeta en 'pending_payment'; se la mostramos
                 acá de nuevo cuando la orden ya avanzó (paid/shipped/completed).
               - Vendedor: se le muestra en cualquier estado activo de la orden. */}
-          {isCryptoOrder &&
-            ["paid", "shipped", "completed"].includes(order.status) &&
+                    {isCryptoOrder &&
+            ["paid", "shipped", "reception_confirmed", "completed"].includes(order.status) &&
             (role === "buyer" || role === "seller") && (
               <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
                                 <EscrowPaymentStatus order={order} onUpdate={fetchOrder} role={role} />
@@ -658,7 +661,11 @@ export default function OrderDetail() {
               />
             </section>
           )}
-                                        {(role === "buyer" &&
+                                                                                {/* ACCIONES DE COMPRA (confirmar recepción / disputar).
+              Se muestran al comprador mientras la orden está 'paid' o 'shipped'.
+              Una vez que confirma la recepción ('reception_confirmed') se
+              reemplaza por el banner informativo de más abajo. */}
+          {(role === "buyer" &&
             (order.status === "paid" || order.status === "shipped")) && (
             order.deliveryMethod === "pickup" ? (
               <PickupActionCard
@@ -681,6 +688,45 @@ export default function OrderDetail() {
                 }}
               />
             )
+          )}
+
+          {/* BANNER COMPRADOR: el comprador ya confirmó la recepción. La garantía
+              (o el escrow) todavía NO se liberó: corre un período de seguridad
+              (buffer) durante el cual puede reclamar. Lo cierra el admin. */}
+          {role === "buyer" && order.status === "reception_confirmed" && (
+                        <section className="p-6 rounded-2xl border-2 border-emerald-500/30 bg-emerald-500/5">
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm shrink-0">
+                  <ShieldCheck className="text-emerald-500" size={22} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-black uppercase tracking-tight dark:text-white text-base italic">
+                    Recepción confirmada
+                  </h3>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-300 mt-1 font-medium">
+                    ¡Gracias por confirmar! Se activó el período de protección de tu
+                    compra. La garantía del vendedor todavía <b>no</b> se liberó: si el
+                    producto llegó dañado o equivocado, este es el momento de
+                    reportarlo. Pasado el período de seguridad, un administrador
+                    liberará los fondos al vendedor.
+                  </p>
+                  {order.releaseEligibleAt && (
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">
+                      Liberación estimada a partir de:{" "}
+                      <b>
+                        {new Date(order.releaseEligibleAt).toLocaleString("es-AR", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </b>
+                    </p>
+                  )}
+                </div>
+              </div>
+            </section>
           )}
 
                                         {role === "seller" && order.status === "paid" && !order.pendingRequest?.exists && (

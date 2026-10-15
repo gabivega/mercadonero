@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "./authClient";
 import axios from "axios";
 import { useFavoritesStore } from "../store/useFavoritesStore";
 

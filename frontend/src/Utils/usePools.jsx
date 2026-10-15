@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "./authClient";
 import axios from "axios";
 
 const BASE = `${import.meta.env.VITE_SERVER_URL}/api/pool`;

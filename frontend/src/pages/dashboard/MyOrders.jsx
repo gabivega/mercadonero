@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { ShoppingBag, Tag, Clock, ChevronRight, AlertCircle, Users } from 'lucide-react';
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../../Utils/authClient";
 import LoadingSpinner from "../../components/LoadingSpinner";
 import SellerPoolCard from "../../components/SellerPoolCard";
 import { usePools } from "../../Utils/usePools";
@@ -165,8 +165,8 @@ export default function MyOrders() {
                   <div className="flex items-center gap-2">
                     <div className="text-right hidden sm:block mr-4">
                       <p className="text-[10px] text-zinc-400 uppercase font-black tracking-tighter">Comprador</p>
-                      <p className="text-xs font-bold dark:text-zinc-300">
-                        {order.buyer.username}
+                                            <p className="text-xs font-bold dark:text-zinc-300">
+                        {order.buyer?.username || order.buyer?.firstName || "—"}
                       </p>
                     </div>
                   </div>

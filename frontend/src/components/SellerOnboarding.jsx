@@ -13,7 +13,7 @@ import {
   User,
   Check,
 } from "lucide-react";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../Utils/authClient";
 import axios from "axios";
 
 /**

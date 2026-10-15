@@ -12,7 +12,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import axios from "axios";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../Utils/authClient";
 import { formatMoney } from "../Utils/currencyFormatter";
 import LoadingSpinner from "./LoadingSpinner";
 

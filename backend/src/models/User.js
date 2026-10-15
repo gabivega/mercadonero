@@ -67,14 +67,39 @@ const userSchema = new Schema(
       lowercase: true,
       trim: true,
     },
-    // ID Único proporcionado por Privy (did:privy:...)
+    // ════════════════════════════════════════════════════════════════════
+    // IDENTIDAD / AUTH
+    // ────────────────────────────────────────────────────────────────────
+    // Durante la migración Privy → Supabase conviven DOS identificadores:
+    // - privyDid:   did:privy:... (legacy; se va deprecando)
+    // - supabaseId: uuid `sub` del JWT de Supabase (nuevo)
+    // Ninguno es `required` porque en la transición puede faltar uno u otro.
+    // La vinculación real de la cuenta se resuelve por `email` (único).
+    // ════════════════════════════════════════════════════════════════════
+    // ⚠️ IMPORTANTE sobre los índices únicos:
+    // Usamos `unique + sparse`. `sparse` EXCLUYE del índice los documentos donde
+    // el campo está AUSENTE (undefined). Por eso es CRÍTICO no persistir `null`
+    // en estos campos: un usuario de Supabase debe dejar `privyDid` SIN SETEAR,
+    // nunca en null (null SÍ colisionaría en el índice único).
+    // NO agregar `index: true` acá: `unique` ya crea el índice; poner ambos
+    // genera un índice duplicado.
     privyDid: {
       type: String,
-      required: true,
       unique: true,
-      index: true,
+      sparse: true,
     },
-    dni: { type: String, trim: true, default: "" },
+    supabaseId: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
+    // Rol de plataforma. El middleware `isAdmin` y el frontend se basarán en
+    // esto en lugar del antiguo `ADMIN_PRIVY_ID`.
+    role: {
+      type: String,
+      enum: ["user", "admin"],
+      default: "user",
+    },
     phone: {
       type: String,
     },
@@ -375,11 +400,9 @@ const userSchema = new Schema(
   },
 );
 
-// Índices para mejorar el rendimiento de búsqueda
-// ⚠️ NO declarar `userSchema.index({ email: 1 })` acá: el campo `email` ya
-// tiene `unique: true` (que crea su propio índice). Declarar ambos genera el
-// warning de Mongoose "Duplicate schema index on {email:1}".
-userSchema.index({ "wallet.address": 1 });
+// Los índices de `email`, `privyDid` y `supabaseId` los crea Mongoose
+// automáticamente vía `unique: true` + `sparse: true` (uno por campo).
+// ⚠️ NO declararlos también acá: duplicaría índices ("Duplicate schema index").
 
 const User = mongoose.model("User", userSchema);
 

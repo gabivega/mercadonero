@@ -16,7 +16,7 @@ import {
   DollarSign,
 } from "lucide-react";
 
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../../Utils/authClient";
 import { useUserStore } from "../../store/useUserStore";
 import AuthOnboarding from "../../components/AuthOnboarding";
 import ReferralProductItem from "../../components/ReferralProductItem";

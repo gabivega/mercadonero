@@ -5,16 +5,16 @@ import {
   flamingHealth,
   bulkImportFlaming,
 } from '../controllers/flamingController.js';
-import verifyPrivyToken from '../middleware/auth.js';
+import verifyAuth from '../middleware/verifyAuth.js';
 
 const router = express.Router();
 
 // Sólo usuarios autenticados pueden usar el explorador del catálogo de Flaming.
-router.get('/productos', verifyPrivyToken, getFlamingProductos);
-router.get('/categories', verifyPrivyToken, getFlamingCategories);
-router.get('/health', verifyPrivyToken, flamingHealth);
+router.get('/productos', verifyAuth, getFlamingProductos);
+router.get('/categories', verifyAuth, getFlamingCategories);
+router.get('/health', verifyAuth, flamingHealth);
 
 // Import masivo del catálogo a la tienda del admin autenticado.
-router.post('/bulk-import', verifyPrivyToken, bulkImportFlaming);
+router.post('/bulk-import', verifyAuth, bulkImportFlaming);
 
 export default router;

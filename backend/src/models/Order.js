@@ -109,6 +109,12 @@ const orderSchema = new Schema(
         "verifying_payment",
         "paid",
         "shipped",
+        // El comprador confirmó la recepción. NO es el cierre definitivo:
+        // queda en un período de "buffer" (ver releaseEligibleAt) durante el
+        // cual puede reclamar (producto dañado/equivocado) SIN que la garantía
+        // ya esté liberada. Recién el admin, tras el buffer, libera (on-chain)
+        // y la orden pasa a "completed".
+        "reception_confirmed",
         "completed",
         "cancelled",
         "expired",
@@ -125,6 +131,7 @@ const orderSchema = new Schema(
             "verifying_payment",
             "paid",
             "shipped",
+            "reception_confirmed",
             "completed",
             "cancelled",
             "expired",
@@ -144,8 +151,23 @@ const orderSchema = new Schema(
     // congelada al momento de la notificación aunque la orden se toque luego.
     verifyingPaymentNotifiedAt: { type: Date, default: null },
     completedAt: { type: Date }, // Cierre final (disparo de Smart Contract)
+    // ── BUFFER DE SEGURIDAD ANTES DE LIBERAR LA GARANTÍA ──
+    // Cuando el comprador marca la orden como recibida, NO pasa directo a
+    // "completed": pasa a "reception_confirmed" y arranca un período de
+    // buffer (ver RELEASE_BUFFER_HOURS, default 24h). Durante ese lapso el
+    // comprador puede reclamar (dañado/equivocado) sin que la garantía ya
+    // esté liberada. Recién cumplido el buffer, el ADMIN libera on-chain y
+    // la orden pasa a "completed". En esta etapa la liberación es 100% manual
+    // (el admin aprieta el botón); estos campos quedan preparados para la
+    // Fase 2 (auto-release por cron) sin retrabajo.
+    receptionConfirmedAt: { type: Date, default: null },
+    releaseEligibleAt: { type: Date, default: null },
     releaseTxHash: { type: String }, // Hash de la transacción de liberación
     collateralTxHash: { type: String }, // Hash de la transacción de congelamiento del colateral
+    // Red (chainId EVM) donde se congeló el colateral de ESTA orden. Se persiste
+    // al bloquear para que release/cancel/dispute operen SIEMPRE sobre la misma
+    // cadena (evita locks "fantasma" al mezclar redes como BSC y Polygon Amoy).
+    collateralChainId: { type: Number, default: null },
     shippingDetails: {
       provider: { type: String },
       trackingNumber: { type: String },
@@ -347,7 +369,12 @@ const orderSchema = new Schema(
       reason: { type: String, default: "" },
       status: {
         type: String,
-        enum: ["pending", "approved_released", "declined"],
+        // - "pending":           esperando resolución del admin.
+        // - "approved_released": el admin aprobó y liberó la garantía.
+        // - "declined":          el admin rechazó la solicitud de liberación.
+        // - "resolved_by_cancel":la orden se canceló por otra vía (p. ej. el
+        //   admin canceló manualmente), dejando la solicitud sin efecto.
+        enum: ["pending", "approved_released", "declined", "resolved_by_cancel"],
         default: "pending",
       },
       createdAt: { type: Date, default: Date.now },

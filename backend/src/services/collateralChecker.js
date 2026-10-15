@@ -1,24 +1,34 @@
 import Product from "../models/Product.js";
-import { poolContract } from "./blockchainService.js"; // Tu instancia de ethers conectada al contrato
-import ethers from "ethers";
+import { getVendorCollateralMultiChain } from "./blockchainServices.js";
 
 /**
  * Revisa el colateral disponible real en la blockchain para un vendedor
  * y pausa sus productos si no cuenta con respaldo suficiente.
+ *
+ * MULTICHAIN: el disponible se calcula como la SUMA del saldo libre del
+ * vendedor en TODAS las redes configuradas (ver getVendorCollateralMultiChain).
+ * Opcionalmente se puede pasar un `chainId` para evaluar solo una red.
  */
-export const verifyAndSyncVendorProducts = async (vendorAddress, sellerId) => {
+export const verifyAndSyncVendorProducts = async (
+  vendorAddress,
+  sellerId,
+  chainId = null,
+) => {
   try {
     console.log(`[Sync] Sincronizando productos para el vendedor: ${vendorAddress}`);
 
-    // 1. Consultamos el estado real del vendedor DIRECTO en la blockchain
-    const vendorData = await poolContract.vendors(vendorAddress);
-    
-    // Convertimos los BigInt de la blockchain a números legibles (USDT)
-    const totalCollateral = parseFloat(ethers.formatUnits(vendorData.totalCollateral, 18));
-    const lockedCollateral = parseFloat(ethers.formatUnits(vendorData.lockedCollateral, 18));
-    
-    const disponibleUSD = totalCollateral - lockedCollateral;
-    console.log(`[Sync] Vendedor disponible: $${disponibleUSD} USDT (Total: ${totalCollateral}, Bloqueado: ${lockedCollateral})`);
+    // 1. Consultamos el estado real del vendedor en la blockchain.
+    //    Si se pidió una red puntual, leemos solo esa; si no, sumamos todas.
+    let disponibleUSD = 0;
+    if (chainId) {
+      const { getVendorCollateral } = await import("./blockchainServices.js");
+      const vendorData = await getVendorCollateral(vendorAddress, chainId);
+      disponibleUSD = vendorData.success ? vendorData.available : 0;
+    } else {
+      const multi = await getVendorCollateralMultiChain(vendorAddress);
+      disponibleUSD = multi.success ? multi.totalAvailable : 0;
+    }
+    console.log(`[Sync] Vendedor disponible (multichain): $${disponibleUSD}`);
 
     // 2. Buscamos todos los productos ACTIVOS de este vendedor
     const activeProducts = await Product.find({ seller: sellerId, status: "active" });

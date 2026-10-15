@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import axios from "axios";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../Utils/authClient";
 import Swal from "sweetalert2";
 import { Truck, Package, MapPin, Plus, Trash2, Search } from "lucide-react";
 import LoadingSpinner from "./LoadingSpinner";

@@ -3,7 +3,7 @@ import { X } from "lucide-react";
 import axios from "axios";
 import Swal from "sweetalert2";
 import ProductForm from "./ProductForm"; // Importás tu formulario dual
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../Utils/authClient";
 
 const ProductEditModal = ({ product, isOpen, onClose, onRefresh }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);

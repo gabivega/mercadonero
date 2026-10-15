@@ -1,65 +1,60 @@
 import express from "express";
 const router = express.Router();
 import User from "../models/User.js";
-import verifyPrivyToken from "../middleware/auth.js";
+import verifyAuth from "../middleware/verifyAuth.js";
 
-// Esta ruta está protegida por el middleware
-router.post("/sync-user", verifyPrivyToken, async (req, res) => {
-  const ahora = new Date(Date.now());
-
-  const formato = new Intl.DateTimeFormat("es-ES", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit", // Opcional
-    hour12: false, // Formato 24h o 12h
-  });
+/**
+ * Sincroniza (o crea) el usuario en Mongo a partir de la sesión autenticada.
+ * Durante la migración Privy → Supabase:
+ *   - `req.user.authSource` indica el origen ("supabase" | "privy").
+ *   - Buscamos por `supabaseId`/`privyDid` según corresponda, con fallback
+ *     por `email` (para adoptar cuentas preexistentes sin duplicar).
+ *   - Persistimos el id del origen en el campo que corresponda.
+ */
+router.post("/sync-user", verifyAuth, async (req, res) => {
   try {
-    console.log("User route hit Endpoint at: ", formato.format(ahora));
-    const { did } = req.user; // Viene del middleware
-    const { email, walletAddress } = req.body;
-    console.log("email:", email);
-    console.log("walletAddress:", walletAddress);
+    const { did, authSource } = req.user;
+    // El email del JWT es la fuente de verdad; usamos el del body como fallback.
+    const email = (req.user.email || req.body?.email || "").toLowerCase().trim();
+    const { walletAddress } = req.body;
 
-    // Buscamos si ya existe
-    let user = await User.findOne({ privyDid: did });
+    // 1. Buscamos según el origen del token.
+    let user = null;
+    if (authSource === "supabase") {
+      user = await User.findOne({ supabaseId: did });
+    } else {
+      user = await User.findOne({ privyDid: did });
+    }
 
-    // if (!user.walletAddress) {
-    //   user.walletAddress = walletAddress;
-    //   await user.save();
-    // }
+    // 2. Fallback por email (vinculación de cuentas preexistentes).
+    if (!user && email) {
+      user = await User.findOne({ email });
+    }
 
     if (!user) {
-      console.log("creando usuario nuevo");
-      // generamos un username utilizando el id de privy
-      const shortId = did.split(":").pop().slice(-6);
+      // Generamos un username temporal a partir del id (uuid o did:privy:...).
+      const shortId = String(did).replace(/[^a-z0-9]/gi, "").slice(-6) || "user";
       const tempUsername = `nero-${shortId}`;
-      // Si no existe, es un registro nuevo
+
       user = new User({
-        privyDid: did,
-        email: email,
-        walletAddress: walletAddress,
+        email,
+        walletAddress: walletAddress || undefined,
         username: tempUsername,
+        role: "user",
         shop: {
-          active: false, // Por defecto la tienda está apagada
+          active: false,
           name: `Tienda de ${tempUsername}`,
         },
       });
-      console.log("usuario creado:", user);
-      await user.save();
-      console.log("Nuevo usuario registrado en Mongo:", did);
-    } else {
-      // 🔄 MIGRACIÓN PASIVA: Si el usuario ya existía pero no tenía la wallet
-      if (!user.walletAddress && walletAddress) {
-        console.log(
-          `Actualizando wallet para usuario existente: ${user.username}`,
-        );
-        user.walletAddress = walletAddress;
-        await user.save();
-      }
     }
+
+    // 3. Persistimos el identificador del origen + migración pasiva de datos.
+    if (authSource === "supabase" && did) user.supabaseId = did;
+    if (authSource === "privy" && did) user.privyDid = did;
+    if (email && !user.email) user.email = email;
+    if (!user.walletAddress && walletAddress) user.walletAddress = walletAddress;
+
+    await user.save();
     res.status(200).json(user);
   } catch (error) {
     console.log(error);

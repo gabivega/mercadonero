@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import Swal from "sweetalert2";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../../Utils/authClient";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { ImportSection } from "../../components/ImportProductsSection.jsx";
@@ -12,7 +12,7 @@ import VehicleForm from "../../components/VehicleForm.jsx";
 import PropertyForm from "../../components/PropertyForm.jsx";
 import ServiceForm from "../../components/ServiceForm.jsx";
 import DashboardLayout from "../../components/DashboardLayout.jsx";
-import NeroLogin from "../../components/NeroLogin.jsx";
+import SupabaseLogin from "../../components/SupabaseLogin.jsx";
 import SellerOnboarding from "../../components/SellerOnboarding.jsx";
 import { useUserStore } from "../../store/useUserStore";
 import { useSyncUser } from "../../Utils/userSync";
@@ -214,9 +214,8 @@ export default function CreateProduct() {
         </p>
 
         <div className="space-y-4">
-          <button
-            // onClick={()=> setIsLoginOpen(true)}
-            onClick={login}
+                    <button
+            onClick={()=> setIsLoginOpen(true)}
             className="group flex items-center gap-3 px-8 py-4 bg-[#F26722] text-white rounded-2xl font-black uppercase tracking-[0.2em] text-sm hover:scale-105 active:scale-95 transition-all shadow-lg shadow-[#F26722]/20"
           >
             Iniciar Sesión
@@ -227,14 +226,10 @@ export default function CreateProduct() {
             ¿No tienes cuenta? Se crea automáticamente al iniciar sesión
           </p>
         </div>
-        {/* <NeroLogin 
-          isOpen={isLoginOpen} 
-          onClose={() => setIsLoginOpen(false)} 
-           onLoginSuccess={(user) => {
-        // Opcional: Aquí podrías navegar a otra página si quieres
-        // navigate('/dashboard');
-      }}
-        /> */}
+        <SupabaseLogin
+          isOpen={isLoginOpen}
+          onClose={() => setIsLoginOpen(false)}
+        />
         <HowToSell />
       </div>
     );

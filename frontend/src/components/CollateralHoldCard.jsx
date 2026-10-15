@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../Utils/authClient";
 import Swal from "sweetalert2";
 import { Hourglass, AlertTriangle, ShieldCheck, ExternalLink, RefreshCw, XCircle } from "lucide-react";
 import LoadingSpinner from "./LoadingSpinner";

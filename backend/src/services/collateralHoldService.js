@@ -20,6 +20,7 @@
 import Order from "../models/Order.js";
 import User from "../models/User.js";
 import { lockVendorCollateral, getVendorCollateral } from "./blockchainServices.js";
+import { DEFAULT_CHAIN_ID } from "../config/chains.js";
 import { transitionToStatus } from "./orderHelpers.js";
 
 // ─────────────────────────────────────────────────────────────
@@ -112,11 +113,25 @@ export async function validateVendorHoldCapacity(sellerId) {
  * Es la fuente de verdad para decidir si una nueva orden entra en el flujo
  * normal (saldo alcanza) o debe pasar al estado de espera de colateral.
  */
-export async function getVendorEffectiveAvailable(sellerId, walletAddress) {
-  const onChain = await getVendorCollateral(walletAddress);
+export async function getVendorEffectiveAvailable(
+  sellerId,
+  walletAddress,
+  chainId = null,
+) {
+  // MULTICHAIN: si no se especifica una red, el disponible se calcula como la
+  // SUMA del saldo libre del vendedor en TODAS las redes configuradas. Si se
+  // pasa un chainId, se evalúa solo esa red. Esto mantiene coherencia con la
+  // selección de red de colateral de createOrder/resolveCollateralHold.
+  let availableOnChain = 0;
+  if (chainId == null) {
+    const multi = await getVendorCollateralMultiChain(walletAddress);
+    availableOnChain = multi.success ? multi.totalAvailable : 0;
+  } else {
+    const onChain = await getVendorCollateral(walletAddress, chainId);
+    availableOnChain = onChain.success ? onChain.available : 0;
+  }
   const reservedByHolds = await getVendorReservedHoldUsd(sellerId);
 
-  const availableOnChain = onChain.success ? onChain.available : 0;
   const effectiveAvailable = Math.max(availableOnChain - reservedByHolds, 0);
 
   return {
@@ -182,16 +197,32 @@ export async function resolveCollateralHold(orderId) {
   const amountToLock = order.financials.totalUsd + order.financials.shippingCostUsd;
 
   // ─────────────────────────────────────────────────────────────
-  // VERIFICACIÓN PREVIA de saldo on-chain del vendedor.
-  // Consultamos cuánto colateral tiene realmente disponible en la wallet
-  // REGISTRADA (seller.walletAddress) antes de intentar el lock. Esto:
+  // VERIFICACIÓN PREVIA de saldo on-chain del vendedor (MULTICHAIN).
+  // El colateral puede haberse depositado en CUALQUIERA de las redes
+  // configuradas (BSC / Base / Polygon Amoy): NO asumimos una red fija. Antes
+  // acá se miraba SOLO `DEFAULT_CHAIN_ID`, por lo que un vendedor que
+  // depositaba en otra red veía "saldo insuficiente" aunque tuviera fondos.
+  // Recorremos todas las redes y elegimos la que tenga saldo libre suficiente.
   //   - Detecta si el vendedor depositó desde OTRA wallet distinta a la que
   //     quedó asociada a su cuenta (caso frecuente con Privy / varias wallets).
   //   - Devuelve un mensaje claro con el monto faltante y sugiere revisar la
   //     wallet correcta, en vez del genérico "Revisá que hayas depositado".
   // ─────────────────────────────────────────────────────────────
-  const onChainInfo = await getVendorCollateral(seller.walletAddress);
-  const availableOnChain = onChainInfo.success ? onChainInfo.available : 0;
+  const multiChainInfo = await getVendorCollateralMultiChain(
+    seller.walletAddress,
+  );
+  const bestChain =
+    multiChainInfo.success && multiChainInfo.bestChain != null
+      ? multiChainInfo.bestChain
+      : DEFAULT_CHAIN_ID;
+  const availableOnChain =
+    multiChainInfo.success && multiChainInfo.bestChain != null
+      ? multiChainInfo.bestAvailable
+      : 0;
+  // Free total sumando TODAS las redes (para el mensaje de error).
+  const totalAcrossChains = multiChainInfo.success
+    ? multiChainInfo.totalAvailable
+    : 0;
 
   if (availableOnChain < amountToLock) {
     // Revertimos el "fulfilled" para que el hold siga esperando.
@@ -202,16 +233,20 @@ export async function resolveCollateralHold(orderId) {
       success: false,
       retryable: true,
       insufficientFunds: true,
-      error: onChainInfo.success
-        ? `No se detectó saldo suficiente en tu garantía. Necesitás US$ ${amountToLock.toFixed(2)} congelables y tu billetera registrada tiene US$ ${availableOnChain.toFixed(2)} disponibles. Verificá que hayas depositado el USDT en la MISMA billetera asociada a tu cuenta y reintentá.`
+      error: multiChainInfo.success
+        ? `No se detectó saldo suficiente en tu garantía. Necesitás US$ ${amountToLock.toFixed(2)} congelables y tu billetera registrada tiene US$ ${totalAcrossChains.toFixed(2)} disponibles (en todas las redes). Verificá que hayas depositado el USDT en la MISMA billetera asociada a tu cuenta y reintentá.`
         : "No se pudo leer tu saldo de garantía on-chain. Reintentá en unos segundos.",
     };
   }
+
+  // Congelamos en la MISMA red donde detectamos el saldo libre suficiente.
+  const chainId = bestChain;
 
   const blockchainResult = await lockVendorCollateral(
     order._id.toString(),
     seller.walletAddress,
     amountToLock,
+    chainId,
   );
 
   if (!blockchainResult.success) {
@@ -227,6 +262,9 @@ export async function resolveCollateralHold(orderId) {
   }
 
   order.collateralTxHash = blockchainResult.txHash;
+  // Persistimos la red donde quedó el lock para que release/cancel/dispute
+  // operen sobre la MISMA chain (evita "saldo congelado fantasma").
+  order.collateralChainId = chainId;
   order.collateralHold.status = "fulfilled";
   order.collateralHold.fulfilledAt = new Date();
 

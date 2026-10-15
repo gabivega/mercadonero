@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../Utils/authClient";
 import axios from "axios";
 import { Truck, ChevronDown, ChevronUp, MapPin, Loader2, Store } from "lucide-react";
 import { useUserStore } from "../store/useUserStore";

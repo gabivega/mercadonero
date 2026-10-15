@@ -24,7 +24,7 @@ import { useSelector, useDispatch } from "react-redux";
 import { toggleTheme } from "../store/themeSlice";
 import SearchSuggestions from "./SearchSuggestions";
 import { Link, useNavigate } from "react-router-dom";
-import { usePrivy } from "@privy-io/react-auth";
+import { useAuth } from "../Utils/authClient";
 import { useCartStore } from "../store/useCartStore";
 import { useUserStore } from "../store/useUserStore";
 import { useFavoritesStore } from "../store/useFavoritesStore";
@@ -41,7 +41,7 @@ import whiteLogo from "../assets/img/logo-black.png";
 import whiteLogoGray from "../assets/img/mercado-nero-logo-full-white-gray.png";
 import blackLogo from "../assets/img/mn-logo-black.png";
 import { categories } from "../data/categories";
-import NeroLogin from "./NeroLogin";
+import SupabaseLogin from "./SupabaseLogin";
 
 const NavLink = ({ href, children, mobile = false }) => {
   // Check if it's an internal link (starts with /)
@@ -108,8 +108,7 @@ export default function Header() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const totalItems = useCartStore((state) => state.getTotalItems());
-  const { login, logout, ready, authenticated, user, getAccessToken } =
-    usePrivy();
+    const { logout, ready, authenticated, user } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [areCategoriesExpanded, setAreCategoriesExpanded] = useState(false);
@@ -151,13 +150,8 @@ export default function Header() {
     dispatch(toggleTheme());
   };
 
-  const handleLogin = () => {
-    // setIsLoginOpen(true);
-    // try {
-    //   await login();
-    // } catch (error) {
-    //   console.error("Error al autenticar:", error);
-    // }
+    const handleLogin = () => {
+    setIsLoginOpen(true);
   };
 
     const handleLogout = async () => {
@@ -181,22 +175,14 @@ export default function Header() {
     setIsUserMenuOpen(false);
   };
 
-  const menuItems = ["Categorias", "Ofertas", "Vender", "Ayuda", "Referidos" ];
-
-// if (isLoginOpen) {
-//   return (    
-//     <NeroLogin 
-//       isOpen={isLoginOpen} 
-//       onClose={() => setIsLoginOpen(false)}
-//       onLoginSuccess={(user) => {
-//         // Opcional: Aquí podrías navegar a otra página si quieres
-//         // navigate('/dashboard');
-//       }}
-//     />
-//   );
-// }
+    const menuItems = ["Categorias", "Ofertas", "Vender", "Ayuda", "Referidos" ];
 
   return (
+    <>
+    <SupabaseLogin
+      isOpen={isLoginOpen}
+      onClose={() => setIsLoginOpen(false)}
+    />
     <header className="sticky top-0 z-50 w-full bg-[#FB6002] dark:bg-[#1a1a1a] shadow-sm transition-colors duration-300 dark:border-b border-gray-200 dark:border-zinc-800">
       <div className="container mx-auto px-4 md:px-8">
         <div className="flex items-center justify-between h-20 md:h-24">
@@ -294,9 +280,9 @@ export default function Header() {
                     onMouseLeave={() => setIsUserMenuOpen(false)}
                   >
                     <button className="relative p-2 rounded-full hover:bg-white/20 transition-colors">
-                      {user?.image ? (
+                                            {dbUser?.avatar ? (
                         <img
-                          src={user.image}
+                          src={dbUser.avatar}
                           alt="Profile"
                           className="w-8 h-8 rounded-full object-cover"
                         />
@@ -421,9 +407,8 @@ export default function Header() {
                     onClick={() => navigate("/cart")}
                     badge={totalItems}
                   />
-                  <button
-                    // onClick={handleLogin}
-                    onClick={login}
+                                    <button
+                    onClick={handleLogin}
                     className="px-4 py-2 text-sm font-medium text-[#FB6002] dark:text-white bg-white dark:bg-[#FB6002] hover:bg-gray-100 rounded-lg transition-colors whitespace-nowrap"
                   >
                     Ingresar
@@ -740,9 +725,8 @@ export default function Header() {
                     </>
                   ) : (
                     <div className="col-span-4 flex justify-center">
-                      <button
-                        // onClick={handleLogin}
-                        onClick={login}
+                                            <button
+                        onClick={handleLogin}
                         className="px-6 py-3 text-sm font-medium  bg-nero-500 dark:text-white hover:bg-nero-500 rounded-lg transition-colors w-full max-w-xs"
                       >
                         Ingresar
@@ -774,9 +758,9 @@ export default function Header() {
                       className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 dark:bg-zinc-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-700 transition-colors"
                       onClick={handleProfileClick}
                     >
-                      {user?.image ? (
+                                            {dbUser?.avatar ? (
                         <img
-                          src={user.image}
+                          src={dbUser.avatar}
                           alt="Profile"
                           className="w-10 h-10 rounded-full object-cover"
                         />
@@ -800,7 +784,8 @@ export default function Header() {
             </motion.div>
           </>
         )}
-      </AnimatePresence>
+            </AnimatePresence>
     </header>
+    </>
   );
 }

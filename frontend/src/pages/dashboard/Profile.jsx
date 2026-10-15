@@ -10,7 +10,7 @@ import {
 import { useUserStore } from "../../store/useUserStore";
 import NeroUploader from "../../components/NeroUploader";
 import { AddressSection } from "../../components/AddressSection";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../../Utils/authClient";
 import Swal from "sweetalert2";
 import genericProfile from "../../assets/img/generic-profile.png";
 import BankAccountSection from "../../components/BankAccountSection";

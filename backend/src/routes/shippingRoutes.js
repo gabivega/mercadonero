@@ -1,7 +1,7 @@
 import express from "express";
 const router = express.Router();
 
-import verifyPrivyToken from "../middleware/auth.js";
+import verifyAuth from "../middleware/verifyAuth.js";
 import attachUser from "../middleware/attachUser.js";
 import { rateLimit } from "../middleware/rateLimit.js";
 import {
@@ -17,7 +17,7 @@ router.get("/zipnova/status", getZipnovaStatus);
 // 40 cotizaciones cada 5 minutos es holgado para uso real y frena el abuso.
 router.post(
   "/quote",
-  verifyPrivyToken,
+  verifyAuth,
   rateLimit({
     windowMs: 5 * 60 * 1000,
     max: 40,

@@ -1,10 +1,10 @@
 // hooks/useSyncUser.js
 import { useState } from 'react';
-import { usePrivy } from '@privy-io/react-auth';
+import { useAuth } from './authClient';
 import axios from 'axios';
 
 export const useSyncUser = (setDbUser) => {
-  const { ready, authenticated, user, getAccessToken } = usePrivy();
+  const { ready, authenticated, user, getAccessToken } = useAuth();
   const [isSyncing, setIsSyncing] = useState(false);
 
     /**

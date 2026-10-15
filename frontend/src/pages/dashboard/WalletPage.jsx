@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { usePrivy, useWallets, useCreateWallet } from '@privy-io/react-auth';
-import { createPublicClient, http, formatUnits, createWalletClient, custom, parseUnits } from 'viem';
-import { bscTestnet } from 'viem/chains';
+import { usePrivy } from "../../Utils/authClient";
+import { createPublicClient, http, formatUnits } from 'viem';
+import { polygonAmoy } from 'viem/chains';
 
 import { Wallet, RefreshCcw, ArrowUpRight, Copy, PlusCircle, Sparkles, BadgePercent, ChevronDown, Gift, Users, History } from 'lucide-react';
 import axios from 'axios';
@@ -10,23 +10,38 @@ import Swal from 'sweetalert2';
 import CollateralManager from '../../components/CollateralManager';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { useUserStore } from '../../store/useUserStore';
-import { getAuthenticatedWallet } from '../../Utils/walletSelector';
+import { useSyncUser } from '../../Utils/userSync';
+import { createUserWallet, sendToken } from '../../Utils/crossmintWallet';
 
-
+/**
+ * Tokens visibles en la billetera (Polygon Amoy testnet).
+ *
+ * DECISIÓN (etapa de migración): por ahora operamos SOLO con USDXM, que es el
+ * token que nos permite testear de punta a punta con Crossmint en su testnet.
+ * La stablecoin de producción (USDT/USDC) y las redes definitivas se elegirán
+ * en la segunda etapa, al definir los contratos de escrow y colateral.
+ *
+ * `native: true` → saldo nativo de la red (POL), se lee con getBalance.
+ * El resto son ERC-20, se leen/escriben con el contrato.
+ * `locator` es el identificador que usa Crossmint para `send()`.
+ */
 const TESTNET_TOKENS = [
-  { 
-    symbol: 'USDT', 
-    name: 'Tether USD (Testnet)', 
-    address: '0x337610d27c682E347C9cD60BD4b3b107C9d34dDd', 
-    decimals: 18 
+  {
+    symbol: 'USDXM',
+    name: 'USDXM (Testnet)',
+    // Contrato de Crossmint en Polygon Amoy. Es un token respaldado por USDC:
+    // su symbol() on-chain devuelve "USDC" y usa 6 decimales (NO 18).
+    address: '0x14196F08a4Fa0B66B7331bC40dd6bCd8A1dEeA9F',
+    decimals: 6,
+    locator: 'usdxm',
   },
-  { 
-    symbol: 'USDC', 
-    name: 'USD Coin (Testnet)', 
-    address: '0x64544969ed7EBf5f083679233325356EbE738930', 
-    decimals: 18 
+  {
+    symbol: 'POL',
+    name: 'Polygon (Testnet)',
+    address: null,
+    native: true,
+    decimals: 18,
   },
-  { symbol: 'BNB', name: 'Binance Coin', address: null, decimals: 18 },
 ];
 
 const minERC20Abi = [
@@ -36,9 +51,10 @@ const minERC20Abi = [
 
 export default function WalletPage() {
   const { user, authenticated, getAccessToken } = usePrivy();
-  const { wallets } = useWallets();
-  const { createWallet } = useCreateWallet();
-  const { dbUser } = useUserStore();
+  const { dbUser, setDbUser } = useUserStore();
+  // Re-sincroniza el usuario desde la BD tras asociar la wallet, para que el
+  // store refleje `walletAddress` (y `authClient` recomponga user.wallet).
+  const { syncUser } = useSyncUser(setDbUser);
 
       // Solo los vendedores gestionan garantías (colateral para vender).
   // El flag isSeller de la BD no siempre se actualiza al crear productos,
@@ -80,18 +96,38 @@ export default function WalletPage() {
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [isWithdrawing, setIsWithdrawing] = useState(false);
 
-  // Verificación directa en el objeto user de Privy
-  const hasWallet = Boolean(user?.wallet?.address);
+    // Dirección de la wallet del usuario. Fuente de verdad: Mongo (dbUser).
+  // Fallback al user mapeado (authClient ya incluye dbUser.walletAddress ahí).
+  const walletAddress = dbUser?.walletAddress || user?.wallet?.address || null;
+  const hasWallet = Boolean(walletAddress);
 
+  // Crea la wallet EVM con Crossmint (polygon-amoy) y la asocia a la cuenta.
+  // Flujo:
+  //   1. Crossmint crea la smart wallet (owner = sub del JWT de Supabase).
+  //   2. Guardamos la address en la BD (POST /api/user/wallet).
+  //   3. Re-sincronizamos el store para reflejar walletAddress en toda la app.
   const handleCreateWallet = async () => {
     try {
       setIsCreatingWallet(true);
-      await createWallet();
-      
+
+      // 1. Crear wallet en Crossmint.
+      const { address } = await createUserWallet();
+
+      // 2. Persistir la dirección en la BD.
+      const token = await getAccessToken();
+      await axios.post(
+        `${import.meta.env.VITE_SERVER_URL}/api/user/wallet`,
+        { address },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      // 3. Re-traer el usuario para que el store tenga walletAddress.
+      await syncUser();
+
       const isDark = document.documentElement.classList.contains("dark");
       Swal.fire({
         title: "¡Billetera Creada!",
-        text: "Tu billetera Web3 ha sido generada exitosamente.",
+        text: "Tu billetera Web3 ha sido generada y vinculada correctamente.",
         icon: "success",
         background: isDark ? "#1f2937" : "#ffffff",
         color: isDark ? "#f3f4f6" : "#1f2937",
@@ -99,9 +135,13 @@ export default function WalletPage() {
       });
     } catch (error) {
       console.error("Error al crear la wallet:", error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        "No se pudo generar la billetera. Inténtalo nuevamente.";
       Swal.fire({
         title: "Error",
-        text: "No se pudo generar la billetera. Inténtalo nuevamente.",
+        text: message,
         icon: "error",
         confirmButtonColor: "#F26722",
       });
@@ -111,9 +151,9 @@ export default function WalletPage() {
   };
 
   const handleCopyAddress = async () => {
-    if (!user?.wallet?.address) return;
+    if (!walletAddress) return;
     try {
-      await navigator.clipboard.writeText(user.wallet.address);
+      await navigator.clipboard.writeText(walletAddress);
       const isDark = document.documentElement.classList.contains("dark");
       const Toast = Swal.mixin({
         toast: true,
@@ -134,13 +174,15 @@ export default function WalletPage() {
     }
   };
 
-  const publicClient = createPublicClient({
-    chain: bscTestnet,
-    transport: http('https://bsc-testnet-rpc.publicnode.com')
-  });
+    const publicClient = createPublicClient({
+      chain: polygonAmoy,
+      // RPC público de Polygon Amoy (el oficial rpc-amoy.polygon.technology a
+      // veces no responde; publicnode es estable).
+      transport: http('https://polygon-amoy-bor-rpc.publicnode.com')
+    });
 
-  const fetchAllBalances = async () => {
-    if (!user?.wallet?.address) return;
+    const fetchAllBalances = async () => {
+    if (!walletAddress) return;
     setIsLoading(true);
 
     try {
@@ -148,9 +190,10 @@ export default function WalletPage() {
 
       await Promise.all(TESTNET_TOKENS.map(async (token) => {
         try {
-          if (token.symbol === 'BNB') {
+          if (token.native) {
+            // Saldo nativo de la red (POL en Polygon Amoy).
             const balanceRaw = await publicClient.getBalance({
-              address: user.wallet.address,
+              address: walletAddress,
             });
             newBalances[token.symbol] = formatUnits(balanceRaw, token.decimals);
           } else {
@@ -158,7 +201,7 @@ export default function WalletPage() {
               address: token.address,
               abi: minERC20Abi,
               functionName: 'balanceOf',
-              args: [user.wallet.address],
+              args: [walletAddress],
             });
             newBalances[token.symbol] = formatUnits(data, token.decimals);
           }
@@ -310,7 +353,7 @@ export default function WalletPage() {
 
   // Verifica si el usuario tiene publicaciones creadas, para considerarlo
   // vendedor incluso cuando el flag isSeller de la BD no se actualiza.
-  const checkSellerByProducts = async () => {
+    const checkSellerByProducts = async () => {
     try {
       const token = await getAccessToken();
       const res = await axios.get(
@@ -324,93 +367,64 @@ export default function WalletPage() {
     }
   };
 
-    const handleSend = async () => {
+    // Envía tokens desde la wallet Crossmint del usuario (device signer, sin OTP).
+  // Reutiliza el mismo modal que el resto de los tokens.
+  const handleSend = async () => {
+    if (!selectedToken) return;
+    setIsSending(true);
     try {
-      setIsSending(true);
-      // Usamos SIEMPRE la embedded wallet del usuario autenticado
-      // (no `wallets[0]` que puede apuntar a otra wallet y causar
-      // "User is not part of a key quorum").
-      const wallet = getAuthenticatedWallet(wallets, user?.wallet?.address);
-      if (!wallet) return;
-
-      await wallet.switchChain(bscTestnet.id);
-      const provider = await wallet.getEthereumProvider();
-      const walletClient = createWalletClient({ 
-        chain: bscTestnet, 
-        transport: custom(provider) 
-      });
-
-      const amountInWei = parseUnits(sendForm.amount, selectedToken.decimals);
-      
-      let hash;
-
-      if (selectedToken.symbol === 'BNB') {
-        hash = await walletClient.sendTransaction({
-          account: wallet.address,
-          to: sendForm.to,
-          value: amountInWei,
-        });
-      } else {
-        hash = await walletClient.writeContract({
-          address: selectedToken.address,
-          abi: minERC20Abi,
-          functionName: 'transfer',
-          args: [sendForm.to, amountInWei],
-          account: wallet.address,
-        });
-      }
-      // ... existing code ...
-
       const isDark = document.documentElement.classList.contains("dark");
 
+            // Resolvemos el locator del token que espera Crossmint.
+      //   - Native (POL): Crossmint usa su símbolo nativo ("pol").
+      //   - ERC-20: preferimos el locator de Crossmint (p. ej. "usdxm") cuando
+      //     lo conocemos; si no, caemos a la dirección del contrato.
+      const tokenLocator = selectedToken.native
+        ? selectedToken.symbol.toLowerCase()
+        : (selectedToken.locator || selectedToken.address);
+
+      await sendToken({
+        to: sendForm.to,
+        token: tokenLocator,
+        amount: sendForm.amount,
+      });
+
       Swal.fire({
-        title: "¡Envío Exitoso!",
-        html: `
-          <p style="color: ${isDark ? "#9ca3af" : "#4b5563"}; margin-bottom: 8px;">
-            Tu transacción fue procesada correctamente.
-          </p>
-          <p style="font-family: monospace; font-size: 12px; color: ${isDark ? "#60a5fa" : "#2563eb"}; word-break: break-all;">
-            ${hash}
-          </p>
-        `,
+        title: "¡Envío exitoso!",
+        text: `Tus ${selectedToken.symbol} fueron enviados correctamente.`,
         icon: "success",
         background: isDark ? "#1f2937" : "#ffffff",
         color: isDark ? "#f3f4f6" : "#1f2937",
         confirmButtonColor: "#F26722",
-        confirmButtonText: "Listo",
-        showCancelButton: true,
-        cancelButtonText: "Ver en explorador",
-        cancelButtonColor: "#3483fa",
-      }).then((result) => {
-        if (result.dismiss === Swal.DismissReason.cancel) {
-          window.open(`https://testnet.bscscan.com/tx/${hash}`, "_blank");
-        }
       });
-      setIsModalOpen(false);
-      
-      setTimeout(() => {
-        fetchAllBalances();
-      }, 2000);
 
+      setIsModalOpen(false);
+      setSendForm({ to: "", amount: "" });
+      // Refrescamos balances tras un breve delay para dejar minar la tx.
+      setTimeout(() => fetchAllBalances(), 3000);
     } catch (error) {
-      console.error("Error envío:", error);
+      console.error("Error en envío:", error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        "La transacción falló o fue rechazada. Verificá el saldo y la dirección, e intentá nuevamente.";
       const isDark = document.documentElement.classList.contains("dark");
       Swal.fire({
-        title: "Envío Fallido",
-        text: "La transacción falló o fue rechazada. Verificá el saldo y la dirección, e intentá nuevamente.",
+        title: "Envío fallido",
+        text: message,
         icon: "error",
         background: isDark ? "#1f2937" : "#ffffff",
         color: isDark ? "#f3f4f6" : "#1f2937",
         confirmButtonColor: "#F26722",
       });
-        } finally {
+    } finally {
       setIsSending(false);
     }
   };
 
-            useEffect(() => {
-        if (authenticated) {
-            // El cashback vive en la BD de la plataforma (no on-chain), por lo que
+  useEffect(() => {
+    if (authenticated) {
+      // El cashback vive en la BD de la plataforma (no on-chain), por lo que
       // lo cargamos siempre, incluso si todavía no tiene wallet web3 creada.
       fetchCashback();
       // El saldo de referidos también vive en la BD: se carga siempre.
@@ -421,7 +435,7 @@ export default function WalletPage() {
         fetchAllBalances();
       }
     }
-  }, [authenticated, user?.wallet?.address]);
+  }, [authenticated, walletAddress]);
 
   if (!authenticated) return null;
 
@@ -501,7 +515,7 @@ export default function WalletPage() {
                 Activá tu wallet para poder usarlas o retirarlas.
               </p>
               <p className="text-xs text-zinc-500 italic dark:text-zinc-400 mt-2">
-                *Retiros habilitados a partir de 5 USDT.
+                *Uso habilitado a partir de 5 USDT.
               </p>
             </>
           )}
@@ -562,9 +576,9 @@ export default function WalletPage() {
       <div className="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-100 dark:border-blue-900/30 flex items-start gap-3">
         <Wallet className="text-blue-600 mt-1" size={20} />
         <div className="flex-1">
-          <p className="text-sm text-blue-800 dark:text-blue-300 font-medium">Dirección de depósito (BSC)</p>
+                    <p className="text-sm text-blue-800 dark:text-blue-300 font-medium">Dirección de depósito (Polygon Amoy)</p>
           <div className="flex items-center gap-2">
-            <p className="text-xs font-mono text-blue-600/70 break-all">{user.wallet.address}</p>
+            <p className="text-xs font-mono text-blue-600/70 break-all">{walletAddress}</p>
             <button
               onClick={handleCopyAddress}
               className="p-1.5 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors"

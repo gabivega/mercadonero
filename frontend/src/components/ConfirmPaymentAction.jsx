@@ -6,7 +6,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import Swal from 'sweetalert2';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy } from "../Utils/authClient";
 import axios from 'axios';
 import LoadingSpinner from './LoadingSpinner';
 

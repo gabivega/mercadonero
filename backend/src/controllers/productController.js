@@ -366,23 +366,12 @@ if (listingType !== 'classified' && shipping) {
 
 export const getMyProducts = async (req, res) => {
   try {
-    // 1. El middleware nos da el did de Privy
-    const privyDid = req.user.did;
+    // El `_id` de Mongo lo inyecta `attachUser` (que resuelve por supabaseId /
+    // privyDid). Es el identificador estable que guardamos en Product.seller.
+    const userId = req.user._id;
 
-    // 2. Buscamos al usuario en nuestra DB para obtener su _id interno
-    // IMPORTANTE: Asegurate que en tu UserSchema el campo se llame 'privyDid'
-    const user = await User.findOne({ privyDid: privyDid });
-
-    if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Usuario no encontrado" });
-    }
-
-    // 3. Ahora buscamos los productos usando el ObjectId del vendedor (_id)
-    // No usamos el did, usamos user._id que es el que guardamos al crear el producto
-        const products = await Product.find({
-      seller: user._id,
+    const products = await Product.find({
+      seller: userId,
       status: { $ne: "deleted" },
     })
       .populate("seller", "username name shop isVerified")

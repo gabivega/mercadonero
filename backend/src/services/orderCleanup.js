@@ -6,6 +6,7 @@ import { transitionToStatus } from "./orderHelpers.js";
 import { cancelVendorCollateral } from "./blockchainServices.js"; // 👈 Importamos el servicio
 import { expireCollateralHold } from "./collateralHoldService.js"; // 👈 Expiración de holds de colateral
 import { verifyOrderFunded } from "./escrowServices.js"; // 👈 Verificamos fondeo on-chain de escrow crypto
+import { DEFAULT_CHAIN_ID } from "../config/chains.js"; // 👈 Red por defecto (fallback multichain)
 
 /**
  * Ejecuta UNA pasada de la limpieza de órdenes.
@@ -91,8 +92,14 @@ export const runOrderCleanupOnce = async () => {
             continue; // Salta a la siguiente orden para no trabar el bucle
           }
 
-          // 2. Ejecutar la liberación del colateral en Blockchain (0% Fee)
-          const blockchainResult = await cancelVendorCollateral(order._id.toString(), seller.walletAddress);
+                    // 2. Ejecutar la liberación del colateral en Blockchain (0% Fee)
+          //    En la MISMA red donde se congeló (persistida en la orden).
+          const chainId = order.collateralChainId || DEFAULT_CHAIN_ID;
+          const blockchainResult = await cancelVendorCollateral(
+            order._id.toString(),
+            seller.walletAddress,
+            chainId,
+          );
 
           if (!blockchainResult.success) {
             console.error(`[Cron Error] Falló la transacción en blockchain para la orden ${order._id}. Se reintentará en el próximo ciclo.`);

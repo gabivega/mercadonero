@@ -123,3 +123,51 @@ cuando se crea un grupo de compra y el user no tiene imagen de perfil, se ve rot
 en referidos, si no estas logueado, te muestra un "ejemplo" que se ve muy feo. usar un product card reales
 cuando presionas el boton de compartir un enlace de referidos, funciona recien a la segunda vez
 activar notificacion in-app para comprador cuando seller habilita el retiro por sucursal (email ya es enviado)
+============MIGRACIÓN DE AUTH: PRIVY ? SUPABASE============
+Contexto: Privy queda fuera del proyecto. Migramos autenticación a Supabase Auth.
+Estrategia: AUTH DUAL durante la transición (soporta ambos tokens en las mismas rutas).
+
+Backend - Modelo User:
+[?] privyDid ahora opcional (unique + sparse). Se agrega supabaseId (unique + sparse).
+[?] Se agrega campo role ("user" | "admin") como fuente de verdad para admin.
+[?] Índices: se quitan los declarados a mano (los crea unique+sparse).
+
+Backend - Middlewares:
+[?] NUEVO verifyAuth.js (dual): intenta Supabase, fallback a Privy.
+    Inyecta req.user = { did, email, authSource: "supabase"|"privy" }.
+[?] attachUser.js: busca por supabaseId o privyDid según authSource; fallback
+    por email (adopta cuentas preexistentes y rellena el id faltante).
+[?] isAdmin.js: ahora usa req.user.role === "admin" (fallback legacy ADMIN_PRIVY_ID).
+    Requiere attachUser ANTES en la cadena.
+
+Backend - Rutas: todas pasan de verifyPrivyToken a verifyAuth (+ attachUser donde aplica).
+    authRoutes/sync-user reescrito (crea/sincroniza user en Mongo por supabaseId u email).
+    adminRoutes/poolRoutes: isAdmin ahora va tras attachUser.
+
+Backend - Controladores:
+[?] productController.getMyProducts: usa req.user._id (antes privyDid: req.user.did).
+[?] orderController: notificaciones al admin buscan User.findOne({ role: "admin" });
+    permisos usan req.user.role === "admin" (se quita req.user.privyDid).
+
+Backend - LIMPIEZA:
+[?] ELIMINADO Transak por completo: transakRoutes.js, TransakCheckoutButton.jsx,
+    import + app.use('/api/transak') en index.js. (feature descartada).
+[?] ELIMINADO orderController.BROKEN_2026-10-05.js.
+
+[ ] PENDIENTE Fase 2: frontend (reemplazar usePrivy por cliente Supabase + wallet).
+[ ] PENDIENTE: testAuthRoutes.js es temporal (validar Supabase Auth) ? borrar al terminar.
+[ ] PENDIENTE: setear role="admin" al admin real en la BD.
+
+============FIX ÍNDICES (E11000 privyDid null)============
+BUG: al crear user nuevo (sin Privy), E11000 duplicate key: privyDid_1 dup key { privyDid: null }.
+CAUSA: el índice privyDid_1 en la DB era unique SIN sparse (remanente de antes
+       de la migración). Mongoose no lo recrea solo. sparse solo excluye docs con
+       el campo AUSENTE, no con valor null.
+
+[?] scripts/fixUserIndexes.mjs: borra y recrea privyDid_1 y supabaseId_1 como unique+sparse.
+[?] Modelo User: se quita index: true redundante (unique ya crea el índice).
+[?] Verificado: índices finales privyDid_1 y supabaseId_1 = unique + sparse.
+[?] Test: 2 users de Supabase (sin privyDid) creados sin colisión. privyDid queda undefined.
+[?] Regla: los campos privyDid/supabaseId NUNCA deben persistirse en null (dejar ausente).
+
+?? CORRER EN CADA ENTORNO NUEVO (o al recrear la DB):  cd backend && node scripts/fixUserIndexes.mjs

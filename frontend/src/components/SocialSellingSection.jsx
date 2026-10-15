@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { usePrivy, useWallets } from "../Utils/authClient";
 import { Users, Clock } from "lucide-react";
 import SocialPoolCard from "./SocialPoolCard";
 import CreatePoolModal from "./CreatePoolModal";

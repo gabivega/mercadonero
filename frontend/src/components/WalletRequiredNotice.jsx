@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useCreateWallet, useWallets } from "@privy-io/react-auth";
+import { usePrivy, useWallets } from "../Utils/authClient";
 import {
   Wallet,
   PlusCircle,
@@ -12,7 +12,11 @@ import {
   ExternalLink,
 } from "lucide-react";
 import Swal from "sweetalert2";
+import axios from "axios";
 import LoadingSpinner from "./LoadingSpinner";
+import { useUserStore } from "../store/useUserStore";
+import { useSyncUser } from "../Utils/userSync";
+import { createUserWallet } from "../Utils/crossmintWallet";
 
 const ACCENT = "#F26722";
 
@@ -193,7 +197,9 @@ export default function WalletRequiredNotice({
   onCreated,
   compact = false,
 }) {
-  const { createWallet } = useCreateWallet();
+  const { getAccessToken } = usePrivy();
+  const { setDbUser } = useUserStore();
+  const { syncUser } = useSyncUser(setDbUser);
   const [isCreating, setIsCreating] = useState(false);
   // Tras crear la wallet mostramos el paso "depositá USDT" para no cortar el
   // flujo (el usuario puede recargar sin irse a la página de billetera).
@@ -202,7 +208,20 @@ export default function WalletRequiredNotice({
   const handleCreate = async () => {
     try {
       setIsCreating(true);
-      await createWallet();
+
+      // 1. Crear la wallet EVM con Crossmint (polygon-amoy).
+      const { address } = await createUserWallet();
+
+      // 2. Persistir la dirección en la BD.
+      const token = await getAccessToken();
+      await axios.post(
+        `${import.meta.env.VITE_SERVER_URL}/api/user/wallet`,
+        { address },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      // 3. Re-sincronizar el store para reflejar walletAddress.
+      await syncUser();
 
       const isDark = document.documentElement.classList.contains("dark");
       await Swal.fire({

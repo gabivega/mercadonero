@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { XCircle, RotateCcw, Star, Mail, CheckCheck, ShieldAlert, MoreVertical } from 'lucide-react';
 import axios from 'axios';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy } from "../Utils/authClient";
 import Swal from 'sweetalert2';
 import LoadingSpinner from './LoadingSpinner';
 

@@ -48,6 +48,8 @@ import Mensajes from "./pages/dashboard/Mensajes";
 import ProveedorPanel from "./pages/dashboard/ProveedorPanel";
 import PickupLocations from "./pages/dashboard/PickupLocations";
 import AuthTest from "./pages/AuthTest";
+import WalletTest from "./pages/WalletTest";
+import CrossmintOtpModal from "./components/CrossmintOtpModal";
 
 export default function App() {
   const theme = useSelector((s) => s.theme.mode);
@@ -71,8 +73,10 @@ export default function App() {
         <main className="w-full min-h-screen px-2">
           <Routes>
             {/* <Route path="/login" element={<LoginPage />} /> */}
-            {/* Ruta temporal de prueba de Supabase Auth (se borra al decidir) */}
+                        {/* Ruta temporal de prueba de Supabase Auth (se borra al decidir) */}
             <Route path="/auth-test" element={<AuthTest />} />
+            {/* Ruta AISLADA de prueba de Crossmint Wallets (no usa Privy) */}
+            <Route path="/wallet-test" element={<WalletTest />} />
             <Route path="/" element={<Home />} />
                         <Route path="/post/:id" element={<PostDetail />} />
             {/* URL SEO-friendly de producto: /producto/<slug> */}
@@ -119,8 +123,12 @@ export default function App() {
             <Route path="*" element={<NotFound />} />
           </Routes>
                 </main>
-        {/* <DisclaimerBanner /> */}
+                {/* <DisclaimerBanner /> */}
         <Footer />
+        {/* Modal global de OTP para el email signer de Crossmint (fallback sin
+            device signer). Escucha el crossmintOtpBridge y se muestra solo
+            cuando el SDK requiere autenticación por email para firmar. */}
+        <CrossmintOtpModal />
       </div>
     </BrowserRouter>
   );

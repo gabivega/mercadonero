@@ -1,4 +1,4 @@
-import Order from "../models/Order.js";
+﻿import Order from "../models/Order.js";
 import Product from "../models/Product.js";
 import { calculateOrderFinancials } from "../../../frontend/src/Utils/OrderUtils.js";
 import {
@@ -7,9 +7,11 @@ import {
   cancelVendorCollateral,
   getOrderLock,
   getVendorCollateral,
+  getVendorCollateralMultiChain,
   verifyOrderReleased,
   triggerOrderDispute,
 } from "../services/blockchainServices.js";
+import { DEFAULT_CHAIN_ID, getChainConfig } from "../config/chains.js";
 
 
 import User from "../models/User.js";
@@ -49,6 +51,20 @@ import {
   expireCollateralHold,
   COLLATERAL_HOLD_CONFIG,
 } from "../services/collateralHoldService.js";
+// Helper centralizado de permisos admin (role en DB | email en ADMIN_EMAILS | ADMIN_PRIVY_ID).
+import { isAdminUser, findAdminUser } from "../middleware/isAdmin.js";
+
+// ─────────────────────────────────────────────────────────────
+// BUFFER DE SEGURIDAD ANTES DE LIBERAR LA GARANTÍA (FASE 1 - MANUAL)
+// Cuando el comprador marca la orden como recibida, NO se libera la garantía
+// ni pasa directo a "completed": pasa a "reception_confirmed" y arranca un
+// período de buffer durante el cual puede reclamar (producto dañado/equivocado)
+// sin que la garantía ya esté liberada. En esta etapa la liberación es 100%
+// MANUAL (el admin aprieta el botón tras cumplirse el buffer). Este valor queda
+// preparado para la Fase 2 (auto-release por cron) sin retrabajo.
+// Configurable por env; default 24h.
+// ─────────────────────────────────────────────────────────────
+const RELEASE_BUFFER_HOURS = Number(process.env.RELEASE_BUFFER_HOURS || 24);
 
 const createOrder = async (req, res) => {
   try {
@@ -516,30 +532,59 @@ const createOrder = async (req, res) => {
     // o el total completo con envío. Usemos productos como ejemplo:
     const amountToLock = financials.totalUsd + financials.shippingCostUsd;
 
-    console.log(
-      `[Server] Intentando bloquear ${amountToLock} USDT de garantía para el vendedor ${seller.walletAddress}`,
-    );
-
     // ────────────────────────────────────────────────────────────────
-    // C. LÓGICA DE COLATERAL: capacidad efectiva vs. lo que se necesita
-    // Antes de golpear la blockchain, verificamos si el vendedor tiene
-    // SALDO LIBRE suficiente (on-chain - reservado por holds activos).
-    //  - Si alcanza                      → flujo normal (block + pending_payment)
-    //  - Si NO alcanza (colateral fuera) → entra a "awaiting_collateral"
+    // ⭐ SELECCIÓN DE RED DE COLATERAL (MULTICHAIN)
+    // El colateral de un vendedor vive POR RED: la misma wallet puede tener
+    // saldo en BSC, Base y/o Polygon Amoy, en distintos contratos. ANTES esta
+    // sección usaba una única red fija (DEFAULT_CHAIN_ID = BSC 97), por lo que
+    // si el vendedor depositaba en OTRA red (ej. Polygon Amoy con Crossmint)
+    // acá se leía BSC → available = 0 → la orden caía SIEMPRE en
+    // "awaiting_collateral" aunque tuviera saldo. Ahora recorremos TODAS las
+    // redes configuradas y elegimos la que tenga SALDO LIBRE suficiente para
+    // cubrir la garantía. Persistimos esa red en la orden para que
+    // release/cancel/dispute operen SIEMPRE sobre la misma.
+    //
+    //  - Si alguna red alcanza          → flujo normal (lock + pending_payment)
+    //  - Si NINGUNA alcanza             → entra a "awaiting_collateral"
     //    (se le da 15 min al vendedor para depositar, el comprador decide).
     // ────────────────────────────────────────────────────────────────
-    // Fuente de verdad = blockchain: available ya descuenta los locks on-chain
-    // de todas las órdenes activas. No "restamos en papel" reservas de la BD
-    // porque los holds de espera se expiran por separado y la cadena ya manda.
-    const onChainNow = await getVendorCollateral(seller.walletAddress);
-    const availableOnChain = onChainNow.success ? onChainNow.available : 0;
+    // Fuente de verdad = blockchain: `available` ya descuenta los locks
+    // on-chain de todas las órdenes activas de esa red.
+    const multiChainNow = await getVendorCollateralMultiChain(
+      seller.walletAddress,
+    );
 
-    if (onChainNow.success && availableOnChain >= amountToLock) {
-      // ── FLUJO NORMAL: hay colateral suficiente ──
+    // Elegimos la red con mayor saldo libre disponible, siempre que alcance el
+    // monto requerido. (bestChain/bestAvailable lo calcula el propio servicio).
+    const collateralChainId =
+      multiChainNow.success &&
+      multiChainNow.bestChain != null &&
+      multiChainNow.bestAvailable >= amountToLock
+        ? multiChainNow.bestChain
+        : DEFAULT_CHAIN_ID;
+
+    const availableOnChain =
+      multiChainNow.success && multiChainNow.bestChain != null
+        ? multiChainNow.bestAvailable
+        : 0;
+
+    console.log(
+      `[Server] Colateral multichain del vendedor ${seller.walletAddress}: ` +
+        `bestChain=${multiChainNow.bestChain} bestAvailable=${availableOnChain} | ` +
+        `requerido=${amountToLock} → red elegida: ${collateralChainId}`,
+    );
+
+    if (
+      multiChainNow.success &&
+      multiChainNow.bestChain != null &&
+      availableOnChain >= amountToLock
+    ) {
+      // ── FLUJO NORMAL: hay colateral suficiente en alguna red ──
       const blockchainResult = await lockVendorCollateral(
         orderIdForBlockchain,
         seller.walletAddress,
         amountToLock,
+        collateralChainId,
       );
 
       // Si la blockchain falla (error real del contrato, no insuficiencia),
@@ -562,15 +607,21 @@ const createOrder = async (req, res) => {
             "Error desconocido al bloquear colateral en blockchain",
                     detail: {
             vendorWallet: seller.walletAddress,
-            contractAddress: process.env.CONTRACT_ADDRESS,
+            // Dirección del contrato de colateral de la red REALMENTE elegida
+            // (multichain), no una hardcodeada. Se resuelve desde la config.
+            contractAddress: getChainConfig(collateralChainId).contractAddress,
             amountToLockUsd: amountToLock,
             availableOnChain,
+            chainId: collateralChainId,
+            // Desglose por red para diagnóstico (por qué se eligió esa chain).
+            perChain: multiChainNow.byChain || {},
           },
         });
       }
 
       // ── GUARDADO (flujo normal) ──
       newOrder.collateralTxHash = blockchainResult.txHash;
+      newOrder.collateralChainId = collateralChainId;
       newOrder.status = "pending_payment";
 
       const savedOrder = await newOrder.save();
@@ -627,6 +678,11 @@ const createOrder = async (req, res) => {
     const holdExpiresAt = new Date(Date.now() + COLLATERAL_HOLD_CONFIG.HOLD_MS);
 
     newOrder.status = "awaiting_collateral";
+    // Red "de referencia" para la orden mientras espera el depósito. OJO: al
+    // resolver el hold (resolveCollateralHold) NO confiamos en este valor: se
+    // vuelve a detectar multichain en qué red depositó el vendedor y el lock se
+    // hace ahí. Guardamos DEFAULT_CHAIN_ID como placeholder.
+    newOrder.collateralChainId = collateralChainId;
     newOrder.collateralHold = {
       requestedAt: new Date(),
       expiresAt: holdExpiresAt,
@@ -708,10 +764,34 @@ const getMyOrders = async (req, res) => {
       .populate("seller", "username shop firstName lastName") // Datos mínimos necesarios
       .sort({ createdAt: -1 });
 
+    // ─────────────────────────────────────────────────────────────
+    // SANEO DEFENSIVO DE REFERENCIAS HUÉRFANAS
+    // Si el comprador o el vendedor de una orden fue ELIMINADO, el populate
+    // deja el campo en `null`. El front accedía a `order.buyer.username` y
+    // crasheaba con "Cannot read properties of null". Normalizamos acá para
+    // garantizar que siempre viaje un objeto con datos mínimos, así el
+    // cliente puede renderizar sin defensas (o con defensas parciales) sin
+    // romperse. Mantenemos `_id` si existía para no perder trazabilidad.
+    // ─────────────────────────────────────────────────────────────
+    const sanitizedOrders = orders.map((order) => {
+      const obj = order.toObject();
+      if (!obj.buyer) {
+        obj.buyer = { username: "Usuario eliminado", deleted: true };
+      }
+      if (!obj.seller) {
+        obj.seller = { username: "Vendedor eliminado", deleted: true };
+      }
+      // `products` y `itemsSnapshot` deben ser arrays para que el front pueda
+      // leer `.length` / hacer `.map` sin romperse.
+      if (!Array.isArray(obj.products)) obj.products = [];
+      if (!Array.isArray(obj.itemsSnapshot)) obj.itemsSnapshot = [];
+      return obj;
+    });
+
     res.status(200).json({
       success: true,
-      count: orders.length,
-      orders,
+      count: sanitizedOrders.length,
+      orders: sanitizedOrders,
     });
   } catch (error) {
     res.status(500).json({
@@ -725,21 +805,36 @@ const getMyOrders = async (req, res) => {
 const markAsPaid = async (req, res) => {
   try {
     const { orderId } = req.params;
+    const userId = req.user._id.toString();
 
-        // Buscamos la orden y solo actualizamos el status. Guardamos también el
-    // instante de la notificación del comprador (verifying_payment), que es la
-    // base de tiempo para la futura disputa del vendedor por pago no recibido.
-    const updatedOrder = await Order.findByIdAndUpdate(
-      orderId,
-      { status: "verifying_payment", verifyingPaymentNotifiedAt: new Date() },
-      { new: true }, // Para que devuelva la orden ya actualizada
-    );
-
-        if (!updatedOrder) {
+    // Buscamos la orden para validar pertenencia y estado antes de tocarla.
+    const order = await Order.findById(orderId);
+    if (!order) {
       return res
         .status(404)
         .json({ success: false, message: "Orden no encontrada" });
     }
+    // Solo el COMPRADOR de la orden puede notificar el pago (evita que un
+    // tercero autenticado mueva el estado de una orden ajena).
+    if (order.buyer.toString() !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: "Solo el comprador puede notificar el pago de esta orden.",
+      });
+    }
+    // Solo tiene sentido notificar el pago desde 'pending_payment'.
+    if (order.status !== "pending_payment") {
+      return res.status(400).json({
+        success: false,
+        message: `No se puede notificar el pago en el estado actual: ${order.status}.`,
+      });
+    }
+
+    // Actualizamos el status y el instante de la notificación (base de tiempo
+    // para la futura disputa del vendedor por pago no recibido).
+    order.status = "verifying_payment";
+    order.verifyingPaymentNotifiedAt = new Date();
+    const updatedOrder = await order.save();
 
     res.status(200).json({ success: true, order: updatedOrder });
   } catch (error) {
@@ -775,14 +870,17 @@ const getOrderById = async (req, res) => {
 
 ////// HELPER PARA LIBERAR COLATERAL /////
 const executeBlockchainRelease = async (order, sellerAddress, feeAmountUsd) => {
+  // Red donde se congeló el colateral de esta orden (persistida al lockear).
+  const chainId = order.collateralChainId || DEFAULT_CHAIN_ID;
   console.log(
-    `[Blockchain Helper] Solicitando liberación para la orden ${order._id}. Vendedor: ${sellerAddress} | Fee total (USD): ${feeAmountUsd}`,
+    `[Blockchain Helper] Solicitando liberación para la orden ${order._id}. Vendedor: ${sellerAddress} | Fee total (USD): ${feeAmountUsd} | chain ${chainId}`,
   );
 
   const blockchainResult = await releaseVendorCollateral(
     order._id.toString(),
     sellerAddress,
     feeAmountUsd,
+    chainId,
   );
 
   if (!blockchainResult.success) {
@@ -805,8 +903,10 @@ const executeBlockchainRelease = async (order, sellerAddress, feeAmountUsd) => {
  *  - skipped = false → se envió y confirmó la liberación (0% fee).
  */
 const releaseCollateralOnCancelIdempotent = async (order, sellerAddress) => {
+  // Red donde se congeló el colateral de esta orden (persistida al lockear).
+  const chainId = order.collateralChainId || DEFAULT_CHAIN_ID;
   // Lectura del estado real del lock en el contrato.
-  const lockState = await getOrderLock(order._id.toString());
+  const lockState = await getOrderLock(order._id.toString(), chainId);
   const alreadyReleased =
     !lockState.success || (lockState.success && lockState.lockUsd === 0);
 
@@ -820,7 +920,7 @@ const releaseCollateralOnCancelIdempotent = async (order, sellerAddress) => {
   }
 
   // Hay saldo congelado real → ejecutamos la liberación sin comisión.
-  const bc = await cancelVendorCollateral(order._id.toString(), sellerAddress);
+  const bc = await cancelVendorCollateral(order._id.toString(), sellerAddress, chainId);
   if (!bc.success) {
     console.error(
       `[Cancel Idempotent] Fallo al liberar colateral de la orden ${order._id}:`,
@@ -1115,11 +1215,35 @@ const updateOrder = async (req, res) => {
              }
     }
 
-        // 3. Comprador confirma recepción final
+        // ════════════════════════════════════════════════════════════════════
+    // 3. Comprador confirma recepción → RECEPTION_CONFIRMED (BUFFER MANUAL)
+    //
+    // FASE 1 (liberación 100% MANUAL): el comprador YA NO libera la garantía
+    // ni el escrow, ni marca la orden como "completed". Solo confirma haber
+    // recibido el pedido → la orden pasa a "reception_confirmed" y arranca un
+    // período de BUFFER (RELEASE_BUFFER_HOURS, default 24h) durante el cual
+    // puede reclamar (producto dañado/equivocado) SIN que la garantía ya esté
+    // liberada. Recién cumplido el buffer, el ADMIN libera on-chain (una sola
+    // vez, con adminReleaseGuarantee / adminReleaseEscrow) y la orden pasa a
+    // "completed".
+    //
+    // Por qué: si el comprador marca "recibido" sin haber abierto/probado el
+    // producto, se expone a liberar la garantía de algo dañado/equivocado. El
+    // buffer + la resolución manual dan una ventana de seguridad y un único
+    // punto auditable de movimiento de fondos (el admin).
+    // ════════════════════════════════════════════════════════════════════
     if (updates.status === "completed" && isBuyer) {
       if (order.status === "completed") {
         return res.status(400).json({
           message: "La orden ya está completada.",
+        });
+      }
+      // Idempotencia: si ya había confirmado la recepción, no reiniciamos el buffer.
+      if (order.status === "reception_confirmed") {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Ya confirmaste la recepción. La orden está en el período de seguridad antes de liberar la garantía; un administrador la cerrará a la brevedad.",
         });
       }
       // No se puede confirmar recepción si hay una disputa abierta.
@@ -1134,245 +1258,80 @@ const updateOrder = async (req, res) => {
       // ('shipped'). Para RETIRO EN SUCURSAL no hay despacho: alcanza con que
       // el vendedor haya marcado el pedido listo (o ya retirado) estando 'paid'.
       const isPickupOrder = order.deliveryMethod === "pickup";
-      const pickupReadyToComplete =
+      const pickupReadyToConfirm =
         isPickupOrder &&
         order.status === "paid" &&
         (order.pickupDetails?.readyForPickup || order.pickupDetails?.pickedUp);
-      if (order.status !== "shipped" && !pickupReadyToComplete) {
+      if (order.status !== "shipped" && !pickupReadyToConfirm) {
         return res.status(400).json({
           message:
-            "No podés completar la orden ya que el pago no fue confirmado por el vendedor o el producto no fue enviado.",
+            "No podés confirmar la recepción ya que el producto no fue enviado (o la orden no está lista para retirar).",
         });
       }
 
-      // A. Buscamos al vendedor para obtener su wallet real de la DB
-      const seller = await User.findById(order.seller);
-      if (!seller || !seller.walletAddress) {
-        return res.status(400).json({
-          message:
-            "Error crítico: No se encontró la wallet del vendedor para efectuar la liberación del colateral.",
-        });
-      }
+      // Transición SIN efecto on-chain: solo estado + timestamps del buffer.
+      const now = new Date();
+      const releaseEligibleAt = new Date(
+        now.getTime() + RELEASE_BUFFER_HOURS * 60 * 60 * 1000,
+      );
+      order.receptionConfirmedAt = now;
+      order.releaseEligibleAt = releaseEligibleAt;
+      order.statusHistory.push({
+        status: "reception_confirmed",
+        changedAt: now,
+        comment: `El comprador confirmó la recepción. Período de seguridad de ${RELEASE_BUFFER_HOURS}h antes de liberar la garantía (cierre manual por el admin).`,
+      });
+      await order.save();
 
-            try {
-        // ════════════════════════════════════════════════════════════
-        // FLUJO PAGO CRIPTO: el comprador confirmó la recepción.
-        // En vez de liberar el colateral del vendedor (transferencia bancaria),
-        // liberamos el escrow: el admin firma releaseOrder() y el contrato
-        // envía al vendedor el neto y el fee a la feeWallet.
-        // ════════════════════════════════════════════════════════════
-                let txHash;
-        if (order.payment?.method === "crypto") {
-          // 🛡️ COMPRA GRUPAL: los fondos YA se liberaron on-chain al cerrar el
-          // pool (releaseMember en NeroGroupBuy). No re-liberamos el escrow aquí;
-          // solo cerramos la orden individual en la DB.
-          if (order.payment?.groupBuy === true) {
-            txHash = order.payment?.releaseTxHash || "";
-            order.payment.status = "released";
-            order.payment.releasedAt = order.payment.releasedAt || new Date();
-          } else {
-            // La liberación del escrow NO requiere la wallet del vendedor como
-            // parámetro propio: el contrato guarda la dirección del vendedor al
-            // momento de fundar. El admin la envía al releaseOrder contract.
-            // Importamos el servicio escrow localmente para evitar ciclos.
-            const { releaseOrderEscrow } = await import("../services/escrowServices.js");
-            if (order.payment?.status !== "funded") {
-              return res.status(400).json({
-                success: false,
-                message:
-                  "El escrow no está fondeado on-chain. Verificá que el comprador haya depositado los USDT antes de completar la orden.",
-              });
-            }
-            const escrowResult = await releaseOrderEscrow(order._id.toString());
-            if (!escrowResult.success) {
-              throw new Error(`Fallo en escrow: ${escrowResult.error}`);
-            }
-            txHash = escrowResult.txHash;
+      // Notificaciones: avisamos a ambas partes y al admin (cola de pendientes).
+      const sellerInfo = await User.findById(order.seller);
+      const buyerInfo = await User.findById(order.buyer);
+      const shortId = order._id.toString().slice(-6).toUpperCase();
 
-            // Actualizamos el sub-estado de pago.
-            order.payment.status = "released";
-            order.payment.releaseTxHash = txHash;
-            order.payment.feeUsd = order.financials.platformFeeUsd;
-            order.payment.sellerNetUsd = order.financials.sellerNetReleaseUsd;
-            order.payment.releasedAt = new Date();
-          }
-        } else {
-                    // B. Ejecutamos la transacción en la Blockchain usando nuestro helper
-          // El backend (admin) firma el releaseOrderCollateral en el contrato pool.
-          // El fee a cobrar es el TOTAL (base 3% + reward de referidos), así se
-          // descuenta todo de un saque y la plataforma puede pagar el reward.
-          txHash = await executeBlockchainRelease(
-            order,
-            seller.walletAddress,
-            order.financials.platformFeeUsd,
-          );
-          console.log(`[Server] Colateral liberado exitosamente. Tx: ${txHash}`);
-        }
-
-                // C. Si la blockchain no tiró error y dio el OK, recién ahí impactamos la DB local
-                order.status = "completed";
-                order.completedAt = new Date();
-                order.releaseTxHash = txHash; // 📝 Guardamos el hash de la liberación para auditoría
-
-                // C.b. CASHBACK: acreditamos cashback al comprador (acumulación en BD).
-                // No bloqueamos la finalización de la orden si el cashback falla: no es crítico.
-                try {
-                  const cashbackResult = await accrueCashbackForOrder(order);
-                  if (cashbackResult.applied) {
-                    console.log(
-                      `[Cashback] Orden ${order._id} generó US$ ${cashbackResult.earnedUsd} de cashback para el comprador.`,
-                    );
-                  }
-                                } catch (cashbackErr) {
-                  console.error(
-                    `[Cashback] Fallo no crítico al acreditar cashback en orden ${order._id}:`,
-                    cashbackErr.message,
-                  );
-                }
-
-                                // C.c. REFERRAL: si la orden nació referida (el comprador llegó
-                // por un enlace ?ref=), acreditamos el reward del referidor
-                // repartido 50/50. Idempotente (marca referral.creditAccrued) y
-                // no bloquea la finalización si falla.
-                try {
-                  const referralResult = await accrueReferralForOrder(order);
-                  if (referralResult.applied) {
-                    console.log(
-                      `[Referral] Orden ${order._id} acreditó el referral (reparto: ${JSON.stringify(referralResult.split)})`,
-                    );
-                  }
-                } catch (referralErr) {
-                  console.error(
-                    `[Referral] Fallo no crítico al acreditar referral en orden ${order._id}:`,
-                    referralErr.message,
-                  );
-                }
-        // D. Actualización de métricas: contadores de ventas/compras y stock vendido.
-        // Se hace SÓLO acá, al completarse la orden (la venta es efectiva), para que
-        // el perfil público y las unidades vendidas del producto se actualicen.
-
-        // D1. Vendedor: total de ventas completadas (accounting + shop).
-        await User.findByIdAndUpdate(order.seller, {
-          $inc: {
-            "accounting.completedSales": 1,
-            "shop.totalSalesCount": 1,
-          },
-        });
-
-        // D2. Comprador: total de compras completadas.
-        await User.findByIdAndUpdate(order.buyer, {
-          $inc: { "accounting.completedPurchases": 1 },
-        });
-
-                // D3. Incrementar "vendidos" de cada producto de la orden por su cantidad.
-        // Descontamos también el stock, ya que la venta se concretó.
-        // ⚠️ EXCEPCIÓN COMPRA GRUPAL: el pool YA consumió stock + reservedStock
-        //    al crear la orden 'paid'. Aquí sólo sumamos 'sold' para no
-        //    descontar dos veces el stock.
-        const isGroupBuyOrder = order.groupBuy?.poolId || order.isGroupBuy === true;
-        for (const item of order.itemsSnapshot) {
-          const qty = item.quantity || 1;
-          if (isGroupBuyOrder && order.groupBuy?.stockConsumed) {
-            // Ya lo descontó el pool: solo reflejamos la venta en 'sold'.
-            await Product.findByIdAndUpdate(item.productId, {
-              $inc: { sold: qty },
-            });
-          } else {
-            // Flujo normal: descuenta stock y suma sold (comportamiento actual).
-            await Product.findByIdAndUpdate(item.productId, {
-              $inc: { sold: qty, stock: -qty },
-            });
-          }
-        }
-
-                // Notificar al vendedor que la venta se completó y los fondos fueron liberados (Background)
-        if (seller?.email) {
-          sendOrderCompletedToVendor({
-            vendorEmail: seller.email,
-            orderId: order._id,
-            amount: order.totalAmount,
-          }).catch((err) =>
-            console.error(
-              "Falló notificación de orden completada al vendedor:",
-              err,
-            ),
-          );
-        }
-
-        // Notificación in-app al Vendedor - Venta completada / fondos liberados
-        if (seller) {
-          createNotification({
-            recipient: seller._id,
-            type: "order_completed",
-            title: "¡Venta completada y fondos liberados!",
-            message: `El comprador confirmó la recepción de la orden #${order._id.toString().slice(-6).toUpperCase()}.`,
-            data: { orderId: order._id, totalAmount: order.totalAmount },
-          }).catch((err) =>
-            console.error(
-              "Falló notif in-app de venta completada a vendedor:",
-              err,
-            ),
-          );
-        }
-
-                // Confirmación al comprador de compra completada (Background)
-        const completedOrderBuyer = await User.findById(order.buyer);
-        if (completedOrderBuyer?.email) {
-          sendOrderCompletedToBuyer({
-            buyerEmail: completedOrderBuyer.email,
-            orderId: order._id,
-            amount: order.totalAmount,
-          }).catch((err) =>
-            console.error(
-              "Falló notificación de compra completada al comprador:",
-              err,
-            ),
-          );
-        }
-
-        // ── RECORDATORIOS DE RATING (orden completada) ──
-        // Comprador: puede calificar cada producto comprado y al vendedor.
-        if (completedOrderBuyer) {
-          createNotification({
-            recipient: completedOrderBuyer._id,
-            type: "rating_reminder",
-            title: "¡Comprá con confianza! Calificá tus productos",
-            message: `La orden #${order._id.toString().slice(-6).toUpperCase()} se completó. Contanos tu experiencia con las estrellas y una breve reseña.`,
-            data: { orderId: order._id, ratingType: "product_rating" },
-          }).catch(() => {});
-          createNotification({
-            recipient: completedOrderBuyer._id,
-            type: "rating_reminder",
-            title: "Calificá al vendedor",
-            message: `¿Recomendás a este vendedor? Dejá tu calificación (👍/👎) en la orden #${order._id.toString().slice(-6).toUpperCase()}.`,
-            data: { orderId: order._id, ratingType: "seller_rating" },
-          }).catch(() => {});
-        }
-        // Vendedor: puede calificar al comprador.
-        if (seller) {
-          createNotification({
-            recipient: seller._id,
-            type: "rating_reminder",
-            title: "Calificá al comprador",
-            message: `La venta #${order._id.toString().slice(-6).toUpperCase()} se completó. Dejá tu calificación (👍/👎) sobre el comprador.`,
-            data: { orderId: order._id, ratingType: "buyer_rating" },
-          }).catch(() => {});
-        }
-      } catch (blockchainError) {
-        console.error(
-          "[Critical Error] No se pudo completar la orden debido a un fallo en la blockchain:",
-          blockchainError.message,
+      // Aviso al VENDEDOR: la venta fue confirmada y se liberará tras el buffer.
+      createNotification({
+        recipient: order.seller,
+        type: "order_reception_confirmed",
+        title: "El comprador confirmó la recepción",
+        message: `La orden #${shortId} fue marcada como recibida. Tu garantía se liberará dentro de las próximas ${RELEASE_BUFFER_HOURS}h (período de seguridad).`,
+        data: { orderId: order._id, totalAmount: order.totalAmount },
+      }).catch(() => {});
+      if (sellerInfo?.email) {
+        sendOrderCompletedToVendor({
+          vendorEmail: sellerInfo.email,
+          orderId: order._id,
+          amount: order.totalAmount,
+        }).catch((err) =>
+          console.error("Falló notificación de recepción al vendedor:", err),
         );
-
-        // Devolvemos un error 500 para que el Front sepa que la transacción falló
-        // De esta manera, la orden permanece en estado "shipped" en MongoDB y se puede reintentar
-        return res.status(500).json({
-          success: false,
-          message:
-            "Hubo un problema al liberar los fondos en la red blockchain. Por favor, reintentá en unos momentos.",
-          error: blockchainError.message,
-        });
       }
+
+      // Aviso al ADMIN (si existe en DB): hay una orden esperando liberación.
+      const adminUser = await findAdminUser(User);
+      if (adminUser) {
+        createNotification({
+          recipient: adminUser._id,
+          type: "order_pending_release",
+          title: "Orden lista para liberar garantía",
+          message: `El comprador confirmó la recepción de la orden #${shortId}. Revisá y liberá la garantía tras el período de seguridad (disponible desde ${releaseEligibleAt.toLocaleString("es-AR")}).`,
+          data: { orderId: order._id, releaseEligibleAt },
+        }).catch(() => {});
+      }
+
+      // Info al COMPRADOR: sigue el período de seguridad.
+      createNotification({
+        recipient: order.buyer,
+        type: "order_reception_confirmed",
+        title: "¡Confirmaste la recepción!",
+        message: `Gracias por confirmar la orden #${shortId}. Tenés ${RELEASE_BUFFER_HOURS}h de protección: si el producto llegó dañado o equivocado, podés abrir un reclamo antes de que se libere la garantía.`,
+        data: { orderId: order._id, releaseEligibleAt },
+      }).catch(() => {});
+
+      return res.json({
+        success: true,
+        message: `Recepción confirmada. La garantía se liberará luego del período de seguridad de ${RELEASE_BUFFER_HOURS}h.`,
+        order,
+      });
     }
     // 4. Cancelación (Solo si está pendiente)
     if (updates.status === "cancelled" && (isBuyer || isSeller)) {
@@ -1602,53 +1561,110 @@ const cancelOrder = async (req, res) => {
 
     /* ════════════════════════════════════════════════════════════════
        Caso A (sub-caso "no pagué"): 'pending_payment' y el comprador dice NO
-       haber abonado. Es seguro liberar la garantía al vendedor y cancelar.
+       haber abonado.
+
+       FASE 1 (liberación 100% MANUAL): el comprador YA NO libera la garantía
+       por sí mismo. Aunque declare no haber pagado, NO puede disparar un
+       movimiento irreversible de fondos. La cancelación se REGISTRA como
+       solicitud al admin y la orden se marca 'cancelled' a nivel DB; el admin,
+       tras verificar que efectivamente no hubo pago, libera la garantía
+       on-chain (adminReleaseGuarantee).
+
+       Excepción: si la orden TODAVÍA no tiene garantía congelada (hold sin
+       concretar / lock inexistente), no hay nada que liberar → se cierra
+       directo, sin intervención humana (no se mueve dinero).
        ════════════════════════════════════════════════════════════════ */
     if (order.status === "pending_payment" && paidStatus !== "paid") {
-            const seller = await User.findById(order.seller);
-      if (!seller || !seller.walletAddress) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "No se pudo liberar el colateral: el vendedor no tiene wallet asociada.",
+      const seller = await User.findById(order.seller);
+      const hasCollateral =
+        Boolean(order.collateralTxHash) ||
+        Boolean(order.collateralHold?.status === "fulfilled");
+      const hasWallet = Boolean(seller?.walletAddress);
+
+      // Sin garantía congelada → no se mueve dinero on-chain: cierre directo.
+      if (!hasCollateral || !hasWallet) {
+        order.status = "cancelled";
+        order.pendingRequest.exists = false;
+        order.cancelledBy = "buyer";
+        order.cancelledAt = new Date();
+        order.statusHistory.push({
+          status: "cancelled",
+          changedAt: new Date(),
+          comment: `Cancelada por el comprador (sin pago notificado y sin garantía congelada). ${reason || ""}`.trim(),
+        });
+        order.orderActions.push({
+          type: "cancel_executed",
+          initiator: "buyer",
+          paidStatus: "not_paid",
+          status: "completed",
+          reason: reason || "Cancelación por el comprador sin pago notificado (sin garantía on-chain).",
+          createdBy: order.buyer,
+        });
+        await order.save();
+
+        await User.findByIdAndUpdate(order.buyer, {
+          $inc: { "accounting.cancellationsAsBuyer": 1 },
+        });
+
+        const orderBuyer0 = await User.findById(order.buyer);
+        const orderSeller0 = await User.findById(order.seller);
+        if (orderBuyer0?.email)
+          sendOrderCancelledToBuyer({
+            buyerEmail: orderBuyer0.email,
+            orderId: order._id,
+            amount: order.totalAmount,
+            withRefund: false,
+          }).catch(() => {});
+        if (orderSeller0?.email)
+          sendOrderCancelledToVendor({
+            vendorEmail: orderSeller0.email,
+            orderId: order._id,
+            amount: order.totalAmount,
+            withRefund: false,
+          }).catch(() => {});
+        createNotification({
+          recipient: order.seller,
+          type: "order_cancelled",
+          title: "Orden cancelada",
+          message: `La orden #${order._id.toString().slice(-6).toUpperCase()} fue cancelada por el comprador sin que se notificara un pago.`,
+          data: { orderId: order._id },
+        }).catch(() => {});
+
+        return res.status(200).json({
+          success: true,
+          message: "Orden cancelada (sin garantía congelada). No se movió dinero on-chain.",
+          order,
         });
       }
 
-      // Liberación idempotente: si on-chain el lock ya no existe (liberado de
-      // verdad o ilegible), NO reenviamos la tx (evita que la cancelación
-      // quede trabada con "No se pudo liberar el colateral"). Solo se registra.
-      const blockchainResult = await releaseCollateralOnCancelIdempotent(
-        order,
-        seller.walletAddress,
-      );
-      if (!blockchainResult.success) {
-        return res.status(500).json({
-          success: false,
-          message:
-            blockchainResult.error === "No hay saldo bloqueado" ||
-            blockchainResult.error?.includes("No hay saldo")
-              ? "La orden ya estaba liberada on-chain, no se requiere acción on-chain."
-              : "No se pudo liberar el colateral en la blockchain.",
-          error: blockchainResult.error,
-        });
-      }
-
-            order.status = "cancelled";
-      order.releaseTxHash = blockchainResult.txHash;
+      // HAY garantía congelada → NO liberamos. Registramos solicitud al admin.
+      order.status = "cancelled";
       order.pendingRequest.exists = false;
       order.cancelledBy = "buyer";
+      order.cancelledAt = new Date();
+      // Dejamos una solicitud de liberación de garantía al admin para que
+      // verifique que no hubo pago y libere el colateral del vendedor.
+      order.releaseRequest = {
+        exists: true,
+        requestedBy: order.buyer,
+        reason:
+          "El comprador canceló declarando no haber pagado. El admin debe verificar y liberar la garantía del vendedor.",
+        status: "pending",
+        createdAt: new Date(),
+      };
       order.statusHistory.push({
         status: "cancelled",
         changedAt: new Date(),
-        comment: `Cancelada por el comprador (sin pago notificado). ${reason || ""}`.trim(),
+        comment: `Cancelada por el comprador (sin pago notificado). Garantía retenida hasta liberación manual del admin. ${reason || ""}`.trim(),
       });
       order.orderActions.push({
-        type: "cancel_executed",
+        type: "cancel_request",
         initiator: "buyer",
         paidStatus: "not_paid",
-        status: "completed",
-        reason: reason || "Cancelación por el comprador sin pago notificado",
-        releaseTxHash: blockchainResult.txHash,
+        status: "pending",
+        reason:
+          (reason || "Cancelación por el comprador sin pago notificado") +
+          " — liberación de garantía pendiente de aprobación del admin.",
         createdBy: order.buyer,
       });
       await order.save();
@@ -1658,7 +1674,21 @@ const cancelOrder = async (req, res) => {
         $inc: { "accounting.cancellationsAsBuyer": 1 },
       });
 
-      // Notificaciones
+      // Notificar al ADMIN (cola de pendientes) + a ambas partes.
+      const adminUser = await findAdminUser(User);
+      if (adminUser) {
+        createNotification({
+          recipient: adminUser._id,
+          type: "order_admin_release_request",
+          title: "Liberación de garantía pendiente",
+          message: `El comprador canceló la orden #${order._id
+            .toString()
+            .slice(-6)
+            .toUpperCase()} declarando no haber pagado. Verificá y liberá la garantía del vendedor (release-guarantee).`,
+          data: { orderId: order._id },
+        }).catch(() => {});
+      }
+
       const orderBuyer = await User.findById(order.buyer);
       const orderSeller = await User.findById(order.seller);
       if (orderBuyer?.email)
@@ -1679,22 +1709,14 @@ const cancelOrder = async (req, res) => {
         recipient: order.seller,
         type: "order_cancelled",
         title: "Orden cancelada",
-        message: `La orden #${order._id.toString().slice(-6).toUpperCase()} fue cancelada por el comprador sin que se notificara un pago.`,
+        message: `La orden #${order._id.toString().slice(-6).toUpperCase()} fue cancelada por el comprador. Tu garantía sigue retenida y será liberada por el admin tras verificar. Si ya te pagó, subí evidencia a soporte.`,
         data: { orderId: order._id },
-      }).catch(() => {});
-      // Recordatorio de rating: el vendedor puede calificar al comprador
-      // (cancelación iniciada por el comprador).
-      createNotification({
-        recipient: order.seller,
-        type: "rating_reminder",
-        title: "Calificá al comprador",
-        message: `La orden #${order._id.toString().slice(-6).toUpperCase()} se canceló. Dejá tu calificación (👍/👎) sobre el comprador en la página de la orden.`,
-        data: { orderId: order._id, ratingType: "buyer_rating" },
       }).catch(() => {});
 
       return res.status(200).json({
         success: true,
-        message: "Orden cancelada y colateral liberado al vendedor.",
+        message:
+          "Cancelación registrada. La garantía del vendedor queda retenida hasta que el admin verifique y la libere.",
         order,
       });
     }
@@ -1880,51 +1902,36 @@ const buyerConfirmsRefundReceived = async (req, res) => {
       });
     }
 
-    const seller = await User.findById(order.seller);
-    if (!seller || !seller.walletAddress) {
-      return res.status(400).json({
-        success: false,
-        message: "El vendedor no tiene wallet asociada para liberar colateral.",
-      });
-    }
-
-        // Liberar colateral (0% fee) de forma IDEMPOTENTE: si on-chain el lock ya
-    // fue liberado (o no se puede leer), no reenviamos la tx —evita que la
-    // confirmación del reintegro quede trabada con "No se pudo liberar el
-    // colateral" cuando de hecho ya no hay saldo congelado—.
-    const blockchainResult = await releaseCollateralOnCancelIdempotent(
-      order,
-      seller.walletAddress,
-    );
-    if (!blockchainResult.success) {
-      return res.status(500).json({
-        success: false,
-        message:
-          blockchainResult.error === "No hay saldo bloqueado" ||
-          blockchainResult.error?.includes("No hay saldo")
-            ? "La orden ya estaba liberada on-chain, no se requiere acción on-chain."
-            : "No se pudo liberar el colateral en la blockchain.",
-        error: blockchainResult.error,
-      });
-    }
-
-        order.status = "cancelled";
-    order.releaseTxHash = blockchainResult.txHash;
-    order.pendingRequest.status = "completed";
-    order.pendingRequest.exists = false;
-    order.cancelledBy = "buyer";
+    // ════════════════════════════════════════════════════════════════════
+    // FASE 1 (liberación 100% MANUAL): el comprador confirma que RECIBIÓ el
+    // reintegro, pero NO dispara la liberación de la garantía. Marcamos la
+    // solicitud como "refunded_by_vendor" y creamos una solicitud al admin
+    // para liberar el colateral del vendedor (verificación prudencial antes
+    // de mover fondos on-chain). El admin cierra con adminReleaseGuarantee.
+    // ════════════════════════════════════════════════════════════════════
+    order.pendingRequest.status = "refunded_by_vendor";
+    // Solicitud de liberación de garantía para el admin.
+    order.releaseRequest = {
+      exists: true,
+      requestedBy: order.buyer,
+      reason:
+        "El comprador confirmó haber recibido el reintegro. El admin debe liberar la garantía del vendedor.",
+      status: "pending",
+      createdAt: new Date(),
+    };
     order.statusHistory.push({
-      status: "cancelled",
+      status: order.status,
       changedAt: new Date(),
-      comment: "Cancelada tras reembolso confirmado y recibido por el comprador.",
+      comment:
+        "El comprador confirmó haber recibido el reintegro. Garantía pendiente de liberación manual por el admin.",
     });
     order.orderActions.push({
       type: "refund_confirmed",
       initiator: "buyer",
       paidStatus: "paid",
-      status: "completed",
-      reason: "El comprador confirmó haber recibido el reintegro.",
-      releaseTxHash: blockchainResult.txHash,
+      status: "pending",
+      reason:
+        "El comprador confirmó haber recibido el reintegro. Liberación de garantía pendiente del admin.",
       createdBy: order.buyer,
     });
     await order.save();
@@ -1933,42 +1940,33 @@ const buyerConfirmsRefundReceived = async (req, res) => {
       $inc: { "accounting.refundsPending": -1 },
     });
 
-    const buyer = await User.findById(order.buyer);
-    const sellerUsr = await User.findById(order.seller);
-    if (buyer?.email)
-      sendOrderCancelledToBuyer({
-        buyerEmail: buyer.email,
-        orderId: order._id,
-        amount: order.totalAmount,
-        withRefund: true,
+    // Notificar al ADMIN (cola de pendientes) + al vendedor.
+    const adminUser = await findAdminUser(User);
+    if (adminUser) {
+      createNotification({
+        recipient: adminUser._id,
+        type: "order_admin_release_request",
+        title: "Liberación de garantía pendiente (reembolso)",
+        message: `El comprador confirmó recibir el reintegro de la orden #${order._id
+          .toString()
+          .slice(-6)
+          .toUpperCase()}. Liberá la garantía del vendedor (release-guarantee).`,
+        data: { orderId: order._id },
       }).catch(() => {});
-    if (sellerUsr?.email)
-      sendOrderCancelledToVendor({
-        vendorEmail: sellerUsr.email,
-        orderId: order._id,
-        amount: order.totalAmount,
-        withRefund: true,
-      }).catch(() => {});
-        createNotification({
-      recipient: order.seller,
-      type: "order_refund_received",
-      title: "¡Reembolso confirmado por el comprador!",
-      message: `El comprador confirmó recibir el reintegro de la orden #${order._id.toString().slice(-6).toUpperCase()}. Tu garantía fue liberada.`,
-      data: { orderId: order._id },
-    }).catch(() => {});
-    // Recordatorio de rating: el vendedor puede calificar al comprador
-    // (cancelación iniciada por el comprador).
+    }
+
     createNotification({
       recipient: order.seller,
-      type: "rating_reminder",
-      title: "Calificá al comprador",
-      message: `La orden #${order._id.toString().slice(-6).toUpperCase()} se cerró con cancelación. Dejá tu calificación (👍/👎) sobre el comprador en la página de la orden.`,
-      data: { orderId: order._id, ratingType: "buyer_rating" },
+      type: "order_refund_received",
+      title: "El comprador confirmó el reintegro",
+      message: `El comprador confirmó recibir el reintegro de la orden #${order._id.toString().slice(-6).toUpperCase()}. El admin liberará tu garantía a la brevedad.`,
+      data: { orderId: order._id },
     }).catch(() => {});
 
     return res.status(200).json({
       success: true,
-      message: "Reintegro confirmado. Orden cancelada y garantía liberada.",
+      message:
+        "Confirmaste el reintegro. El admin liberará la garantía del vendedor (revisión manual).",
       order,
     });
   } catch (error) {
@@ -2038,9 +2036,8 @@ const requestAdminRelease = async (req, res) => {
     await order.save();
 
         // Notificar al admin (por mail e in-app si el admin existe en DB)
-    const adminId = process.env.ADMIN_PRIVY_ID;
-    const adminUser = adminId ? await User.findOne({ privyDid: adminId }) : null;
-    if (adminUser) {
+      const adminUser = await findAdminUser(User);
+      if (adminUser) {
       createNotification({
         recipient: adminUser._id,
         type: "order_admin_release_request",
@@ -2094,6 +2091,262 @@ const requestAdminRelease = async (req, res) => {
 };
 
 /**
+ * ADMIN COMPLETA la orden tras el buffer de seguridad (solo admin).
+ *
+ * FASE 1: es el ÚNICO camino que libera la garantía de una orden que el
+ * comprador dio por recibida. Reemplaza al release automático que antes hacía
+ * el comprador en updateOrder. Requisitos:
+ *   - La orden debe estar en "reception_confirmed" (el comprador ya confirmó).
+ *   - Debe haberse cumplido el buffer (`releaseEligibleAt`). Se puede forzar con
+ *     `force: true` (queda registrado en orderActions para auditoría).
+ * Efecto:
+ *   - Transferencia bancaria → libera el colateral (con fee) → "completed".
+ *   - Crypto (escrow)        → libera el escrow (releaseOrder) → "completed".
+ *   - Compra grupal          → no re-libera escrow (ya se liberó al cerrar el
+ *     pool); solo cierra la orden en la DB.
+ * Acredita cashback + referral y actualiza métricas (paridad con el flujo
+ * anterior) una sola vez, al completar.
+ */
+const adminCompleteOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { note, force } = req.body;
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    if (order.status === "completed") {
+      return res.status(400).json({
+        success: false,
+        message: "La orden ya está completada.",
+      });
+    }
+    if (order.status !== "reception_confirmed") {
+      return res.status(400).json({
+        success: false,
+        message: `La orden debe estar en 'reception_confirmed' para completarla (estado actual: ${order.status}).`,
+      });
+    }
+    if (order.dispute?.exists && order.dispute.status === "open") {
+      return res.status(409).json({
+        success: false,
+        message:
+          "Hay una disputa abierta en esta orden. Resolvela antes de liberar la garantía.",
+      });
+    }
+
+    // GUARDIA DEL BUFFER: no se libera antes de cumplirse el período de seguridad
+    // salvo que el admin fuerce explícitamente (queda auditado).
+    const now = new Date();
+    const bufferReached =
+      !order.releaseEligibleAt || order.releaseEligibleAt <= now;
+    if (!bufferReached && force !== true) {
+      return res.status(409).json({
+        success: false,
+        code: "BUFFER_NOT_REACHED",
+        releaseEligibleAt: order.releaseEligibleAt,
+        message: `El período de seguridad todavía no se cumplió (liberable desde ${new Date(order.releaseEligibleAt).toLocaleString("es-AR")}). Usá force:true para omitirlo (queda registrado).`,
+      });
+    }
+
+    const seller = await User.findById(order.seller);
+    const isCrypto = order.payment?.method === "crypto";
+
+    // ── Liberación on-chain según el método de pago ──
+    let txHash = "";
+    if (isCrypto) {
+      if (order.payment?.groupBuy === true) {
+        // Compra grupal: el pool ya liberó on-chain. Solo cerramos en DB.
+        txHash = order.payment?.releaseTxHash || "";
+        order.payment.status = "released";
+        order.payment.releasedAt = order.payment.releasedAt || now;
+      } else {
+        if (order.payment?.status !== "funded") {
+          return res.status(400).json({
+            success: false,
+            message:
+              "El escrow no está fondeado on-chain. Verificá que el comprador haya depositado los USDT antes de completar la orden.",
+          });
+        }
+        const { releaseOrderEscrow } = await import("../services/escrowServices.js");
+        const escrowResult = await releaseOrderEscrow(order._id.toString());
+        if (!escrowResult.success) {
+          return res.status(500).json({
+            success: false,
+            message: "No se pudo liberar el escrow on-chain.",
+            error: escrowResult.error,
+          });
+        }
+        txHash = escrowResult.txHash;
+        order.payment.status = "released";
+        order.payment.releaseTxHash = txHash;
+        order.payment.feeUsd = order.financials.platformFeeUsd;
+        order.payment.sellerNetUsd = order.financials.sellerNetReleaseUsd;
+        order.payment.releasedAt = now;
+      }
+    } else {
+      if (!seller || !seller.walletAddress) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "El vendedor no tiene wallet asociada para liberar el colateral.",
+        });
+      }
+      // Liberación idempotente: si on-chain el lock ya no existe, no reenviamos tx.
+      const chainId = order.collateralChainId || DEFAULT_CHAIN_ID;
+      const lockState = await getOrderLock(order._id.toString(), chainId);
+      const alreadyReleased =
+        !lockState.success || (lockState.success && lockState.lockUsd === 0);
+      if (alreadyReleased) {
+        txHash = order.releaseTxHash || "";
+      } else {
+        // Fee TOTAL (base 3% + reward de referidos) en un solo saque on-chain.
+        txHash = await executeBlockchainRelease(
+          order,
+          seller.walletAddress,
+          order.financials.platformFeeUsd,
+        );
+      }
+    }
+
+    // ── Cierre en la DB ──
+    order.status = "completed";
+    order.completedAt = now;
+    order.releaseTxHash = txHash || order.releaseTxHash;
+    order.statusHistory.push({
+      status: "completed",
+      changedAt: now,
+      comment: `Liberación manual por el admin tras el período de seguridad. ${note || ""}`.trim(),
+    });
+    order.orderActions.push({
+      type: "admin_intervention",
+      initiator: "admin",
+      paidStatus: isCrypto ? "paid" : "paid",
+      status: "completed",
+      reason:
+        (force === true && !bufferReached
+          ? "El admin completó la orden FORZANDO el período de seguridad. "
+          : "El admin liberó la garantía tras cumplirse el período de seguridad. ") +
+        (note || ""),
+      releaseTxHash: txHash || undefined,
+      createdBy: req.user?._id,
+    });
+
+    // CASHBACK (idempotente; no bloquea si falla).
+    try {
+      const cashbackResult = await accrueCashbackForOrder(order);
+      if (cashbackResult.applied) {
+        console.log(
+          `[Cashback] Orden ${order._id} generó US$ ${cashbackResult.earnedUsd} de cashback para el comprador.`,
+        );
+      }
+    } catch (cashbackErr) {
+      console.error(
+        `[Cashback] Fallo no crítico al acreditar cashback en orden ${order._id}:`,
+        cashbackErr.message,
+      );
+    }
+
+    // REFERRAL (idempotente; no bloquea si falla).
+    try {
+      const referralResult = await accrueReferralForOrder(order);
+      if (referralResult.applied) {
+        console.log(
+          `[Referral] Orden ${order._id} acreditó el referral (reparto: ${JSON.stringify(referralResult.split)})`,
+        );
+      }
+    } catch (referralErr) {
+      console.error(
+        `[Referral] Fallo no crítico al acreditar referral en orden ${order._id}:`,
+        referralErr.message,
+      );
+    }
+
+    await order.save();
+
+    // ── Métricas de venta/compras + stock (una sola vez) ──
+    await User.findByIdAndUpdate(order.seller, {
+      $inc: { "accounting.completedSales": 1, "shop.totalSalesCount": 1 },
+    });
+    await User.findByIdAndUpdate(order.buyer, {
+      $inc: { "accounting.completedPurchases": 1 },
+    });
+    const isGroupBuyOrder = order.groupBuy?.poolId || order.isGroupBuy === true;
+    for (const item of order.itemsSnapshot) {
+      const qty = item.quantity || 1;
+      if (isGroupBuyOrder && order.groupBuy?.stockConsumed) {
+        await Product.findByIdAndUpdate(item.productId, { $inc: { sold: qty } });
+      } else {
+        await Product.findByIdAndUpdate(item.productId, {
+          $inc: { sold: qty, stock: -qty },
+        });
+      }
+    }
+
+    // ── Notificaciones de cierre ──
+    const shortId = order._id.toString().slice(-6).toUpperCase();
+    if (seller?.email) {
+      sendOrderCompletedToVendor({
+        vendorEmail: seller.email,
+        orderId: order._id,
+        amount: order.totalAmount,
+      }).catch(() => {});
+    }
+    createNotification({
+      recipient: order.seller,
+      type: "order_completed",
+      title: "¡Venta completada y fondos liberados!",
+      message: `El período de seguridad de la orden #${shortId} finalizó y se liberó tu garantía.`,
+      data: { orderId: order._id, totalAmount: order.totalAmount },
+    }).catch(() => {});
+
+    const buyer = await User.findById(order.buyer);
+    if (buyer?.email) {
+      sendOrderCompletedToBuyer({
+        buyerEmail: buyer.email,
+        orderId: order._id,
+        amount: order.totalAmount,
+      }).catch(() => {});
+    }
+    if (buyer) {
+      createNotification({
+        recipient: buyer._id,
+        type: "order_completed",
+        title: "¡Compra completada!",
+        message: `La orden #${shortId} se cerró y la garantía fue liberada. ¡Gracias por tu compra!`,
+        data: { orderId: order._id, totalAmount: order.totalAmount },
+      }).catch(() => {});
+      createNotification({
+        recipient: buyer._id,
+        type: "rating_reminder",
+        title: "Calificá al vendedor",
+        message: `¿Recomendás a este vendedor? Dejá tu calificación (👍/👎) en la orden #${shortId}.`,
+        data: { orderId: order._id, ratingType: "seller_rating" },
+      }).catch(() => {});
+    }
+    if (seller) {
+      createNotification({
+        recipient: seller._id,
+        type: "rating_reminder",
+        title: "Calificá al comprador",
+        message: `La venta #${shortId} se completó. Dejá tu calificación (👍/👎) sobre el comprador.`,
+        data: { orderId: order._id, ratingType: "buyer_rating" },
+      }).catch(() => {});
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Orden completada y garantía liberada por el admin.",
+      order,
+      releaseTxHash: txHash || null,
+    });
+  } catch (error) {
+    console.error("Error al completar orden (admin):", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
  * ADMIN LIBERA la garantía manualmente (solo admin).
  * Resuelve la solicitud del vendedor tras verificar con el comprador.
  * Cierra la orden como cancelada y libera el colateral del vendedor.
@@ -2120,9 +2373,12 @@ const adminReleaseGuarantee = async (req, res) => {
       });
     }
 
+    // Red donde se congeló el colateral de esta orden (persistida al lockear).
+    const chainId = order.collateralChainId || DEFAULT_CHAIN_ID;
+
     // Verificación on-chain del lock real. Si el lock ya no existe (liberado de
     // verdad), la liberación es idempotente y solo registramos la acción.
-    const lockState = await getOrderLock(order._id.toString());
+    const lockState = await getOrderLock(order._id.toString(), chainId);
     const alreadyReleasedOnChain =
       !lockState.success || (lockState.success && lockState.lockUsd === 0);
 
@@ -2167,6 +2423,7 @@ const adminReleaseGuarantee = async (req, res) => {
       const blockchainResult = await cancelVendorCollateral(
         order._id.toString(),
         seller.walletAddress,
+        chainId,
       );
       if (!blockchainResult.success) {
         return res.status(500).json({
@@ -2278,10 +2535,13 @@ const adminGetCollateralStatus = async (req, res) => {
       });
     }
 
+    // Red donde se congeló el colateral de esta orden (persistida al lockear).
+    const chainId = order.collateralChainId || DEFAULT_CHAIN_ID;
+
     // Lectura on-chain en paralelo: lock de la orden y estado del vendedor.
     const [orderLock, vendor] = await Promise.all([
-      getOrderLock(order._id.toString()),
-      getVendorCollateral(seller.walletAddress),
+      getOrderLock(order._id.toString(), chainId),
+      getVendorCollateral(seller.walletAddress, chainId),
     ]);
 
     const lockStillActive =
@@ -2454,7 +2714,7 @@ const retryCollateral = async (req, res) => {
     }
 
     const isSeller = order.seller.toString() === userId;
-    const isAdmin = req.user.role === "admin" || req.user.privyDid === process.env.ADMIN_PRIVY_ID;
+    const isAdmin = isAdminUser(req.user);
     if (!isSeller && !isAdmin) {
       return res.status(403).json({
         success: false,
@@ -2773,7 +3033,7 @@ const getEscrowStatus = async (req, res) => {
 
     const isParticipant =
       order.buyer.toString() === userId || order.seller.toString() === userId;
-    const isAdmin = req.user.role === "admin" || req.user.privyDid === process.env.ADMIN_PRIVY_ID;
+    const isAdmin = isAdminUser(req.user);
     if (!isParticipant && !isAdmin) {
       return res.status(403).json({ message: "No tenés permisos para ver esta orden" });
     }
@@ -2832,77 +3092,76 @@ const cancelCryptoOrder = async (req, res) => {
     }
 
     if (order.payment?.status === "funded") {
-      // El comprador ya fondeó el escrow → devolvemos el 100% vía el contrato.
-      const { cancelOrderEscrow } = await import("../services/escrowServices.js");
-      const escrowResult = await cancelOrderEscrow(order._id.toString());
-      if (!escrowResult.success) {
-        return res.status(500).json({
+      // ════════════════════════════════════════════════════════════════════
+      // FASE 1 (liberación 100% MANUAL): el comprador/vendedor NO dispara el
+      // reembolso on-chain del escrow. Registramos una solicitud al admin para
+      // que verifique y ejecute la devolución (adminCancelEscrow). El escrow
+      // sigue retenido hasta entonces (no hay movimiento irreversible).
+      // ════════════════════════════════════════════════════════════════════
+      if (order.releaseRequest?.exists && order.releaseRequest.status === "pending") {
+        return res.status(400).json({
           success: false,
-          message: "No se pudo devolver los USDT al comprador en la blockchain.",
-          error: escrowResult.error,
+          message:
+            "Ya existe una solicitud de cancelación/reembolso en curso. Esperá la resolución del admin.",
         });
       }
 
-      order.payment.status = "cancelled_refunded";
-      order.payment.cancelTxHash = escrowResult.txHash;
-      order.payment.cancelledRefundedAt = new Date();
-      order.payment.releasedAt = new Date(); // se usa closedAt para no duplicar estado
-      order.cancelledBy = isBuyer ? "buyer" : "seller";
-      order.status = "cancelled";
-      order.cancelledAt = new Date();
+      order.releaseRequest = {
+        exists: true,
+        requestedBy: isBuyer ? order.buyer : order.seller,
+        reason: `El ${isBuyer ? "comprador" : "vendedor"} solicita cancelar la orden con escrow fondeado. El admin debe devolver los USDT al comprador (cancel-escrow).`,
+        status: "pending",
+        createdAt: new Date(),
+      };
       order.statusHistory.push({
-        status: "cancelled",
+        status: order.status,
         changedAt: new Date(),
-        comment: `${isBuyer ? "El comprador" : "El vendedor"} canceló la orden. Los USDT del escrow fueron devueltos al comprador (reembolso on-chain).`,
+        comment: `El ${isBuyer ? "comprador" : "vendedor"} solicitó cancelar la orden con escrow fondeado. Reembolso pendiente de aprobación del admin.`,
       });
       order.orderActions.push({
-        type: "cancel_executed",
+        type: "cancel_request",
         initiator: isBuyer ? "buyer" : "seller",
         paidStatus: "paid",
-        status: "completed",
-        reason: "Cancelación de orden con escrow fondeado. Reembolso on-chain al comprador.",
-        releaseTxHash: escrowResult.txHash,
-        createdBy: order.buyer,
+        status: "pending",
+        reason:
+          "Solicitud de cancelación con escrow fondeado. Reembolso on-chain pendiente del admin.",
+        createdBy: isBuyer ? order.buyer : order.seller,
       });
       await order.save();
 
-      // Contadores
-      await User.findByIdAndUpdate(order.buyer, {
-        $inc: { "accounting.cancellationsAsBuyer": 1 },
-      });
-
-      // Notificaciones
-      if (isBuyer) {
-        const buyer = await User.findById(order.buyer);
-        if (buyer?.email)
-          sendOrderCancelledToBuyer({
-            buyerEmail: buyer.email,
-            orderId: order._id,
-            amount: order.totalAmount,
-            withRefund: true,
-          }).catch(() => {});
-      }
-      const seller = await User.findById(order.seller);
-      if (seller?.email)
-        sendOrderCancelledToVendor({
-          vendorEmail: seller.email,
-          orderId: order._id,
-          amount: order.totalAmount,
-          withRefund: false,
+      // Notificar al ADMIN (cola de pendientes).
+      const adminUser = await findAdminUser(User);
+      if (adminUser) {
+        createNotification({
+          recipient: adminUser._id,
+          type: "order_admin_release_request",
+          title: "Cancelación de escrow pendiente",
+          message: `El ${isBuyer ? "comprador" : "vendedor"} solicita cancelar la orden #${order._id
+            .toString()
+            .slice(-6)
+            .toUpperCase()} con escrow fondeado. Revisá y ejecutá el reembolso (cancel-escrow).`,
+          data: { orderId: order._id },
         }).catch(() => {});
+      }
+
+      // Avisamos a la contraparte.
+      const counterparty = isBuyer ? order.seller : order.buyer;
       createNotification({
-        recipient: order.seller,
+        recipient: counterparty,
         type: "order_cancelled",
-        title: "Orden cancelada",
-        message: `La orden #${order._id.toString().slice(-6).toUpperCase()} fue cancelada. Los USDT fueron devueltos al comprador.`,
+        title: "Solicitud de cancelación registrada",
+        message: `Se solicitó cancelar la orden #${order._id
+          .toString()
+          .slice(-6)
+          .toUpperCase()}. Los USDT del escrow quedan retenidos hasta que el admin procese el reembolso.`,
         data: { orderId: order._id },
       }).catch(() => {});
 
       return res.status(200).json({
         success: true,
-        message: "Orden cancelada. Los USDT del escrow fueron devueltos al comprador.",
+        message:
+          "Solicitud de cancelación registrada. El admin procesará el reembolso del escrow (los fondos quedan retenidos hasta entonces).",
         order,
-        cancelTxHash: escrowResult.txHash,
       });
     }
 
@@ -3465,8 +3724,7 @@ const buyerRequestEscrowRelease = async (req, res) => {
     await order.save();
 
     // Notificar al admin (in-app + mail) para que lo resuelva.
-    const adminId = process.env.ADMIN_PRIVY_ID;
-    const adminUser = adminId ? await User.findOne({ privyDid: adminId }) : null;
+    const adminUser = await findAdminUser(User);
     if (adminUser) {
       createNotification({
         recipient: adminUser._id,
@@ -3810,7 +4068,8 @@ const openDispute = async (req, res) => {
     // disputa en la DB y notificamos al admin.
     let txHash = "";
     try {
-      const bc = await triggerOrderDispute(order._id.toString());
+      const chainId = order.collateralChainId || DEFAULT_CHAIN_ID;
+      const bc = await triggerOrderDispute(order._id.toString(), chainId);
       if (bc.success) txHash = bc.txHash;
     } catch (bcErr) {
       console.warn("[Dispute] No se pudo congelar on-chain (posible escrow):", bcErr.message);
@@ -3853,10 +4112,7 @@ const openDispute = async (req, res) => {
         // ─────────────────────────────────────────────────────────────────────
     // NOTIFICACIONES
     // ─────────────────────────────────────────────────────────────────────
-    const adminId = process.env.ADMIN_PRIVY_ID;
-    const adminUser = adminId
-      ? await User.findOne({ privyDid: adminId })
-      : null;
+    const adminUser = await findAdminUser(User);
     const buyer = await User.findById(order.buyer);
     const seller = await User.findById(order.seller);
 
@@ -4015,8 +4271,7 @@ const uploadPaymentProof = async (req, res) => {
     await order.save();
 
     // Notificar vendedor + admin (mail e in-app).
-    const adminId = process.env.ADMIN_PRIVY_ID;
-    const adminUser = adminId ? await User.findOne({ privyDid: adminId }) : null;
+    const adminUser = await findAdminUser(User);
     const seller = await User.findById(order.seller);
 
     if (seller) {
@@ -4153,12 +4408,13 @@ const adminResolvePaymentDispute = async (req, res) => {
     }
 
     // Liberación idempotente on-chain (misma lógica que la liberación manual).
-    const lockState = await getOrderLock(order._id.toString());
+    const chainId = order.collateralChainId || DEFAULT_CHAIN_ID;
+    const lockState = await getOrderLock(order._id.toString(), chainId);
     const alreadyReleased =
       !lockState.success || (lockState.success && lockState.lockUsd === 0);
     let releaseTxHash = order.releaseTxHash || "";
     if (!alreadyReleased) {
-      const bc = await cancelVendorCollateral(order._id.toString(), seller.walletAddress);
+      const bc = await cancelVendorCollateral(order._id.toString(), seller.walletAddress, chainId);
       if (!bc.success) {
         return res.status(500).json({
           success: false,
@@ -4249,6 +4505,7 @@ export {
   vendorConfirmsRefund,
   buyerConfirmsRefundReceived,
   requestAdminRelease,
+  adminCompleteOrder,
   adminReleaseGuarantee,
   adminGetCollateralStatus,
   adminCancelOrder,

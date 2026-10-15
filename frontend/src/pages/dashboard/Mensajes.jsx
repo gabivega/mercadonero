@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../../Utils/authClient";
 import { useSearchParams } from "react-router-dom";
 import {
   MessageSquare,

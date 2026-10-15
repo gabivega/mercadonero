@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Star, ThumbsUp, ThumbsDown, X } from "lucide-react";
 import Swal from "sweetalert2";
 import axios from "axios";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy } from "../Utils/authClient";
 import LoadingSpinner from "./LoadingSpinner";
 
 const BASE = import.meta.env.VITE_SERVER_URL;

@@ -60,13 +60,14 @@ export const getAllUsers = async (req, res) => {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 25));
     const skip = (pageNum - 1) * limitNum;
 
-    // Filtro de búsqueda (email, privyDid, username, nombre)
+        // Filtro de búsqueda (email, privyDid/supabaseId, username, nombre)
     const match = {};
     if (search) {
       const reg = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
       match.$or = [
         { email: reg },
         { privyDid: reg },
+        { supabaseId: reg },
         { username: reg },
         { firstName: reg },
         { lastName: reg },
@@ -105,8 +106,9 @@ export const getAllUsers = async (req, res) => {
 
 
                     rating: 1,
-          createdAt: 1,
+                    createdAt: 1,
           privyDid: 1,
+          supabaseId: 1,
           "accounting.cancellationsAsBuyer": 1,
           "accounting.cancellationsAsSeller": 1,
           "accounting.refundsRequested": 1,
