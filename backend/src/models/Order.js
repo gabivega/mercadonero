@@ -42,6 +42,17 @@ const orderSchema = new Schema(
             enum: ["shipping_service", "pickup", "both"],
             default: "both",
           },
+          // Modo de envío a domicilio elegido por el vendedor al publicar:
+          //   "zipnova" → cotización dinámica (la paga Nero, se descuenta del
+          //               neto del vendedor).
+          //   "fixed"   → precio fijo (shipping.cost) que se le liquida al
+          //               vendedor.
+          //   "arrange" → a convenir (Fase 2, sin costo en checkout).
+          homeDeliveryMode: {
+            type: String,
+            enum: ["zipnova", "fixed", "arrange"],
+            default: "zipnova",
+          },
           dimensions: {
             weight: Number,
             width: Number,
@@ -169,11 +180,16 @@ const orderSchema = new Schema(
     // cadena (evita locks "fantasma" al mezclar redes como BSC y Polygon Amoy).
     collateralChainId: { type: Number, default: null },
     shippingDetails: {
-      provider: { type: String },
+      provider: { type: String }, // Carrier elegido (ej. "Correo Argentino")
+      serviceName: { type: String }, // Servicio elegido (ej. "Clásico", "Sucursal")
+      quotedPrice: { type: Number }, // Precio cotizado del envío (ARS), auditoría
       trackingNumber: { type: String },
       shippedAt: { type: Date },
       deliveredAt: { type: Date },
-      otherProviderDetail: { type: String }, // Por si eligen "Otro"
+      // Nombre del punto de entrega (para envíos a sucursal). NOTA: antes se
+      // usaba este campo para guardar el nombre del SERVICIO; ahora el servicio
+      // va en `serviceName` y acá queda el nombre del punto de entrega.
+      otherProviderDetail: { type: String },
       // ────────────────────────────────────────────────
       // PUNTO DE ENTREGA (Zipnova: Correo Argentino / OCA, etc.)
       // Sucursal donde el COMPRADOR retira su compra cuando el servicio

@@ -569,12 +569,17 @@ export default function ProductDetail() {
                       <PickupOption product={product} compact />
                     )}
 
-                    {/* Envío a domicilio (Zipnova). Se oculta si el vendedor lo
-                        desactivó explícitamente (homeDelivery === false). */}
+                    {/* Envío a domicilio. Se oculta si el vendedor lo
+                        desactivó explícitamente (homeDelivery === false).
+                        El modo (homeDeliveryMode) define QUIÉN gestiona el
+                        envío y, por lo tanto, CÓMO lo mostramos:
+                          - "zipnova" → cotizador dinámico de la plataforma.
+                          - "fixed"   → precio fijo del vendedor.
+                          - "arrange" → a convenir con el comprador. */}
                     {product.shipping?.delivery?.homeDelivery !== false && (
                       <>
                         {product.shipping?.free ? (
-                          // Envío gratis: hoy es solo un label del vendedor.
+                          // Envío gratis: lo absorbe el vendedor.
                           <div className="flex gap-2.5">
                             <Truck className="w-4 h-4 shrink-0 mt-1 text-green-500" />
                             <div>
@@ -586,8 +591,44 @@ export default function ProductDetail() {
                               </p>
                             </div>
                           </div>
+                        ) : product.shipping?.delivery?.homeDeliveryMode === "fixed" ? (
+                          // Envío a precio FIJO definido por el vendedor.
+                          <div className="flex gap-2.5">
+                            <Truck className="w-4 h-4 shrink-0 mt-1 text-gray-500" />
+                            <div>
+                              <p className="text-sm font-medium dark:text-gray-200">
+                                Envío a domicilio:{" "}
+                                <span className="font-bold">
+                                  {formatPrice(
+                                    Number(product.shipping?.cost) || 0,
+                                    product.currency,
+                                  )}
+                                </span>
+                              </p>
+                              <p className="text-gray-500 text-xs">
+                                {product.shipping?.shippingTime
+                                  ? `Despacho en ${String(
+                                      product.shipping.shippingTime,
+                                    ).replace("h", " hs")}`
+                                  : "Coordinás el envío con el vendedor"}
+                              </p>
+                            </div>
+                          </div>
+                        ) : product.shipping?.delivery?.homeDeliveryMode === "arrange" ? (
+                          // Envío a convenir con el vendedor (sin costo en checkout).
+                          <div className="flex gap-2.5">
+                            <Truck className="w-4 h-4 shrink-0 mt-1 text-gray-500" />
+                            <div>
+                              <p className="text-sm font-medium dark:text-gray-200">
+                                Envío a coordinar con el vendedor
+                              </p>
+                              <p className="text-gray-500 text-xs">
+                                Acordás el medio y el costo al comprar
+                              </p>
+                            </div>
+                          </div>
                         ) : (
-                          // Envío a cargo del comprador: cotizamos con Zipnova.
+                          // Modo por defecto: cotización dinámica (Zipnova).
                           <ShippingQuoteBox product={product} />
                         )}
                       </>

@@ -55,6 +55,9 @@ export default function Purchases() {
       pending_payment: { label: 'Pendiente de pago', color: 'text-amber-500 bg-amber-50 dark:bg-amber-900/10', icon: <Clock size={14}/> },
       verifying_payment: { label: 'Verificando pago', color: 'text-blue-500 bg-blue-50 dark:bg-blue-900/10', icon: <AlertCircle size={14}/> },
       paid: { label: 'Pagado', color: 'text-green-500 bg-green-50 dark:bg-green-900/10', icon: <CheckCircle size={14}/> },
+      // El comprador confirmó la recepción: corre el período de seguridad
+      // (buffer) antes de que el admin libere la garantía manualmente.
+      reception_confirmed: { label: 'Recibido', color: 'text-teal-500 bg-teal-50 dark:bg-teal-900/10', icon: <CheckCircle size={14}/> },
       completed: { label: 'Entregado', color: 'text-zinc-500 bg-zinc-100 dark:bg-zinc-800', icon: <Package size={14}/> },
       shipped: { label: 'Despachado', color: 'text-zinc-500 bg-zinc-100 dark:bg-zinc-800', icon: <Truck size={14}/> },
       expired: { label: 'Expirado', color: 'text-zinc-500 bg-zinc-100 dark:bg-zinc-800', icon: <Ban size={14}/> },

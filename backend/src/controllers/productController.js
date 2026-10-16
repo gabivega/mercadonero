@@ -149,15 +149,24 @@ if (!name || !price || !category || !description || (needsBrand && !brand)) {
 };
 // Solo procesamos dimensiones si NO es un clasificado y si viene el objeto shipping
 if (listingType !== 'classified' && shipping) {
-  // ── MÉTODOS DE ENTREGA ──
-  // homeDelivery: envío a domicilio (cotiza con Zipnova). Default true.
+    // ── MÉTODOS DE ENTREGA ──
+  // homeDelivery: envío a domicilio. Default true.
   // pickup: retiro en local del vendedor ($0). Default false.
   // pickupLocationIds: sucursales elegidas (solo si pickup=true).
+  // homeDeliveryMode: QUIÉN gestiona el envío a domicilio:
+  //   "zipnova" (default) → cotización de la plataforma.
+  //   "fixed"             → precio fijo propio (shipping.cost).
+  //   "arrange"           → a convenir (Fase 2).
   const deliveryInput = shipping.delivery || {};
   const pickupEnabled = deliveryInput.pickup === true;
   const pickupLocationIds = pickupEnabled && Array.isArray(deliveryInput.pickupLocationIds)
     ? deliveryInput.pickupLocationIds.filter((id) => id)
     : [];
+  // Normalizamos el modo al enum permitido (nunca guardamos un valor inválido).
+  const ALLOWED_DELIVERY_MODES = ["zipnova", "fixed", "arrange"];
+  const homeDeliveryMode = ALLOWED_DELIVERY_MODES.includes(deliveryInput.homeDeliveryMode)
+    ? deliveryInput.homeDeliveryMode
+    : "zipnova";
 
   finalShipping = {
     isDigital: !!shipping.isDigital,
@@ -175,6 +184,9 @@ if (listingType !== 'classified' && shipping) {
       homeDelivery: shipping.isDigital ? false : (deliveryInput.homeDelivery !== false),
       pickup: shipping.isDigital ? false : pickupEnabled,
       pickupLocationIds,
+      // Modo de cotización del envío a domicilio (persistirlo es CLAVE: sin
+      // esto, el checkout y el detalle siempre caían a la cotización Zipnova).
+      homeDeliveryMode,
     },
   };
 }
@@ -756,12 +768,33 @@ export const updateProduct = async (req, res) => {
             ? updateData.referral
             : product.referral;
 
-        if (resultingSocialSelling?.enabled && resultingReferral?.enabled) {
+                if (resultingSocialSelling?.enabled && resultingReferral?.enabled) {
           return res.status(400).json({
             success: false,
             message:
               "La Compra en Grupo y el Programa de Referidos son excluyentes. Desactivá uno para continuar.",
           });
+        }
+
+        // ── NORMALIZACIÓN DEL MODO DE ENVÍO A DOMICILIO (AL EDITAR) ──
+        // El modo (`homeDeliveryMode`) define QUIÉN gestiona el envío a
+        // domicilio. Como el checkout y el detalle dependen de este campo para
+        // decidir entre cotizar con Zipnova o usar un precio fijo, lo
+        // normalizamos al enum permitido (y a "zipnova" si llega vacío/ inválido)
+        // para que NUNCA quede un valor ausente que arrastre un default
+        // inesperado. Solo tocamos `delivery` si el cliente mandó `shipping`.
+        if (updateData.shipping && typeof updateData.shipping === "object") {
+          const ALLOWED_DELIVERY_MODES = ["zipnova", "fixed", "arrange"];
+          const deliveryInput = updateData.shipping.delivery || {};
+          const homeDeliveryMode = ALLOWED_DELIVERY_MODES.includes(
+            deliveryInput.homeDeliveryMode,
+          )
+            ? deliveryInput.homeDeliveryMode
+            : "zipnova";
+          updateData.shipping.delivery = {
+            ...deliveryInput,
+            homeDeliveryMode,
+          };
         }
 
         const updatedProduct = await Product.findByIdAndUpdate(

@@ -16,8 +16,9 @@ import LoadingSpinner from './LoadingSpinner';
  *   - Marca el pedido como "listo para retirar" (pickupReady).
  *   - Confirma que el comprador retiró el producto (pickupConfirmed).
  * COMPRADOR:
- *   - Confirma que retiró el pedido (status: "completed"), lo que cierra
- *     la orden y libera los fondos al vendedor.
+ *   - Confirma que retiró el pedido. El backend pasa la orden a
+ *     "reception_confirmed", lo que inicia el período de seguridad (buffer de
+ *     protección) antes de que el admin libere los fondos al vendedor.
  */
 export default function PickupActionCard({ order, role, onUpdate }) {
   const { getAccessToken } = usePrivy();
@@ -31,9 +32,18 @@ export default function PickupActionCard({ order, role, onUpdate }) {
   const readyForPickup = !!details.readyForPickup;
   const pickedUp = !!details.pickedUp;
 
+  // El comprador YA confirmó el retiro (la orden pasó a 'reception_confirmed'
+  // o 'completed'). En ese caso NO debe volver a mostrarse el botón de
+  // confirmar, aunque el vendedor haya dejado pickupDetails.pickedUp / ready
+  // en true.
+  const alreadyConfirmed = ['reception_confirmed', 'completed'].includes(
+    order.status,
+  );
+
   // El comprador puede confirmar el retiro cuando la orden está 'paid' y el
   // vendedor ya la marcó lista (o directamente registró el retiro).
-  const buyerCanComplete = readyForPickup || pickedUp;
+  const buyerCanComplete =
+    !alreadyConfirmed && (readyForPickup || pickedUp);
 
   // Texto del overlay de carga.
   // ⚠️ El vendedor NUNCA libera los fondos (eso lo hace el comprador al
@@ -186,6 +196,10 @@ export default function PickupActionCard({ order, role, onUpdate }) {
     setLoading(true);
     const token = await getAccessToken();
     try {
+      // El comprador confirma que recibió el pedido. El BACKEND traduce esto a
+      // 'reception_confirmed' (buffer de protección antes de liberar), igual
+      // que en el envío a domicilio. No mandamos 'reception_confirmed' directo
+      // para no depender de un input no documentado.
       const { data } = await axios.patch(
         `${import.meta.env.VITE_SERVER_URL}/api/order/${order._id}`,
         { status: 'completed' },
@@ -245,9 +259,14 @@ export default function PickupActionCard({ order, role, onUpdate }) {
                   ? 'El pedido está marcado como listo. Confirmá la entrega cuando el comprador lo retire.'
                   : 'Tu pedido te espera. Acercate al punto de retiro, retiralo y confirmá la recepción.')}
               {pickedUp &&
+                !alreadyConfirmed &&
                 (role === 'seller'
                   ? 'Registraste la entrega. Esperando que el comprador confirme el retiro para cerrar la compra.'
-                  : 'Confirmá el retiro para completar la compra y liberar los fondos al vendedor.')}
+                  : 'El vendedor registró la entrega. Confirmá el retiro para completar la compra.')}
+              {alreadyConfirmed &&
+                (role === 'seller'
+                  ? 'El comprador confirmó el retiro. Durante el período de seguridad se liberará tu garantía.'
+                  : 'Confirmaste el retiro. Se activó el período de protección de tu compra antes de liberar los fondos al vendedor.')}
             </p>
 
             {/* Datos del punto de retiro */}

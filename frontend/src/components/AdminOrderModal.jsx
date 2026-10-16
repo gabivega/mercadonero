@@ -320,8 +320,11 @@ const AdminOrderModal = ({ order, isOpen, onClose, onAction }) => {
             </button>
           )}
 
-                    {/* LIBERACIÓN MANUAL DE GARANTÍA SOLICITADA POR EL VENDEDOR */}
-                    {!['completed', 'cancelled', 'expired'].includes(order.status) &&
+                                        {/* LIBERACIÓN MANUAL DE GARANTÍA SOLICITADA POR EL VENDEDOR → cancela la orden.
+                        Solo tiene sentido si el VENDEDOR abrió una solicitud de cancelación/liberación
+                        (releaseRequest). Se excluye 'reception_confirmed' porque en ese estado la venta
+                        ya está encaminada a completarse (usar "Completar Orden y Liberar Garantía"). */}
+                    {!['completed', 'cancelled', 'expired', 'reception_confirmed'].includes(order.status) &&
                       order.releaseRequest?.exists && (
                         <button
                           onClick={() => onAction(order._id, 'release_guarantee')}
@@ -331,14 +334,18 @@ const AdminOrderModal = ({ order, isOpen, onClose, onAction }) => {
                         </button>
                       )}
 
-                                        {/* LIBERACIÓN MANUAL DE GARANTÍA (Admin).
-                                            Se muestra siempre que la orden no esté completada/expirada ni
-                                            pendiente de pago. Ya NO se oculta cuando existe releaseTxHash:
-                                            un releaseTxHash puede ser un FALSO POSITIVO (la tx se minó
-                                            pero el colateral quedó congelado), así que el admin necesita
-                                            poder re-liberar/verificar. La verificación on-chain previa se
-                                            hace con el botón "Verificar estado de colateral". */}
-                                        {![ 'completed', 'expired' ].includes(order.status) &&
+                                                                                {/* LIBERACIÓN MANUAL DE GARANTÍA (Admin) → cancela la orden.
+                                            Se muestra cuando la orden NO está completada/expirada, NO está
+                                            pendiente de pago y NO está en 'reception_confirmed'. En
+                                            'reception_confirmed' el camino correcto es "Completar Orden y
+                                            Liberar Garantía" (admin_complete), que CIERRA la venta; este
+                                            botón (release_guarantee) CANCELA la orden, por lo que ocultarlo
+                                            evita que el admin cierre por error una venta ya recibida.
+                                            Ya NO se oculta cuando existe releaseTxHash: un releaseTxHash
+                                            puede ser un FALSO POSITIVO (la tx se minó pero el colateral quedó
+                                            congelado). La verificación on-chain previa se hace con el botón
+                                            "Verificar colateral (on-chain)". */}
+                                        {![ 'completed', 'expired', 'reception_confirmed' ].includes(order.status) &&
                                           order.status !== 'pending_payment' && (
                                           <button 
                                             onClick={() => onAction(order._id, 'release_guarantee')}

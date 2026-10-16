@@ -323,7 +323,7 @@ const ConfirmPaymentAction = ({ orderId, onUpdate, order }) => {
           <>El comprador indica que ya realizó el pago. {canReportMissingPayment ? (
             <>Verifica tu cuenta. Si el dinero <b>no te llegó</b>, podés reportarlo con el menú <b>(⋯)</b> de arriba a la derecha.</>
           ) : (
-            <>Verifica tu cuenta antes de confirmar para evitar inconvenientes.</>
+            <>Verifica tu cuenta y asegura que el pago fue realizado por el titular de la cuenta que realizó la compra.</>
           )}</>
         )}
       </p>

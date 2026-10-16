@@ -26,6 +26,21 @@ import { transitionToStatus } from "./orderHelpers.js";
 // ─────────────────────────────────────────────────────────────
 // CONFIGURACIÓN / POLÍTICA (parametrizable)
 // ─────────────────────────────────────────────────────────────
+// ⚠️ FASE TRANSITORIA — LÍMITE DE HOLDS DE COLATERAL (switch por env).
+//
+// Mientras el flujo de BUFFER (reception_confirmed → liberación manual del
+// admin) no esté aceitado, el colateral de las órdenes que el comprador ya
+// confirmó queda CONGELADO on-chain hasta que el admin lo libere. Eso baja el
+// "saldo disponible" del vendedor y dispara FALSOS "no puede recibir más
+// solicitudes en espera de garantía".
+//
+// Para no bloquear ventas legítimas durante esta fase, permitimos DESACTIVAR
+// el límite con COLLATERAL_HOLD_LIMIT_ENABLED=false (default: true = activo).
+// Cuando el buffer esté resuelto, se reactiva solo cambiando la env.
+const HOLD_LIMIT_ENABLED =
+  String(process.env.COLLATERAL_HOLD_LIMIT_ENABLED ?? "true").toLowerCase() !==
+  "false";
+
 const MAX_ACTIVE_HOLDS_PER_VENDOR = 2;
 const MAX_EXPIRED_HOLDS_PER_DAY = 3;
 const HOLD_MS = 15 * 60 * 1000; // 15 minutos
@@ -36,6 +51,7 @@ export const COLLATERAL_HOLD_CONFIG = {
   MAX_ACTIVE_HOLDS_PER_VENDOR,
   MAX_EXPIRED_HOLDS_PER_DAY,
   HOLD_MS,
+  LIMIT_ENABLED: HOLD_LIMIT_ENABLED,
 };
 
 /**
@@ -67,6 +83,17 @@ export async function getVendorReservedHoldUsd(sellerId) {
  * Devuelve { ok, reason, counts } para poder diagnosticar y mostrar mensajes.
  */
 export async function validateVendorHoldCapacity(sellerId) {
+  // Límite deshabilitado por env (fase transitoria del buffer). Permitimos
+  // siempre el hold: el control real de capacidad sigue siendo el saldo
+  // on-chain del vendedor (un hold sin saldo igualmente no se puede resolver).
+  if (!HOLD_LIMIT_ENABLED) {
+    return {
+      ok: true,
+      disabled: true,
+      counts: { activeCount: 0, expiredToday: 0 },
+    };
+  }
+
   const now = new Date();
   const dayStart = new Date(now);
   dayStart.setHours(0, 0, 0, 0);

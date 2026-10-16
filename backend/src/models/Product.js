@@ -117,8 +117,8 @@ const ProductSchema = new Schema(
         enum: ["shipping_service", "pickup", "both"],
         default: "both",
       },
-      // ── MÉTODOS DE ENTREGA HABILITADOS POR EL VENDEDOR ──
-      // homeDelivery: envío a domicilio vía courier (cotiza con Zipnova).
+            // ── MÉTODOS DE ENTREGA HABILITADOS POR EL VENDEDOR ──
+      // homeDelivery: envío a domicilio (a través de courier).
       // pickup: retiro en local del vendedor (SIN CARGO, no usa Zipnova).
       // pickupLocationIds: subconjunto de User.shop.pickupLocations que ESTE
       //   producto ofrece. Si está vacío y pickup=true, se asumen TODOS los
@@ -127,6 +127,25 @@ const ProductSchema = new Schema(
         homeDelivery: { type: Boolean, default: true },
         pickup: { type: Boolean, default: false },
         pickupLocationIds: [{ type: Schema.Types.ObjectId }],
+        // ── MODO DE COTIZACIÓN DEL ENVÍO A DOMICILIO ──
+        // Define QUIÉN gestiona y cobra el envío cuando homeDelivery=true.
+        //   "zipnova" → cotización DINÁMICA de la plataforma (Zipnova). El
+        //               comprador elige la opción más conveniente y el costo
+        //               real LO PAGA NERO: se descuenta del neto del vendedor
+        //               (colateral/escrow). Requiere que el producto tenga
+        //               peso y dimensiones cargados.
+        //   "fixed"   → el vendedor define un precio FIJO (shipping.cost). El
+        //               envío se le liquida AL VENDEDOR como hoy (él contrata
+        //               el correo por su cuenta).
+        //   "arrange" → a convenir con el comprador (sin costo en checkout).
+        //               FASE 2: creado pero todavía NO expuesto en la UI.
+        // Si shipping.free === true, este modo es irrelevante (envío $0): el
+        // vendedor absorbe el costo de cualquiera sea el courier.
+        homeDeliveryMode: {
+          type: String,
+          enum: ["zipnova", "fixed", "arrange"],
+          default: "zipnova",
+        },
       },
             dimensions: {
         weight: Number, // en kg

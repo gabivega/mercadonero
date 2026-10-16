@@ -224,7 +224,7 @@ export const sendOrderCompletedToVendor = async ({
     const { data, error } = await resend.emails.send({
       from: FROM_EMAIL,
       to: [vendorEmail],
-      subject: `✅ Orden #${shortOrderId} completada - Fondos liberados`,
+      subject: `✅ Orden #${shortOrderId} completada`,
       html: `
         <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
           <h2 style="color: #111;">¡Tu venta fue completada!</h2>
@@ -234,7 +234,7 @@ export const sendOrderCompletedToVendor = async ({
             <p style="margin: 5px 0 0 0;"><strong>Importe:</strong> $${amount} ARS</p>
           </div>
           <p style="font-size: 13px; color: #555;">
-            Tus fondos fueron liberados desde el Escrow. Podés ver el detalle completo en tu panel, sección <strong>"Mis Ventas"</strong>.
+            Tus fondos en garantía permanecen bloqueados por proteccion al comprador durante al menos 24 hs. Podés ver el detalle completo en tu panel, sección <strong>"Mis Ordenes"</strong>.
           </p>
         </div>
       `,

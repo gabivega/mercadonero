@@ -21,8 +21,15 @@ import LoadingSpinner from "../../components/LoadingSpinner";
 const typeMeta = {
   order_created: { icon: ShoppingBag, color: "text-blue-500 bg-blue-50 dark:bg-blue-900/20" },
   payment_confirmed: { icon: CreditCard, color: "text-purple-500 bg-purple-50 dark:bg-purple-900/20" },
-  order_shipped: { icon: Truck, color: "text-indigo-500 bg-indigo-50 dark:bg-indigo-900/20" },
+    order_shipped: { icon: Truck, color: "text-indigo-500 bg-indigo-50 dark:bg-indigo-900/20" },
   order_completed: { icon: CheckCircle2, color: "text-green-500 bg-green-50 dark:bg-green-900/20" },
+  // Flujo de retiro en sucursal (pickup)
+  order_ready_for_pickup: { icon: ShoppingBag, color: "text-indigo-500 bg-indigo-50 dark:bg-indigo-900/20" },
+  order_picked_up: { icon: Truck, color: "text-indigo-500 bg-indigo-50 dark:bg-indigo-900/20" },
+  // El comprador confirmó la recepción (arranca el buffer de seguridad)
+  order_reception_confirmed: { icon: ShieldCheck, color: "text-teal-500 bg-teal-50 dark:bg-teal-900/20" },
+  // Recordatorio interno al admin: orden lista para liberar la garantía
+  order_pending_release: { icon: ShieldCheck, color: "text-emerald-500 bg-emerald-50 dark:bg-emerald-900/20" },
     order_cancelled: { icon: XCircle, color: "text-red-500 bg-red-50 dark:bg-red-900/20" },
   // Recordatorios de calificar / reviews recibidas
   rating_reminder: { icon: Star, color: "text-amber-500 bg-amber-50 dark:bg-amber-900/20" },

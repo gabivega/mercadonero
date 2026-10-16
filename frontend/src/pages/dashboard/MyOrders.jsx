@@ -50,28 +50,39 @@ export default function MyOrders() {
     fetchPools();
   }, [fetchSellerPools]);
 
-    const getStatusStyle = (status) => {
+        const getStatusStyle = (status) => {
     switch (status) {
-      case 'pending': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
+      case 'pending':
+      case 'pending_payment':
       case 'awaiting_collateral': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
+      case 'verifying_payment':
       case 'payment_submitted': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
+      case 'paid':
       case 'payment_confirmed': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400';
       case 'shipped': return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400';
+      // El comprador confirmó la recepción: corre el período de seguridad
+      // (buffer) antes de que el admin libere la garantía.
+      case 'reception_confirmed': return 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400';
       case 'completed': return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
-      case 'expired': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+      case 'expired':
+      case 'cancelled': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
       default: return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400';
     }
   };
 
   const translateStatus = (status) => {
     const map = {
-      pending: 'Pendiente Pago',
+            pending: 'Pendiente Pago',
+      pending_payment: 'Pendiente de pago',
       awaiting_collateral: 'Espera de Garantía',
       payment_submitted: 'Pago Enviado',
       verifying_payment: 'Pago por verificar',
       payment_confirmed: 'Pago Recibido',
+      paid: 'Pagado',
       shipped: 'Enviado',
+      reception_confirmed: 'Recibido',
       completed: 'Finalizada',
+      cancelled: 'Cancelada',
       expired: 'Expirada'
     };
     return map[status] || status;

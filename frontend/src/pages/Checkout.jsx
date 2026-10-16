@@ -861,11 +861,52 @@ const step1 = await Swal.fire({
   }, [cart, sellerId]);
 
     // ¿El pedido permite RETIRO EN SUCURSAL? Basta con que algún producto del
-  // vendedor tenga habilitado el retiro (shipping.delivery.pickup === true).
-  const pickupAvailable = useMemo(
-    () => sellerProducts.some((p) => p.shipping?.delivery?.pickup === true),
-    [sellerProducts],
-  );
+    // vendedor tenga habilitado el retiro (shipping.delivery.pickup === true).
+    const pickupAvailable = useMemo(
+      () => sellerProducts.some((p) => p.shipping?.delivery?.pickup === true),
+      [sellerProducts],
+    );
+
+    // ── MODO DE ENVÍO A DOMICILIO DEL PEDIDO ──
+    // Define CÓMO se determina el costo del envío a domicilio:
+    //   "zipnova" → cotización dinámica de la plataforma.
+    //   "fixed"   → precio fijo propio del vendedor (shipping.cost).
+    //   "arrange" → a convenir (sin costo en el checkout).
+    // Regla: si CUALQUIER producto del vendedor pide cotización (zipnova),
+    // cotizamos; si no, y hay un precio fijo, usamos ese; si es a convenir,
+    // mostramos $0 (se coordina después). Por defecto: zipnova (compatibilidad
+    // con productos viejos que no tienen el campo guardado).
+    const homeDeliveryMode = useMemo(() => {
+      const modes = sellerProducts.map(
+        (p) => p.shipping?.delivery?.homeDeliveryMode || "zipnova",
+      );
+      if (modes.includes("zipnova")) return "zipnova";
+      if (modes.includes("fixed")) return "fixed";
+      if (modes.includes("arrange")) return "arrange";
+      return "zipnova";
+    }, [sellerProducts]);
+
+    // ¿Este pedido requiere COTIZAR con Zipnova? Solo en modo "zipnova" y con
+    // envío a domicilio no-gratuito.
+    const usesZipnovaQuote = useMemo(() => {
+      if (deliveryMethod === "pickup") return false;
+      const allFree = sellerProducts.every(
+        (p) => p.shipping?.free || p.shipping?.isDigital,
+      );
+      if (allFree) return false;
+      return homeDeliveryMode === "zipnova";
+    }, [sellerProducts, deliveryMethod, homeDeliveryMode]);
+
+    // Costo FIJO de envío del pedido (modo "fixed"). Como el carrito puede tener
+    // varios productos del vendedor, tomamos el costo más alto cargado (no sumamos
+    // envíos: el comprador paga UN envío por pedido). 0 en otros modos.
+    const fixedShippingCost = useMemo(() => {
+      if (homeDeliveryMode !== "fixed") return 0;
+      const costs = sellerProducts
+        .map((p) => Number(p.shipping?.cost) || 0)
+        .filter((c) => c > 0);
+      return costs.length > 0 ? Math.max(...costs) : 0;
+    }, [sellerProducts, homeDeliveryMode]);
 
     // ── MÉTODOS DE PAGO HABILITADOS PARA ESTE PEDIDO ──
   // Cada producto declara qué medios acepta (payment.acceptsTransfer /
@@ -912,7 +953,7 @@ const total = useMemo(() => {
 //   • Si hay cotización de Zipnova elegida → usamos SU precio (dinámico).
 //   • Fallback (aún sin cotizar / error): el costo fijo más alto del producto,
 //     solo para no mostrar 0 mientras llega la cotización.
-    const shippingTotal = useMemo(() => {
+        const shippingTotal = useMemo(() => {
   // Si el comprador eligió RETIRO EN SUCURSAL, el envío es GRATIS.
   if (deliveryMethod === "pickup") return 0;
 
@@ -922,29 +963,40 @@ const total = useMemo(() => {
   );
   if (allFree) return 0;
 
-  // Cotización elegida (Zipnova). Es la ÚNICA fuente de verdad del costo de
-  // envío. Mientras no haya una opción cotizada seleccionada, NO inventamos un
-  // costo fijo de respaldo (antes eso mostraba precios/“Gratis” incorrectos en
-  // el resumen). Devolvemos 0 y mostramos un estado "A cotizar" hasta que
-  // llegue la cotización real.
+  // Modo "fixed": el envío es el precio FIJO que definió el vendedor.
+  if (homeDeliveryMode === "fixed") {
+    return Math.round(fixedShippingCost);
+  }
+
+  // Modo "arrange": a convenir → sin costo en el checkout ($0).
+  if (homeDeliveryMode === "arrange") {
+    return 0;
+  }
+
+  // Modo "zipnova": la cotización elegida es la ÚNICA fuente de verdad.
+  // Mientras no haya una opción cotizada seleccionada, devolvemos 0 y
+  // mostramos "A cotizar" (ver shippingPending).
   if (selectedShipping && Number(selectedShipping.price) > 0) {
     return Math.round(Number(selectedShipping.price));
   }
 
   return 0;
-}, [sellerProducts, deliveryMethod, selectedShipping]);
+}, [sellerProducts, deliveryMethod, selectedShipping, homeDeliveryMode, fixedShippingCost]);
 
-// ¿Estamos esperando la cotización del envío? (Envío a domicilio, no gratis,
-// sin opción cotizada todavía.) Se usa para mostrar "A cotizar" en el resumen
-// en lugar de un "Gratis" engañoso.
+// ¿Estamos esperando la cotización del envío? Solo en modo "zipnova" (envío a
+// domicilio, no gratis, sin opción cotizada todavía). Se usa para mostrar
+// "A cotizar" en el resumen en lugar de un "Gratis" engañoso. En modo "fixed"
+// o "arrange" NUNCA queda pendiente (no hay nada que cotizar).
 const shippingPending = useMemo(() => {
   if (deliveryMethod === "pickup") return false;
   const allFree = sellerProducts.every(
     (p) => p.shipping?.free || p.shipping?.isDigital,
   );
   if (allFree) return false;
+  // Solo el modo zipnova requiere esperar una cotización.
+  if (homeDeliveryMode !== "zipnova") return false;
   return !(selectedShipping && Number(selectedShipping.price) > 0);
-}, [sellerProducts, deliveryMethod, selectedShipping]);
+}, [sellerProducts, deliveryMethod, selectedShipping, homeDeliveryMode]);
 
 // ¿La opción de envío elegida EXIGE elegir un punto de entrega y todavía no
 // hay uno seleccionado? (Servicios tipo Correo Argentino/OCA con sucursales.)
@@ -1167,21 +1219,54 @@ if (!authenticated ||  !dbUser ) {
                 </div>
               )}
 
-              {/* COTIZACIÓN DE ENVÍO (ZIPNOVA) — se suma al total transferir.
-                  Solo cuando hay dirección: cotizamos los productos del
-                  vendedor y el comprador elige la opción de envío. */}
+                            {/* COTIZACIÓN DE ENVÍO (ZIPNOVA) — se suma al total a transferir.
+                  Solo cuando hay dirección Y el modo del pedido es "zipnova"
+                  (envío a domicilio cotizado por la plataforma). En modo
+                  "fixed" mostramos el precio fijo del vendedor; en "arrange",
+                  un aviso de que el envío se coordina después. */}
               {selectedAddress && (
                 <div className="mt-6 pt-6 border-t border-zinc-100 dark:border-zinc-800">
-                  <h4 className="flex items-center gap-2 font-bold text-gray-800 dark:text-gray-100 mb-4 text-sm">
-                    <Truck className="text-[#3483fa]" size={18} />
-                    Opciones de envío
-                  </h4>
-                                    <CheckoutShippingSelector
-                    products={sellerProducts}
-                    address={selectedAddress}
-                    deliveryMethod={deliveryMethod}
-                    onShippingChange={handleShippingChange}
-                  />
+                  {usesZipnovaQuote ? (
+                    <>
+                      <h4 className="flex items-center gap-2 font-bold text-gray-800 dark:text-gray-100 mb-4 text-sm">
+                        <Truck className="text-[#3483fa]" size={18} />
+                        Opciones de envío
+                      </h4>
+                      <CheckoutShippingSelector
+                        products={sellerProducts}
+                        address={selectedAddress}
+                        deliveryMethod={deliveryMethod}
+                        onShippingChange={handleShippingChange}
+                      />
+                    </>
+                  ) : homeDeliveryMode === "fixed" ? (
+                    <div className="flex items-start gap-3 p-4 rounded-2xl border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10">
+                      <Truck className="text-[#3483fa] shrink-0 mt-0.5" size={18} />
+                      <div>
+                        <p className="text-sm font-semibold dark:text-white">
+                          Envío a domicilio:{" "}
+                          ${formatMoney(fixedShippingCost)}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          El vendedor gestiona el envío e informa el costo. Se
+                          suma al total de tu compra.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-3 p-4 rounded-2xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10">
+                      <Truck className="text-amber-500 shrink-0 mt-0.5" size={18} />
+                      <div>
+                        <p className="text-sm font-semibold dark:text-white">
+                          Envío a coordinar con el vendedor
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          El vendedor te contactará para acordar el medio y el
+                          costo del envío.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </section>

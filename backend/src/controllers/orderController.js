@@ -66,6 +66,86 @@ import { isAdminUser, findAdminUser } from "../middleware/isAdmin.js";
 // ─────────────────────────────────────────────────────────────
 const RELEASE_BUFFER_HOURS = Number(process.env.RELEASE_BUFFER_HOURS || 24);
 
+/**
+ * Normaliza el PUNTO DE ENTREGA elegido por el comprador al subdocumento
+ * `shippingDetails.pickupPoint` del modelo Order.
+ *
+ * El front (CheckoutShippingSelector) manda el punto ya normalizado por
+ * `normalizePickupPoint` ({ id, name, street, streetNumber, city, state,
+ * zipcode, openHours, phone }). Por robustez también aceptamos el shape crudo
+ * de Zipnova ({ point_id, description, location: {...} }).
+ *
+ * Devuelve `undefined` si no hay punto (entrega a domicilio normal) o si el
+ * snapshot quedó vacío, para no persistir basura.
+ *
+ * ¿Por qué lo guardamos? Para que el VENDEDOR sepa a qué sucursal despachar
+ * (Correo Argentino / OCA, etc.) cuando el comprador elige RETIRAR EN SUCURSAL,
+ * aunque todavía NO generemos el envío vía API de Zipnova (carga manual).
+ */
+const buildPickupPointSnapshot = (pickupPoint) => {
+  if (!pickupPoint || typeof pickupPoint !== "object") return undefined;
+  const loc = pickupPoint.location || pickupPoint.address || {};
+  const pointId =
+    pickupPoint.id ??
+    pickupPoint.point_id ??
+    (loc.street ? `${loc.street}-${loc.street_number}` : null);
+  const snapshot = {
+    pointId: pointId != null ? String(pointId) : null,
+    name: pickupPoint.name || pickupPoint.description || "",
+    street: pickupPoint.street || loc.street || "",
+    streetNumber:
+      pickupPoint.streetNumber ||
+      loc.street_number ||
+      pickupPoint.street_number ||
+      "",
+    city: pickupPoint.city || loc.city || "",
+    state: pickupPoint.state || loc.state || "",
+    zipcode: pickupPoint.zipcode || loc.zipcode || "",
+    openHours:
+      pickupPoint.openHours ||
+      pickupPoint.open_hours ||
+      pickupPoint.opening_hours ||
+      "",
+    phone: pickupPoint.phone || "",
+  };
+  // Si no hay NINGÚN dato útil, no guardamos un snapshot vacío.
+  const hasData =
+    snapshot.name || snapshot.street || snapshot.city || snapshot.pointId;
+  return hasData ? snapshot : undefined;
+};
+
+/**
+ * Construye el subdocumento `shippingDetails` a persistir en la orden a partir
+ * de la metadata de la cotización (req._shippingQuoteMeta) y del punto de
+ * entrega elegido por el comprador (shippingQuote.pickupPoint).
+ *
+ * Guardamos TODO lo que el comprador eligió (carrier, servicio, precio y punto
+ * de entrega) para que el VENDEDOR pueda cargar el envío manualmente en el
+ * dashboard de Zipnova. NO generamos el envío por API todavía.
+ *
+ * Devuelve `undefined` cuando no hay nada logístico que guardar (retiro en
+ * sucursal del local, o modo "fixed"/"arrange" sin punto de entrega).
+ */
+const buildShippingDetails = (isPickup, shippingQuote, meta) => {
+  if (isPickup) return undefined;
+  const pickupPoint = buildPickupPointSnapshot(shippingQuote?.pickupPoint);
+
+  // En modo "fixed"/"arrange" no hay cotización (meta undefined) y, si además
+  // no hay punto de entrega, no hay nada logístico que persistir.
+  if (!meta && !pickupPoint) return undefined;
+
+  return {
+    provider: meta?.carrierName,
+    serviceName: meta?.serviceName,
+    // otherProviderDetail mantenía el servicio elegido; ahora que tenemos
+    // `serviceName` dedicado, lo usamos para el nombre del punto de entrega
+    // (o lo dejamos undefined si no aplica).
+    otherProviderDetail: pickupPoint?.name || undefined,
+    quotedPrice: meta?.price != null ? Number(meta.price) : undefined,
+    pickupPoint,
+  };
+};
+
 const createOrder = async (req, res) => {
   try {
                                 const { sellerId, items, shippingAddress, paymentMethod = "bank_transfer", token = "USDT", deliveryMethod = "shipping", pickupLocation = null, referrerId = null, shippingQuote = null } = req.body;
@@ -232,7 +312,28 @@ const createOrder = async (req, res) => {
       (it) => it.shipping?.free || it.shipping?.isDigital,
     );
 
-    if (!isPickup && !allFreeShipping) {
+    // ─────────────────────────────────────────────────────────────
+    // MODO DE ENVÍO A DOMICILIO DEL PEDIDO
+    //   "zipnova" → cotización dinámica de la plataforma (default).
+    //   "fixed"   → precio fijo propio del vendedor (shipping.cost).
+    //   "arrange" → a convenir (sin costo en el checkout).
+    // La cotización de Zipnova SOLO aplica en modo "zipnova". Si CUALQUIER
+    // producto pide cotización, cotizamos (regla de intersección segura); si
+    // no hay ninguno zipnova, NUNCA llamamos a Zipnova ni pisamos el costo fijo.
+    // (Productos viejos sin el campo → se asume "zipnova" por compatibilidad.)
+    // ─────────────────────────────────────────────────────────────
+    const homeDeliveryMode = itemsSnapshot.some(
+      (it) => (it.shipping?.delivery?.homeDeliveryMode || "zipnova") === "zipnova",
+    )
+      ? "zipnova"
+      : itemsSnapshot.some(
+            (it) => it.shipping?.delivery?.homeDeliveryMode === "fixed",
+          )
+        ? "fixed"
+        : "arrange";
+
+    // Solo cotizamos con Zipnova si el modo del pedido lo requiere.
+    if (!isPickup && !allFreeShipping && homeDeliveryMode === "zipnova") {
       const declaredValue = calculatedTotal;
       const zipItems = itemsSnapshot.flatMap((it) =>
         Array.from({ length: it.quantity || 1 }, () => {
@@ -409,14 +510,14 @@ const createOrder = async (req, res) => {
                 shippingAddress: effectiveShippingAddress,
         deliveryMethod: isPickup ? "pickup" : "shipping",
         pickupLocation: isPickup ? (pickupLocation || undefined) : undefined,
-        // Guardamos el carrier/servicio elegido en la cotización (auditoría).
-        shippingDetails:
-          !isPickup && req._shippingQuoteMeta
-            ? {
-                provider: req._shippingQuoteMeta.carrierName,
-                otherProviderDetail: req._shippingQuoteMeta.serviceName,
-              }
-            : undefined,
+        // Guardamos carrier/servicio/precio elegido + PUNTO DE ENTREGA (sucursal
+        // donde el comprador retira, si aplica) para que el vendedor despache
+        // correctamente, incluso en cargas manuales de Zipnova.
+        shippingDetails: buildShippingDetails(
+          isPickup,
+          shippingQuote,
+          req._shippingQuoteMeta,
+        ),
         totalAmount: calculatedTotal + maxShippingCost,
         productsAmount: calculatedTotal,
         shippingAmount: maxShippingCost,
@@ -502,14 +603,14 @@ const createOrder = async (req, res) => {
             shippingAddress: effectiveShippingAddress,
       deliveryMethod: isPickup ? "pickup" : "shipping",
       pickupLocation: isPickup ? (pickupLocation || undefined) : undefined,
-      // Guardamos el carrier/servicio elegido en la cotización (auditoría).
-      shippingDetails:
-        !isPickup && req._shippingQuoteMeta
-          ? {
-              provider: req._shippingQuoteMeta.carrierName,
-              otherProviderDetail: req._shippingQuoteMeta.serviceName,
-            }
-          : undefined,
+      // Guardamos carrier/servicio/precio elegido + PUNTO DE ENTREGA (sucursal
+      // donde el comprador retira, si aplica) para que el vendedor despache
+      // correctamente, incluso en cargas manuales de Zipnova.
+      shippingDetails: buildShippingDetails(
+        isPickup,
+        shippingQuote,
+        req._shippingQuoteMeta,
+      ),
       totalAmount: calculatedTotal + maxShippingCost,
       productsAmount: calculatedTotal,
       shippingAmount: maxShippingCost,
@@ -1274,6 +1375,12 @@ const updateOrder = async (req, res) => {
       const releaseEligibleAt = new Date(
         now.getTime() + RELEASE_BUFFER_HOURS * 60 * 60 * 1000,
       );
+      // ⚠️ CRÍTICO: la orden DEBE pasar a "reception_confirmed" (no a
+      // "completed"). Sin esta línea la orden quedaba en su estado previo
+      // ('paid' o 'shipped'): se grababan los timestamps del buffer pero el
+      // status no cambiaba, por lo que el comprador seguía viendo el botón de
+      // confirmar y la UI nunca mostraba el período de protección.
+      order.status = "reception_confirmed";
       order.receptionConfirmedAt = now;
       order.releaseEligibleAt = releaseEligibleAt;
       order.statusHistory.push({
@@ -1293,7 +1400,7 @@ const updateOrder = async (req, res) => {
         recipient: order.seller,
         type: "order_reception_confirmed",
         title: "El comprador confirmó la recepción",
-        message: `La orden #${shortId} fue marcada como recibida. Tu garantía se liberará dentro de las próximas ${RELEASE_BUFFER_HOURS}h (período de seguridad).`,
+        message: `La orden #${shortId} fue marcada como recibida. Tu garantía se liberará después de las próximas ${RELEASE_BUFFER_HOURS}h (período de seguridad).`,
         data: { orderId: order._id, totalAmount: order.totalAmount },
       }).catch(() => {});
       if (sellerInfo?.email) {
@@ -1312,7 +1419,7 @@ const updateOrder = async (req, res) => {
         createNotification({
           recipient: adminUser._id,
           type: "order_pending_release",
-          title: "Orden lista para liberar garantía",
+          title: "ADMIN: Orden lista para liberar garantía",
           message: `El comprador confirmó la recepción de la orden #${shortId}. Revisá y liberá la garantía tras el período de seguridad (disponible desde ${releaseEligibleAt.toLocaleString("es-AR")}).`,
           data: { orderId: order._id, releaseEligibleAt },
         }).catch(() => {});

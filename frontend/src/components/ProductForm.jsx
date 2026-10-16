@@ -65,14 +65,19 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
         height: "",
       },
       shippingTime: "24h",
-      // ── MÉTODOS DE ENTREGA HABILITADOS ──
-      // homeDelivery: envío a domicilio (Zipnova). ON por defecto.
+            // ── MÉTODOS DE ENTREGA HABILITADOS ──
+      // homeDelivery: envío a domicilio. ON por defecto.
       // pickup: retiro en local del vendedor ($0). OFF por defecto.
       // pickupLocationIds: sucursales elegidas (solo si pickup=true).
+      // homeDeliveryMode: cómo se cotiza el envío a domicilio:
+      //   "zipnova" → cotización dinámica de la plataforma.
+      //   "fixed"   → precio fijo propio (shipping.cost).
+      //   "arrange" → a convenir con el comprador (Fase 2).
       delivery: {
         homeDelivery: true,
         pickup: false,
         pickupLocationIds: [],
+        homeDeliveryMode: "zipnova",
       },
     },
                 images: [],
@@ -194,11 +199,15 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
           ...product.shipping, 
           ...initialData.shipping,
           dimensions: { ...product.shipping.dimensions, ...initialData.shipping?.dimensions },
-          delivery: {
+                    delivery: {
             ...product.shipping.delivery,
             ...initialData.shipping?.delivery,
             pickupLocationIds: initialData.shipping?.delivery?.pickupLocationIds
               || product.shipping.delivery.pickupLocationIds,
+            // Mode de cotización del envío a domicilio (default: zipnova).
+            homeDeliveryMode:
+              initialData.shipping?.delivery?.homeDeliveryMode ||
+              product.shipping.delivery.homeDeliveryMode,
           },
         }
       });
@@ -398,7 +407,27 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
     return errors;
   })();
 
-  const socialSellingHasErrors = Object.keys(socialSellingErrors).length > 0;
+    const socialSellingHasErrors = Object.keys(socialSellingErrors).length > 0;
+
+  // ── VALIDACIÓN DE LOGÍSTICA ──
+  // Si el vendedor elige envío a domicilio cotizado por Zipnova (y NO es envío
+  // gratis/digital), necesita cargar peso y dimensiones: sin eso la cotización
+  // falla al comprar. Bloqueamos el submit con un mensaje claro.
+  const shippingNeedsDimensions =
+    !product.shipping.isDigital &&
+    !product.shipping.free &&
+    product.shipping.delivery?.homeDelivery &&
+    product.shipping.delivery?.homeDeliveryMode === "zipnova";
+  const dimensionsMissing = (() => {
+    if (!shippingNeedsDimensions) return false;
+    const d = product.shipping.dimensions || {};
+    return !(
+      Number(d.weight) > 0 &&
+      Number(d.length) > 0 &&
+      Number(d.width) > 0 &&
+      Number(d.height) > 0
+    );
+  })();
 
         const internalSubmit = (e) => {
     e.preventDefault(); // Evitamos que recargue la página
@@ -412,6 +441,12 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
     if (product.socialSelling.enabled && product.referral.enabled) {
       setExclusionError(
         "Compra en Grupo y Programa de Referidos son excluyentes. Desactivá uno para continuar.",
+      );
+      return;
+    }
+    if (dimensionsMissing) {
+      setExclusionError(
+        "Para usar el envío cotizado por la plataforma (Zipnova) necesitás cargar el peso y las medidas (largo, ancho y alto) del paquete. Completalos en Logística o elegí 'Precio fijo que defino yo'.",
       );
       return;
     }
@@ -694,8 +729,12 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                   </div>
                 </label>
 
-                {/* Costo Manual */}
-                {!product.shipping.free && (
+                                {/* Costo Manual — solo con envío a domicilio a PRECIO FIJO.
+                    Con Zipnova el costo lo define la cotización de la
+                    plataforma; con envío gratis es $0. */}
+                {!product.shipping.free &&
+                  product.shipping.delivery?.homeDelivery &&
+                  product.shipping.delivery?.homeDeliveryMode === "fixed" && (
                   <div className="animate-in zoom-in-95 duration-200">
                     <div className="relative">
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium">
@@ -714,7 +753,9 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                 )}
               </div>
 
-              {/* Dimensiones */}
+                            {/* Dimensiones — solo necesarias para la cotización Zipnova.
+                  Con precio fijo propio el vendedor no necesita cotizar. */}
+              {product.shipping.delivery?.homeDeliveryMode === "zipnova" && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-gray-400 uppercase">
@@ -761,11 +802,12 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                     name="shipping.dimensions.height"
                     type="number"
                     className="input-nero"
-                    value={product.shipping.dimensions.height || ""}
+                                        value={product.shipping.dimensions.height || ""}
                     onChange={handleInputChange}
                   />
                 </div>
               </div>
+              )}
               <div className="space-y-2">
                 <label className="text-sm font-medium dark:text-gray-200">
                   Tiempo de despacho
@@ -797,7 +839,7 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                 </p>
 
                 <div className="space-y-3">
-                  {/* Envío a domicilio */}
+                                    {/* Envío a domicilio */}
                   <label
                     className={`flex items-center gap-4 p-4 border rounded-2xl cursor-pointer transition-all ${
                       product.shipping.delivery?.homeDelivery
@@ -823,6 +865,87 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                       Envío a domicilio
                     </div>
                   </label>
+
+                  {/* ── MODO DE ENVÍO A DOMICILIO ──
+                      Solo si homeDelivery está activo. Define QUIÉN gestiona
+                      el envío:
+                        - Zipnova  → la plataforma cotiza y PAGA el envío; se
+                          descuenta del neto del vendedor. Requiere dimensiones.
+                        - Precio fijo → el vendedor cobra su propio envío.
+                      Si el envío es GRATIS, el modo no aplica (lo absorbe el
+                      vendedor), así que ocultamos el selector. */}
+                  {product.shipping.delivery?.homeDelivery &&
+                    !product.shipping.free && (
+                      <div className="animate-in fade-in slide-in-from-top-2 duration-300 ml-2 pl-4 border-l-2 border-blue-500/40 space-y-3">
+                        <p className="text-[11px] text-gray-400">
+                          ¿Quién gestiona el envío a domicilio?
+                        </p>
+
+                        {/* Opción: cotizado por la plataforma (Zipnova) */}
+                        <label
+                          className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                            product.shipping.delivery?.homeDeliveryMode ===
+                            "zipnova"
+                              ? "border-blue-500 bg-blue-50/50 dark:bg-blue-500/10"
+                              : "border-gray-200 dark:border-gray-800"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="shipping.delivery.homeDeliveryMode"
+                            value="zipnova"
+                            checked={
+                              product.shipping.delivery?.homeDeliveryMode ===
+                              "zipnova"
+                            }
+                            onChange={handleInputChange}
+                            className="w-4 h-4 mt-0.5 accent-blue-600"
+                          />
+                                                    <div className="min-w-0">
+                            <p className="text-sm font-semibold dark:text-white">
+                              Cotizado por la plataforma (recomendado)
+                            </p>
+                            <p className="text-[11px] text-gray-500">
+                              Cotizamos el envío automáticamente. El costo del
+                              correo lo adelanta la plataforma y se descuenta de
+                              tu liquidación. Necesitás cargar peso y medidas.
+                            </p>
+                          </div>
+                        </label>
+
+                        {/* Opción: precio fijo propio */}
+                        <label
+                          className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                            product.shipping.delivery?.homeDeliveryMode ===
+                            "fixed"
+                              ? "border-blue-500 bg-blue-50/50 dark:bg-blue-500/10"
+                              : "border-gray-200 dark:border-gray-800"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="shipping.delivery.homeDeliveryMode"
+                            value="fixed"
+                            checked={
+                              product.shipping.delivery?.homeDeliveryMode ===
+                              "fixed"
+                            }
+                            onChange={handleInputChange}
+                            className="w-4 h-4 mt-0.5 accent-blue-600"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold dark:text-white">
+                              Gestionado por mi cuenta
+                            </p>
+                            <p className="text-[11px] text-gray-500">
+                              Cobrás vos el envío (arriba). Vos contratás el
+                              correo por tu cuenta.
+                            </p>
+                          </div>
+                        </label>
+                      </div>
+                    )}
+
 
                   {/* Retiro en local */}
                   <label

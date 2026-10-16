@@ -5,6 +5,7 @@ import { usePrivy } from "../Utils/authClient";
 import { formatMoney } from '../Utils/currencyFormatter';
 import AdminOrderModal from './AdminOrderModal';
 import LoadingSpinner from './LoadingSpinner';
+import Swal from 'sweetalert2';
 
 const AdminOrdersTable = () => {
   const [orders, setOrders] = useState([]);
@@ -18,31 +19,64 @@ const handleOpenModal = (order) => {
   setIsModalOpen(true);
 };
 
-    // Acciones de admin desde el modal de órdenes
+        // Acciones de admin desde el modal de órdenes
   const handleAdminAction = async (orderId, action) => {
     const token = await getAccessToken();
+    const isDark = document.documentElement.classList.contains('dark');
+
+    // ── Estilo común de los modales de SweetAlert (coherente con la app) ──
+    const swalTheme = {
+      background: isDark ? '#18181b' : '#fff',
+      color: isDark ? '#fff' : '#000',
+      customClass: { popup: 'rounded-[2.5rem]' },
+    };
+    const confirmTheme = {
+      ...swalTheme,
+      customClass: { popup: 'rounded-[2.5rem] border-2 border-[#F26722]/20' },
+    };
+    const askConfirm = (title, text, confirmText = 'SÍ, CONTINUAR') =>
+      Swal.fire({
+        title: `<span class="font-black uppercase italic">${title}</span>`,
+        text,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#F26722',
+        cancelButtonColor: '#18181b',
+        confirmButtonText: confirmText,
+        cancelButtonText: 'CANCELAR',
+        ...confirmTheme,
+      });
+    const okMsg = (title, text) =>
+      Swal.fire({ title, text, icon: 'success', confirmButtonColor: '#F26722', ...swalTheme });
+    const errMsg = (text) =>
+      Swal.fire({ title: 'ERROR', text, icon: 'error', confirmButtonColor: '#ef4444', ...swalTheme });
 
     if (action === 'cancel_order') {
       // Solo marca la orden como cancelada. La garantía NO se libera acá:
       // se resuelve aparte, manualmente, después de verificar con el comprador.
-      if (!window.confirm('¿Cancelar esta orden manualmente? Esto NO libera la garantía automáticamente. La garantía se libera en un paso aparte (manual) tras verificar con el comprador.')) return;
+      const c = await askConfirm(
+        '¿Cancelar esta orden?',
+        'Esto marca la orden como CANCELADA pero NO libera la garantía automáticamente. La garantía se libera en un paso aparte (manual) tras verificar con el comprador.',
+        'SÍ, CANCELAR ORDEN',
+      );
+      if (!c.isConfirmed) return;
       try {
         await axios.patch(
           `${import.meta.env.VITE_SERVER_URL}/api/admin/orders/${orderId}/cancel`,
           {},
           { headers: { Authorization: `Bearer ${token}` } },
         );
-        window.alert('Orden cancelada. La garantía sigue retenida hasta que la liberes manualmente.');
+        await okMsg('ORDEN CANCELADA', 'La garantía sigue retenida hasta que la liberes manualmente.');
         setSelectedOrder(null);
         setIsModalOpen(false);
         await refreshOrders(token);
       } catch (err) {
-        window.alert(err?.response?.data?.message || 'No se pudo cancelar la orden.');
+        await errMsg(err?.response?.data?.message || 'No se pudo cancelar la orden.');
       }
       return;
     }
 
-                if (action === 'admin_complete') {
+    if (action === 'admin_complete') {
       // El comprador confirmó la recepción (reception_confirmed). El admin cierra
       // la orden y libera la garantía/escrow. El backend exige el buffer cumplido
       // salvo que se fuerce.
@@ -50,62 +84,82 @@ const handleOpenModal = (order) => {
       const bufferOk =
         current?.releaseEligibleAt && new Date(current.releaseEligibleAt) <= new Date();
       const force = !bufferOk;
-      if (!window.confirm(force
-        ? 'El período de seguridad todavía NO se cumplió. ¿Forzar la liberación de la garantía y completar la orden igual? Quedará registrado en la auditoría.'
-        : '¿Completar la orden y liberar la garantía/escrow al vendedor?')) return;
+      const c = await askConfirm(
+        force ? '¿Forzar cierre de la orden?' : '¿Completar la orden?',
+        force
+          ? `El período de seguridad todavía NO se cumplió (liberable desde ${current?.releaseEligibleAt ? new Date(current.releaseEligibleAt).toLocaleString('es-AR') : 'N/D'}). ¿Forzar igual la liberación de la garantía/escrow y completar la orden? Quedará registrado en la auditoría.`
+          : 'Se CIERRA la venta como COMPLETADA y se libera la garantía/escrow al vendedor. Esta acción no se puede deshacer.',
+        force ? 'SÍ, FORZAR LIBERACIÓN' : 'SÍ, COMPLETAR Y LIBERAR',
+      );
+      if (!c.isConfirmed) return;
       try {
         await axios.patch(
           `${import.meta.env.VITE_SERVER_URL}/api/admin/orders/${orderId}/complete`,
           { note: 'Completada desde panel admin', force },
           { headers: { Authorization: `Bearer ${token}` } },
         );
-        window.alert('Orden completada y garantía/escrow liberado.');
+        await okMsg('ORDEN COMPLETADA', 'La garantía/escrow fue liberado al vendedor.');
         setSelectedOrder(null);
         setIsModalOpen(false);
         await refreshOrders(token);
       } catch (err) {
-        window.alert(err?.response?.data?.message || 'No se pudo completar la orden.');
+        await errMsg(err?.response?.data?.message || 'No se pudo completar la orden.');
       }
       return;
     }
 
     if (action === 'release_guarantee') {
-      if (!window.confirm('¿Liberar la garantía de esta orden manualmente? Confirmá que ya verificaste con el comprador que no abonó o que recibió su reintegro.')) return;
+      // ⚠️ Esta acción CANCELA la orden (liberación en flujo de cancelación).
+      // NO debe usarse para cerrar ventas ya recibidas por el comprador.
+      const c = await askConfirm(
+        '¿Liberar garantía y CANCELAR la orden?',
+        'Esta acción libera la garantía del vendedor y marca la orden como CANCELADA. Usala solo tras verificar con el comprador que NO abonó o que ya recibió su reintegro. Si el comprador ya confirmó la recepción, usá "Completar Orden y Liberar Garantía" en su lugar.',
+        'SÍ, LIBERAR Y CANCELAR',
+      );
+      if (!c.isConfirmed) return;
       try {
         await axios.patch(
           `${import.meta.env.VITE_SERVER_URL}/api/admin/orders/${orderId}/release-guarantee`,
           { approve: true, note: 'Liberación manual desde panel admin' },
           { headers: { Authorization: `Bearer ${token}` } },
         );
-        window.alert('Garantía liberada y orden cancelada.');
+        await okMsg('GARANTÍA LIBERADA', 'La garantía fue liberada y la orden quedó CANCELADA.');
         setSelectedOrder(null);
         setIsModalOpen(false);
         await refreshOrders(token);
       } catch (err) {
-        window.alert(err?.response?.data?.message || 'No se pudo liberar la garantía.');
+        await errMsg(err?.response?.data?.message || 'No se pudo liberar la garantía.');
       }
       return;
     }
 
     if (action === 'resolve_payment_received' || action === 'resolve_payment_no') {
       const yes = action === 'resolve_payment_received';
-      if (!window.confirm(yes
-        ? '¿Confirmás que el pago SÍ se acreditó? La orden volverá a "verificación de pago" para que el vendedor confirme la recepción y despache.'
-        : '¿Confirmás que el pago NO se acreditó? Se cancelará la orden, se liberará la garantía al vendedor y se sumará una cancelación al comprador.')) return;
+      const c = await askConfirm(
+        yes ? '¿El pago SÍ se acreditó?' : '¿El pago NO se acreditó?',
+        yes
+          ? 'La orden volverá a "verificación de pago" para que el vendedor confirme la recepción y despache.'
+          : 'Se cancelará la orden, se liberará la garantía al vendedor y se sumará una cancelación al comprador.',
+        yes ? 'SÍ, SE ACREDITÓ' : 'SÍ, NO SE ACREDITÓ',
+      );
+      if (!c.isConfirmed) return;
       try {
         await axios.patch(
           `${import.meta.env.VITE_SERVER_URL}/api/admin/orders/${orderId}/resolve-payment-dispute`,
           { resolution: yes ? 'payment_received' : 'no_payment', note: 'Resuelta desde panel admin' },
           { headers: { Authorization: `Bearer ${token}` } },
         );
-        window.alert(yes
-          ? 'Disputa resuelta a favor del comprador. La orden vuelve a verificación para que el vendedor confirme.'
-          : 'Disputa resuelta a favor del vendedor. Orden cancelada y garantía liberada.');
+        await okMsg(
+          'DISPUTA RESUELTA',
+          yes
+            ? 'A favor del comprador. La orden vuelve a verificación para que el vendedor confirme.'
+            : 'A favor del vendedor. Orden cancelada y garantía liberada.',
+        );
         setSelectedOrder(null);
         setIsModalOpen(false);
         await refreshOrders(token);
       } catch (err) {
-        window.alert(err?.response?.data?.message || 'No se pudo resolver la disputa de pago.');
+        await errMsg(err?.response?.data?.message || 'No se pudo resolver la disputa de pago.');
       }
       return;
     }
@@ -115,24 +169,37 @@ const handleOpenModal = (order) => {
       //  - lock activo (está congelado de verdad) → toca liberar
       //  - lock en 0 (ya se liberó, hash falso positivo) → solo reconciliar DB
       try {
+        Swal.fire({
+          title: 'Consultando colateral...',
+          text: 'Leyendo el estado on-chain del contrato.',
+          allowOutsideClick: false,
+          didOpen: () => Swal.showLoading(),
+          ...swalTheme,
+        });
         const res = await axios.get(
           `${import.meta.env.VITE_SERVER_URL}/api/admin/orders/${orderId}/collateral-status`,
           { headers: { Authorization: `Bearer ${token}` } },
         );
         const r = res.data;
         const onChain = r.onChain || {};
-        const detalle = [
-          `Estado orden (DB): ${r.orderStatus}`,
-          `Lock on-chain: ${onChain.orderLockActive ? '⚠️ ACTIVO (congelado)' : 'Liberado (0)'}`,
-          `Lock amount: ${onChain.orderLockUsd ?? 'N/D'} USDT`,
-          `Vendedor bloqueado: ${onChain.vendorLockedCollateral ?? 'N/D'} USDT`,
-          `Vendedor disponible: ${onChain.vendorAvailable ?? 'N/D'} USDT`,
-          '',
-          r.resolucion_requerida || '',
-        ].join('\n');
-        window.alert(detalle);
+        const activo = onChain.orderLockActive;
+        await Swal.fire({
+          title: `<span class="font-black uppercase italic">Estado del colateral</span>`,
+          html: `
+            <div style="text-align:left;font-size:13px;line-height:1.7">
+              <p><b>Estado orden (DB):</b> ${r.orderStatus}</p>
+              <p><b>Lock on-chain:</b> ${activo ? '⚠️ ACTIVO (congelado)' : '✅ Liberado (0)'}</p>
+              <p><b>Lock amount:</b> ${onChain.orderLockUsd ?? 'N/D'} USDT</p>
+              <p><b>Vendedor bloqueado:</b> ${onChain.vendorLockedCollateral ?? 'N/D'} USDT</p>
+              <p><b>Vendedor disponible:</b> ${onChain.vendorAvailable ?? 'N/D'} USDT</p>
+              <p style="margin-top:10px;opacity:.85"><b>Acción sugerida:</b> ${r.resolucion_requerida || 'N/D'}</p>
+            </div>`,
+          icon: activo ? 'warning' : 'success',
+          confirmButtonColor: '#F26722',
+          ...swalTheme,
+        });
       } catch (err) {
-        window.alert(err?.response?.data?.message || 'No se pudo verificar el colateral.');
+        await errMsg(err?.response?.data?.message || 'No se pudo verificar el colateral.');
       }
       return;
     }

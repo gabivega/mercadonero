@@ -28,10 +28,16 @@ const notificationSchema = new mongoose.Schema(
         "new_message", // Llegó un mensaje en una conversación
         "new_question", // Alguien preguntó en una publicación
         "question_answered", // El vendedor respondió una pregunta
+        // ── Flujo de retiro en sucursal (deliveryMethod === "pickup") ──
+        "order_ready_for_pickup", // El vendedor marcó el pedido listo para retirar
+        "order_picked_up", // El vendedor registró la entrega → el comprador debe confirmar el retiro
         // ── Flujo de garantías / cancelaciones / reembolsos ──
+        "order_reception_confirmed", // El comprador confirmó la recepción (arranca el buffer)
+        "order_pending_release", // Recordatorio interno al admin: hay una orden lista para liberar
         "rating_reminder", // Recordatorio de calificar (producto/vendedor/comprador)
         "collateral_hold_requested", // El vendedor debe depositar garantía (orden en espera)
         "order_activated", // La orden pasó de "awaiting_collateral" a activa (vendedor depositó)
+        "order_reminder", // Recordatorio genérico al comprador sobre su orden (ej. confirmar recepción)
         "order_disputed", // El comprador reportó un problema y se abrió una disputa
         "order_refund_requested", // Comprador pidió cancelar con reembolso
         "order_refund_paid_by_vendor", // Vendedor confirmó que reembolsó
@@ -73,4 +79,5 @@ notificationSchema.index({ recipient: 1, read: 1, createdAt: -1 });
 const Notification = mongoose.model("Notification", notificationSchema);
 
 export default Notification;
+
 
