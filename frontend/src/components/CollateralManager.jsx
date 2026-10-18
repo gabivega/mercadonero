@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { usePrivy } from "../Utils/authClient";
 import { useUserStore } from "../store/useUserStore";
-import { CreditCard, ShieldCheck, Lock, Loader2 } from "lucide-react";
+import { CreditCard, ShieldCheck, Loader2 } from "lucide-react";
 import Swal from "sweetalert2";
 import {
   readContract,
@@ -252,10 +252,14 @@ export default function CollateralManager() {
 
   // Estados para los saldos de la Blockchain
   const [balances, setBalances] = useState({
-    total: "0.0",
-    locked: "0.0",
-    available: "0.0",
+    total: "0.00",
+    locked: "0.00",
+    available: "0.00",
   });
+  // Estado de carga de los saldos on-chain. Arranca en true para evitar mostrar
+  // "0.00" mientras se sincroniza con la wallet (evita la sensación de saldo
+  // vacío / error). Se apaga recién cuando la lectura termina.
+  const [loadingBalances, setLoadingBalances] = useState(true);
 
   // Estados para los inputs y loaders
   const [depositAmount, setDepositAmount] = useState("");
@@ -295,6 +299,7 @@ export default function CollateralManager() {
   const fetchBalances = useCallback(async () => {
     const addr = signerAddress || (await resolveSignerAddress(walletAddress));
     if (!addr) return;
+    setLoadingBalances(true);
     try {
       const [totalCollateral, lockedCollateral] = await readContract({
         address: CONTRACT_ADDRESS,
@@ -314,6 +319,8 @@ export default function CollateralManager() {
       });
     } catch (error) {
       console.error("Error al leer saldos de colateral:", error);
+    } finally {
+      setLoadingBalances(false);
     }
   }, [signerAddress, walletAddress]);
 
@@ -493,7 +500,8 @@ export default function CollateralManager() {
   // No permitimos operar si no hay wallet o si el contrato no tiene código.
   const contractMissing = contractStatus?.hasCode === false;
   const disabled = loading || !walletAddress || contractMissing;
-  const withdrawDisabled = disabled || balances.available === "0.00";
+  const withdrawDisabled =
+    disabled || loadingBalances || balances.available === "0.00";
 
   return (
     <div className="w-full max-w-2xl mx-auto p-6 bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-800 space-y-6">
@@ -542,10 +550,19 @@ export default function CollateralManager() {
               Saldo Disponible
             </span>
             <div className="text-2xl font-black text-gray-900 dark:text-white mt-1">
-              {balances.available}{" "}
-              <span className="text-sm font-normal">
-                {COLLATERAL_TOKEN_SYMBOL}
-              </span>
+              {loadingBalances ? (
+                <span className="inline-flex items-center gap-2 text-gray-400 dark:text-gray-500">
+                  <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+                  <span className="text-sm font-medium">Sincronizando...</span>
+                </span>
+              ) : (
+                <>
+                  {balances.available}{" "}
+                  <span className="text-sm font-normal">
+                    {COLLATERAL_TOKEN_SYMBOL}
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
@@ -554,10 +571,19 @@ export default function CollateralManager() {
               En Órdenes Activas
             </span>
             <div className="text-2xl font-black text-gray-900 dark:text-white mt-1">
-              {balances.locked}{" "}
-              <span className="text-sm font-normal">
-                {COLLATERAL_TOKEN_SYMBOL}
-              </span>
+              {loadingBalances ? (
+                <span className="inline-flex items-center gap-2 text-gray-400 dark:text-gray-500">
+                  <Loader2 className="h-5 w-5 animate-spin text-orange-500" />
+                  <span className="text-sm font-medium">Sincronizando...</span>
+                </span>
+              ) : (
+                <>
+                  {balances.locked}{" "}
+                  <span className="text-sm font-normal">
+                    {COLLATERAL_TOKEN_SYMBOL}
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
@@ -566,10 +592,19 @@ export default function CollateralManager() {
               Fondo Total
             </span>
             <div className="text-2xl font-black text-gray-900 dark:text-white mt-1">
-              {balances.total}{" "}
-              <span className="text-sm font-normal">
-                {COLLATERAL_TOKEN_SYMBOL}
-              </span>
+              {loadingBalances ? (
+                <span className="inline-flex items-center gap-2 text-gray-400 dark:text-gray-500">
+                  <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                  <span className="text-sm font-medium">Sincronizando...</span>
+                </span>
+              ) : (
+                <>
+                  {balances.total}{" "}
+                  <span className="text-sm font-normal">
+                    {COLLATERAL_TOKEN_SYMBOL}
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>

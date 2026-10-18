@@ -448,8 +448,13 @@ const NERO_CATEGORY_MAP = {
 // OBTENER PRODUCTOS POR CATEGORIA O GENERAL
 export const getProducts = async (req, res) => {
   try {
-                const { search, category, subCategory, brand, minPrice, maxPrice, sort, sellerId, page, limit } = req.query;
-    let query = { status: "active" };
+                                const { search, category, subCategory, brand, minPrice, maxPrice, sort, sellerId, page, limit } = req.query;
+    // ── VISIBILIDAD PÚBLICA ──
+    // Un producto se muestra solo si está ACTIVO (ciclo de venta) Y APROBADO
+    // por el admin (moderación). El catálogo público NUNCA expone productos
+    // pending/rejected. Los productos existentes sin campo `moderation` NO se
+    // muestran (decisión deliberada: el catálogo arranca limpio desde 0).
+    let query = { status: "active", "moderation.status": "approved" };
     console.log("req.query: ",req.query)
 
     // ── FILTRO POR VENDEDOR ──
@@ -661,8 +666,14 @@ export const getProductById = async (req, res) => {
       "username name shop isVerified shopName walletAddress",
     ); // Traemos data del vendedor
 
-    // Validamos que el producto exista Y que esté activo
-    if (!product || product.status !== "active") {
+        // Validamos que el producto exista, esté activo Y aprobado por moderación.
+    // Un producto pending/rejected no es visible al público (mismo mensaje
+    // genérico para no filtrar el motivo de moderación).
+    if (
+      !product ||
+      product.status !== "active" ||
+      product.moderation?.status !== "approved"
+    ) {
       return res.status(404).json({
         message: "Esta publicación ya no está disponible o ha sido pausada.",
       });
@@ -795,6 +806,21 @@ export const updateProduct = async (req, res) => {
             ...deliveryInput,
             homeDeliveryMode,
           };
+        }
+
+                // ── RE-ABRIR REVISIÓN AL EDITAR ──
+        // Si el producto ya estaba APROBADO y el vendedor lo edita, vuelve a
+        // "pending": la aprobación previa deja de ser válida porque el
+        // contenido cambió. Así la aprobación del admin significa algo real
+        // (se revisó ESTA versión) y se evita aprobar algo y luego verlo
+        // modificado. Si estaba rejected/pending, se mantiene el flujo normal.
+        // NO permitimos que el cliente setee/override de la moderación.
+        delete updateData.moderation;
+        if (product.moderation?.status === "approved") {
+          updateData["moderation.status"] = "pending";
+          updateData["moderation.reason"] = "";
+          updateData["moderation.reviewedBy"] = null;
+          updateData["moderation.reviewedAt"] = null;
         }
 
         const updatedProduct = await Product.findByIdAndUpdate(

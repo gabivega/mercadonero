@@ -164,10 +164,37 @@ const ProductSchema = new Schema(
       city: String,
       province: String,
     },
-    status: {
+        status: {
       type: String,
       enum: ["active", "paused", "out_of_stock", "deleted"],
       default: "active",
+    },
+    // ── MODERACIÓN (aprobación manual por admin) ────────────────────────
+    // Controla si la publicación puede MOSTRARSE al público. Es un concepto
+    // ORTOGONAL a `status` (que representa el ciclo de vida de la VENTA):
+    //   - `status`     → active | paused | out_of_stock | deleted  (lo maneja el vendedor)
+    //   - `moderation` → pending | approved | rejected             (lo maneja el admin)
+    // Un producto puede estar APROBADO y PAUSADO a la vez, o PENDIENTE de
+    // revisión mientras el vendedor lo deja activo. La visibilidad pública
+    // requiere AMBOS: status === "active" Y moderation.status === "approved".
+    //
+    // NO se migran los productos existentes: los nuevos nacen en "pending" y
+    // el catálogo público solo muestra los "approved" (ver getProducts).
+    moderation: {
+      status: {
+        type: String,
+        enum: ["pending", "approved", "rejected"],
+        default: "pending",
+        index: true,
+      },
+      // Motivo de rechazo (obligatorio al rechazar; informa al vendedor qué
+      // corregir). Se deja vacío cuando está aprobado.
+      reason: { type: String, trim: true, default: "" },
+      // Trazabilidad: quién revisó y cuándo.
+      reviewedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
+      reviewedAt: { type: Date, default: null },
+      // Última fecha en que el admin aprobó (para distinguir re-aprobaciones).
+      approvedAt: { type: Date, default: null },
     },
     specifications: [
       { key: String, value: String }, // Aquí podés guardar {key: "Color", value: "Azul"}

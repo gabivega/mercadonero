@@ -26,6 +26,7 @@ import ProductEditModal from "../../components/ProductEditModal";
 import SellerOnboarding from "../../components/SellerOnboarding";
 import { useUserStore } from "../../store/useUserStore";
 import { useSyncUser } from "../../Utils/userSync";
+import { authFetch } from "../../Utils/axiosAuth";
 
 export default function SellerDashboard() {
   const { getAccessToken } = usePrivy(); //
@@ -83,43 +84,40 @@ export default function SellerDashboard() {
     }
   };
 
-  const fetchMyProducts = async () => {
+    const fetchMyProducts = async () => {
     try {
-      const token = await getAccessToken(); //[cite: 1]
-      const response = await fetch( //[cite: 1]
-        `${import.meta.env.VITE_SERVER_URL}/api/product/my-products`, //[cite: 1]
-        {
-          headers: { Authorization: `Bearer ${token}` }, //[cite: 1]
-        },
+      const response = await authFetch(
+        `${import.meta.env.VITE_SERVER_URL}/api/product/my-products`,
+        {},
+        getAccessToken,
       );
-      const data = await response.json(); //[cite: 1]
-      if (data.success) setProducts(data.products); //[cite: 1]
+      const data = await response.json();
+      if (data.success) setProducts(data.products);
     } catch (error) {
-      console.error("Error cargando productos", error); //[cite: 1]
+      console.error("Error cargando productos", error);
     } finally {
-      setIsLoading(false); //[cite: 1]
+      setIsLoading(false);
     }
   };
 
-  const toggleStatus = async (id, currentStatus) => {
-    const token = await getAccessToken(); //[cite: 1]
-    const newStatus = currentStatus === "active" ? "paused" : "active"; //[cite: 1]
-    setIsLoading(true); //[cite: 1]
+    const toggleStatus = async (id, currentStatus) => {
+    const newStatus = currentStatus === "active" ? "paused" : "active";
+    setIsLoading(true);
 
     try {
-      const response = await fetch( //[cite: 1]
-        `${import.meta.env.VITE_SERVER_URL}/api/product/toggle-status/${id}`, //[cite: 1]
+      const response = await authFetch(
+        `${import.meta.env.VITE_SERVER_URL}/api/product/toggle-status/${id}`,
         {
-          method: "PATCH", //[cite: 1]
+          method: "PATCH",
           headers: {
-            "Content-Type": "application/json", //[cite: 1]
-            Authorization: `Bearer ${token}`, //[cite: 1]
+            "Content-Type": "application/json",
           },
-          body: JSON.stringify({ status: newStatus }), //[cite: 1]
+          body: JSON.stringify({ status: newStatus }),
         },
+        getAccessToken,
       );
 
-      if (!response.ok) throw new Error("Error al actualizar el estado"); //[cite: 1]
+      if (!response.ok) throw new Error("Error al actualizar el estado");
 
       setProducts( //[cite: 1]
         products.map((p) => (p._id === id ? { ...p, status: newStatus } : p)), //[cite: 1]
@@ -162,18 +160,17 @@ export default function SellerDashboard() {
       color: "#fff", //[cite: 1]
     }).then(async (result) => {
       if (result.isConfirmed) {
-        setIsLoading(true); //[cite: 1]
+                setIsLoading(true);
         try {
-          const token = await getAccessToken(); //[cite: 1]
-          const response = await fetch( //[cite: 1]
-            `${import.meta.env.VITE_SERVER_URL}/api/product/delete/${id}`, //[cite: 1]
+          const response = await authFetch(
+            `${import.meta.env.VITE_SERVER_URL}/api/product/delete/${id}`,
             {
-              method: "DELETE", //[cite: 1]
+              method: "DELETE",
               headers: {
-                "Content-Type": "application/json", //[cite: 1]
-                Authorization: `Bearer ${token}`, //[cite: 1]
+                "Content-Type": "application/json",
               },
             },
+            getAccessToken,
           );
 
           if (!response.ok) throw new Error("Error al eliminar"); //[cite: 1]
@@ -467,16 +464,32 @@ export default function SellerDashboard() {
                         )}
                       </div>
                     </td>
-                    <td className="p-6 text-center">
-                      <span
-                        className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
-                          p.status === "active"
-                            ? "bg-green-100 text-green-600 dark:bg-green-500/10 dark:text-green-400"
-                            : "bg-amber-100 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400" //[cite: 1]
-                        }`}
-                      >
-                        {p.status === "active" ? "Activo" : "Pausado"}
-                      </span>
+                                        <td className="p-6 text-center">
+                      <div className="flex flex-col items-center gap-1.5">
+                        <span
+                          className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                            p.status === "active"
+                              ? "bg-green-100 text-green-600 dark:bg-green-500/10 dark:text-green-400"
+                              : "bg-amber-100 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400"
+                          }`}
+                        >
+                          {p.status === "active" ? "Activo" : "Pausado"}
+                        </span>
+                        {/* Estado de MODERACIÓN (independiente del de venta). */}
+                        {p.moderation?.status === "pending" && (
+                          <span className="px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-blue-100 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400">
+                            En revisión
+                          </span>
+                        )}
+                        {p.moderation?.status === "rejected" && (
+                          <span
+                            className="px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-rose-100 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400 cursor-help"
+                            title={p.moderation?.reason || "Publicación rechazada"}
+                          >
+                            Rechazado
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="p-6">
                                             <div className="flex justify-end gap-2">
@@ -570,16 +583,29 @@ export default function SellerDashboard() {
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                  <span
-                    className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
-                      p.status === "active"
-                        ? "bg-green-100 text-green-600 dark:bg-green-500/10 dark:text-green-400"
-                        : "bg-amber-100 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400" //[cite: 1]
-                    }`}
-                  >
-                    {p.status === "active" ? "Activo" : "Pausado"}
-                  </span>
+                                <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <div className="flex flex-col gap-1.5">
+                    <span
+                      className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                        p.status === "active"
+                          ? "bg-green-100 text-green-600 dark:bg-green-500/10 dark:text-green-400"
+                          : "bg-amber-100 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400"
+                      }`}
+                    >
+                      {p.status === "active" ? "Activo" : "Pausado"}
+                    </span>
+                    {/* Estado de MODERACIÓN (independiente del de venta). */}
+                    {p.moderation?.status === "pending" && (
+                      <span className="px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-blue-100 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400">
+                        En revisión
+                      </span>
+                    )}
+                    {p.moderation?.status === "rejected" && (
+                      <span className="px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-rose-100 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400">
+                        Rechazado: {p.moderation?.reason || "ver detalle"}
+                      </span>
+                    )}
+                  </div>
                                     <div className="flex gap-2">
                     <button
                       onClick={() => handlePreview(p)}

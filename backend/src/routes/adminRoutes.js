@@ -5,6 +5,8 @@ import {
   getAllUsers,
   getUserById,
   getStats,
+  adminGetProducts,
+  adminModerateProduct,
 } from '../controllers/adminController.js';
 import {
   adminCompleteOrder,
@@ -41,6 +43,13 @@ router.get('/users/:id', verifyAuth, attachUser, isAdmin, getUserById);
 
 // Estadísticas globales del panel (KPIs, GMV, ganancias, tops).
 router.get('/stats', verifyAuth, attachUser, isAdmin, getStats);
+
+// ── MODERACIÓN DE PUBLICACIONES (solo admin) ──
+// Lista publicaciones por estado de revisión (default: pending).
+// Query: ?moderation=pending|approved|rejected|all&search=&page=&limit=
+router.get('/products', verifyAuth, attachUser, isAdmin, adminGetProducts);
+// Aprobar o rechazar una publicación. Body: { action: 'approve'|'reject', reason? }.
+router.patch('/products/:id/moderate', verifyAuth, attachUser, isAdmin, adminModerateProduct);
 
 // Cancelación manual de la orden (solo admin). NO libera la garantía:
 // eso se resuelve aparte de forma manual con release-guarantee.

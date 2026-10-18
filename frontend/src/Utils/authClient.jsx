@@ -38,6 +38,7 @@ import { supabase } from "./supabaseClient";
 import { useUserStore } from "../store/useUserStore";
 import SupabaseLogin from "../components/SupabaseLogin";
 import { clearWalletCache } from "./crossmintWallet";
+import { setUnauthorizedHandler } from "./axiosAuth";
 
 const AuthContext = createContext(null);
 
@@ -111,8 +112,39 @@ export function AuthProvider({ children }) {
   }, []);
 
   const getAccessToken = useCallback(async () => {
+    // ── TOKEN FRESCO (con refresh automático) ────────────────────────────
+    // Privy refrescaba el token de forma transparente; Supabase NO lo hace
+    // en llamadas puntuales: `getSession()` devuelve el token guardado aunque
+    // esté EXPIRADO. Eso generaba 401 en el backend (token viejo).
+    //
+    // Estrategia:
+    //   1. Si no hay sesión → null.
+    //   2. Si el token expira en <= 30s (o ya expiró) → refreshSession().
+    //   3. Si el refresh falla (refresh token vencido/revocado) → cerramos
+    //      sesión para que la UI refleje el estado real (deslogueado).
     const { data } = await supabase.auth.getSession();
-    return data.session?.access_token || null;
+    const session = data?.session;
+    if (!session) return null;
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const exp = session.expires_at || 0;
+    const EXPIRY_MARGIN_SEC = 30;
+
+    if (exp && exp - nowSec > EXPIRY_MARGIN_SEC) {
+      // El token sigue vigente con margen suficiente.
+      return session.access_token;
+    }
+
+    // Token expirado o por vencer: forzamos el refresh.
+    const { data: refreshed, error } = await supabase.auth.refreshSession();
+    if (error || !refreshed?.session) {
+      // Refresh token inválido: la sesión ya no es recuperable.
+      console.warn("getAccessToken: no se pudo refrescar la sesión, cerrando sesión.");
+      await supabase.auth.signOut();
+      setSession(null);
+      return null;
+    }
+    return refreshed.session.access_token;
   }, []);
 
   const logout = useCallback(async () => {
@@ -121,7 +153,23 @@ export function AuthProvider({ children }) {
     clearWalletCache();
     await supabase.auth.signOut();
     setSession(null);
+    // Limpiamos el usuario de negocio en el store para no dejar datos "colgados"
+    // de una sesión ya cerrada (perfil, wallet, direcciones, etc.).
+    try {
+      useUserStore.getState().clearUser?.();
+    } catch (err) {
+      console.warn("logout: no se pudo limpiar el store de usuario:", err);
+    }
   }, []);
+
+  // ── Reacción GLOBAL ante 401 ──────────────────────────────────────────
+  // Conectamos el interceptor de axios con NUESTRO logout. Así, cuando el
+  // backend responde 401 (token expirado/inválido y refresh fallido), se cierra
+  // la sesión y se redirige a la home automáticamente, en vez de dejar la UI
+  // con una sesión muerta y errores genéricos por todos lados.
+  useEffect(() => {
+    setUnauthorizedHandler(logout);
+  }, [logout]);
 
   /**
    * `login()` mantiene la firma de Privy. Si se llama sin argumentos (como

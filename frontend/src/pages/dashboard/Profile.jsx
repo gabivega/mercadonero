@@ -27,9 +27,17 @@ export default function Profile() {
       dni: "",
     },
   );
-  const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [phoneError, setPhoneError] = useState("");
+
+  // ── Validación de teléfono (replicada del AuthOnboarding) ──────────────
+  // Mismo regex que el onboarding para mantener consistencia en todo el flujo.
+  const validatePhone = (value) => {
+    // Formato argentino: +54 9 XXXX XXXX o similar
+    return /^(\+?\d{1,3}[-.\s]?)?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}$/.test(value);
+  };
 
   // Mantenemos sincronizado el estado local del perfil cuando cambia el usuario global
   useEffect(() => {
@@ -50,7 +58,13 @@ export default function Profile() {
         );
         // console.log(response.data);
         setProfile(response.data);
-      } catch (error) {
+            } catch (error) {
+        // Si el 401 lo disparó el backend, el interceptor GLOBAL de axios ya
+        // cerró sesión y redirige a la home. Acá evitamos mostrar el modal
+        // genérico de "Error de conexión" (que confundía al usuario).
+        if (error?.response?.status === 401) {
+          return;
+        }
         // 🚩 DISPARAMOS EL SWAL AQUÍ
         Swal.fire({
           title: "Error de conexión",
@@ -83,9 +97,17 @@ export default function Profile() {
     setProfile({ ...profile, avatar: url });
   };
 
-  const handleChange = (e) => {
+    const handleChange = (e) => {
     const { name, value } = e.target;
     setProfile((prev) => ({ ...prev, [name]: value }));
+  };
+
+  // Teléfono: saneamos los caracteres permitidos (igual que el onboarding) y
+  // limpiamos el error al empezar a corregir.
+  const handlePhoneChange = (value) => {
+    const cleanValue = value.replace(/[^\d\s\-+()]/g, "");
+    setProfile((prev) => ({ ...prev, phone: cleanValue }));
+    setPhoneError("");
   };
   const handleSelectAddress = () => {
     return;
@@ -120,10 +142,25 @@ export default function Profile() {
         const empty = required.find(
           (field) => !profile[field] || String(profile[field]).trim() === "",
         );
-        if (empty) {
+                if (empty) {
           Swal.fire({
             title: "Faltan datos",
             text: `Completá tu ${empty === "dni" ? "DNI" : empty === "firstName" ? "nombre" : empty === "lastName" ? "apellido" : "teléfono"} para poder guardar.`,
+            icon: "warning",
+            background: "#1A1A1A",
+            color: "#fff",
+            confirmButtonColor: "#2563eb",
+            borderRadius: "24px",
+          });
+          return;
+        }
+
+        // Validación de formato de teléfono (replicada del onboarding).
+        if (!validatePhone(String(profile.phone).trim())) {
+          setPhoneError("Formato de teléfono inválido. Ej: +54 9 1234 5678");
+          Swal.fire({
+            title: "Teléfono inválido",
+            text: "El formato del teléfono no es válido. Ej: +54 9 1234 5678",
             icon: "warning",
             background: "#1A1A1A",
             color: "#fff",
@@ -286,8 +323,9 @@ export default function Profile() {
               </div>
               <div
                 className="flex items-center gap-2 cursor-pointer"
-                onClick={() => {
+                                onClick={() => {
                   setIsEditing(!isEditing);
+                  setPhoneError("");
                 }}
               >
                 <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
@@ -297,7 +335,7 @@ export default function Profile() {
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-              <div className="space-y-2">
+                            <div className="space-y-2">
                 <label className="text-[10px] font-black text-gray-400 uppercase ml-1">
                   Teléfono de Contacto
                 </label>
@@ -305,11 +343,11 @@ export default function Profile() {
                   <input
                     type="tel"
                     value={profile?.phone || ""}
-                    onChange={(e) =>
-                      setProfile({ ...profile, phone: e.target.value })
-                    }
+                    onChange={(e) => handlePhoneChange(e.target.value)}
                     placeholder="+54 9 3492 ..."
-                    className="input-nero w-full pl-10 text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                    className={`input-nero w-full pl-10 text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed ${
+                      phoneError ? "border-red-500 focus:border-red-500" : ""
+                    }`}
                     disabled={!isEditing}
                   />
                   <Phone
@@ -317,6 +355,9 @@ export default function Profile() {
                     className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 text-gray-400"
                   />
                 </div>
+                {phoneError && (
+                  <p className="text-xs text-red-500 ml-1">{phoneError}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-gray-400 uppercase ml-1">

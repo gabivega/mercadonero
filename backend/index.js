@@ -17,6 +17,7 @@ import poolRoutes from './src/routes/poolRoutes.js';
 import shippingRoutes from './src/routes/shippingRoutes.js';
 import elitRoutes from './src/routes/elitRoutes.js';
 import flamingRoutes from './src/routes/flamingRoutes.js';
+import directcarRoutes from './src/routes/directcarRoutes.js';
 import testAuthRoutes from './src/routes/testAuthRoutes.js';
 import startOrderCleanup from './src/services/orderCleanup.js';
 import startElitSyncCron from './src/services/elitSyncCron.js';
@@ -63,7 +64,8 @@ try {
   app.use('/api/pool', poolRoutes);
   app.use('/api/shipping', shippingRoutes);
   app.use('/api/elit', elitRoutes);
-  app.use('/api/flaming', flamingRoutes);
+    app.use('/api/flaming', flamingRoutes);
+  app.use('/api/directcar', directcarRoutes);
   // Ruta de prueba para validar Supabase Auth (temporal, se borra al decidir)
   app.use('/api/test-auth', testAuthRoutes);
   // Sitemap dinámico para motores de búsqueda (SEO orgánico)

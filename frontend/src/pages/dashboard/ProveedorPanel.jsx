@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Server, Package, RefreshCw, Wine } from 'lucide-react';
+import { Server, Package, RefreshCw, Wine, Car } from 'lucide-react';
 import ElitCatalogExplorer from '../../components/ElitCatalogExplorer.jsx';
 import ElitSyncPanel from '../../components/ElitSyncPanel.jsx';
 import FlamingCatalogExplorer from '../../components/FlamingCatalogExplorer.jsx';
+import DirectcarCatalogExplorer from '../../components/DirectcarCatalogExplorer.jsx';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ProveedorPanel
@@ -18,20 +19,26 @@ import FlamingCatalogExplorer from '../../components/FlamingCatalogExplorer.jsx'
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Definición de proveedores disponibles.
-//   - elit:    proveedor tech (API propia con credenciales, sync de stock/precio).
-//   - flaming: proveedor bebidas/almacén (Woo Store API pública, import masivo).
+//   - elit:      proveedor tech (API propia con credenciales, sync de stock/precio).
+//   - flaming:   proveedor bebidas/almacén (Woo Store API pública, import masivo).
+//   - directcar: proveedor autopartes (Woo Store API pública, import masivo).
 const PROVIDERS = [
   { id: 'elit', label: 'Elit', icon: Server },
   { id: 'flaming', label: 'Flaming', icon: Wine },
+  { id: 'directcar', label: 'DirectCar', icon: Car },
 ];
 
-// Pestañas de cada proveedor. Flaming no tiene sync (todavía): sólo catálogo.
+// Pestañas de cada proveedor. Flaming y DirectCar no tienen sync (todavía):
+// sólo catálogo.
 const TABS_BY_PROVIDER = {
   elit: [
     { id: 'catalogo', label: 'Catálogo', icon: Package },
     { id: 'sync', label: 'Sincronizar stock/precios', icon: RefreshCw },
   ],
   flaming: [
+    { id: 'catalogo', label: 'Catálogo', icon: Package },
+  ],
+  directcar: [
     { id: 'catalogo', label: 'Catálogo', icon: Package },
   ],
 };
@@ -116,6 +123,14 @@ export default function ProveedorPanel() {
               Las imágenes se copian a <b>tu cuenta de Cloudinary</b> para no depender
               de las URLs del proveedor. Revisá la categoría y el precio antes de publicar.
             </p>
+          ) : activeProvider === 'directcar' ? (
+            <p className="text-xs text-gray-600 dark:text-zinc-400 leading-relaxed">
+              Importá todo el catálogo de <b>DirectCar</b> (autopartes) con un click o un
+              producto puntual. Se usa el <b>precio final del proveedor</b> y las
+              categorías se mapean a <b>Repuestos Autos y Camionetas</b>. Las imágenes van
+              por <b>hotlink</b> (sin Cloudinary). Catálogo grande (~16k): podés importar
+              todo o ir por búsqueda.
+            </p>
           ) : (
             <p className="text-xs text-gray-600 dark:text-zinc-400 leading-relaxed">
               Importá todo el catálogo de Flaming con un click o un producto puntual.
@@ -130,6 +145,7 @@ export default function ProveedorPanel() {
       {activeProvider === 'elit' && activeTab === 'catalogo' && <ElitCatalogExplorer />}
       {activeProvider === 'elit' && activeTab === 'sync' && <ElitSyncPanel />}
       {activeProvider === 'flaming' && activeTab === 'catalogo' && <FlamingCatalogExplorer />}
+      {activeProvider === 'directcar' && activeTab === 'catalogo' && <DirectcarCatalogExplorer />}
     </div>
   );
 }

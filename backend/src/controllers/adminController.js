@@ -21,9 +21,14 @@ export const getAllOrders = async (req, res) => {
       productsAmount: o.productsAmount,
       shippingAmount: o.shippingAmount,
       currency: o.currency,
-      status: o.status,
+            status: o.status,
       createdAt: o.createdAt,
       expiresAt: o.expiresAt,
+      // Buffer de protección del comprador (flujo reception_confirmed → liberación).
+      // El panel de admin los necesita para saber si el período de seguridad ya
+      // se cumplió y mostrar "liberable desde ..." en vez de "N/D".
+      receptionConfirmedAt: o.receptionConfirmedAt,
+      releaseEligibleAt: o.releaseEligibleAt,
       paymentProof: o.paymentProof,
       itemsSnapshot: o.itemsSnapshot,
       shippingDetails: o.shippingDetails,
@@ -202,6 +207,138 @@ export const getUserById = async (req, res) => {
   } catch (error) {
     console.log(error);
     res.status(500).json({ message: "Error al obtener el usuario" });
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════
+// MODERACIÓN DE PUBLICACIONES (aprobación manual por admin)
+// ════════════════════════════════════════════════════════════════════
+// Flujo: el vendedor publica → el producto nace en moderation.status="pending"
+// y NO aparece en el catálogo público. El admin lo revisa y lo aprueba o
+// rechaza (con motivo). Solo los "approved" (y status="active") son visibles.
+//
+// Estos endpoints NO tocan el `status` de venta (active/paused/...): la
+// moderación es ortogonal. Un producto rechazado puede seguir "active" para
+// el vendedor, pero no se muestra al público.
+
+// GET /api/admin/products?moderation=pending&search=&page=&limit=
+// Lista publicaciones para revisar. Por defecto muestra las "pending".
+// También acepta moderation=approved | rejected | all para ver el historial.
+export const adminGetProducts = async (req, res) => {
+  try {
+    const {
+      moderation = "pending",
+      search = "",
+      page = 1,
+      limit = 25,
+    } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 25));
+    const skip = (pageNum - 1) * limitNum;
+
+    // Filtro por estado de moderación (o todos si moderation === "all").
+    const match = { status: { $ne: "deleted" } };
+    if (moderation !== "all") {
+      match["moderation.status"] = moderation;
+    }
+
+    // Búsqueda por nombre, marca o categoría.
+    if (search) {
+      const reg = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      match.$or = [{ name: reg }, { brand: reg }, { category: reg }];
+    }
+
+    const [products, total] = await Promise.all([
+      Product.find(match)
+        .populate("seller", "username firstName lastName email shop isVerified")
+        .populate("moderation.reviewedBy", "username firstName lastName")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum),
+      Product.countDocuments(match),
+    ]);
+
+    // Contadores por estado para el tablero del panel.
+    const [pendingCount, approvedCount, rejectedCount] = await Promise.all([
+      Product.countDocuments({ "moderation.status": "pending", status: { $ne: "deleted" } }),
+      Product.countDocuments({ "moderation.status": "approved", status: { $ne: "deleted" } }),
+      Product.countDocuments({ "moderation.status": "rejected", status: { $ne: "deleted" } }),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      products,
+      counts: {
+        pending: pendingCount,
+        approved: approvedCount,
+        rejected: rejectedCount,
+      },
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum),
+      },
+    });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Error al obtener las publicaciones" });
+  }
+};
+
+// PATCH /api/admin/products/:id/moderate
+// Body: { action: "approve" | "reject", reason? }
+// Aprueba o rechaza una publicación. El motivo es obligatorio al rechazar.
+export const adminModerateProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action, reason = "" } = req.body || {};
+
+    if (!["approve", "reject"].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: "Acción inválida. Usá 'approve' o 'reject'.",
+      });
+    }
+
+    if (action === "reject" && !String(reason).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "El motivo de rechazo es obligatorio.",
+      });
+    }
+
+    const product = await Product.findById(id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Publicación no encontrada." });
+    }
+
+    const now = new Date();
+    product.moderation = product.moderation || {};
+    product.moderation.status = action === "approve" ? "approved" : "rejected";
+    product.moderation.reason = action === "reject" ? String(reason).trim() : "";
+    product.moderation.reviewedBy = req.user._id;
+    product.moderation.reviewedAt = now;
+    if (action === "approve") {
+      product.moderation.approvedAt = now;
+    }
+
+    await product.save();
+
+    await product.populate("seller", "username firstName lastName email shop isVerified");
+
+    res.status(200).json({
+      success: true,
+      message:
+        action === "approve"
+          ? "Publicación aprobada."
+          : "Publicación rechazada.",
+      product,
+    });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Error al moderar la publicación" });
   }
 };
 

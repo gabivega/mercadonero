@@ -103,6 +103,15 @@ const userSchema = new Schema(
     phone: {
       type: String,
     },
+    // DNI / documento de identidad. Se usa como dato obligatorio de compra
+    // (junto a firstName, lastName y phone) para marcar profileCompleted y
+    // desbloquear el checkout. Se recopila en el onboarding de vendedor y en
+    // el perfil (Profile.jsx). Sin declararlo acá, Mongoose descarta el campo
+    // silenciosamente y nunca se persiste/lee.
+    dni: {
+      type: String,
+      trim: true,
+    },
     isSeller: {
       type: Boolean,
       default: false,
@@ -272,7 +281,19 @@ const userSchema = new Schema(
 
     // Wallet Integrada
     // wallet: walletSchema,
-    walletAddress: { type: String, unique: true, sparse: true },
+    // Dirección EVM (0x + 40 hex). Normalizamos a MINÚSCULAS para que el
+    // índice único `walletAddress_1` compare siempre el mismo string:
+    // `saveWallet` guarda `.toLowerCase()`, y las address tipo checksum
+    // (mayúsculas mezcladas) deben colisionar con su versión en minúsculas.
+    // Sin esto, la misma wallet escrita en distinto "case" burlaría el índice
+    // y permitiría dos cuentas con la misma billetera.
+    walletAddress: {
+      type: String,
+      unique: true,
+      sparse: true,
+      lowercase: true,
+      trim: true,
+    },
 
     // ────────────────────────────────────────────────
     // CASHBACK (acumulado en BD, sin tocar blockchain)

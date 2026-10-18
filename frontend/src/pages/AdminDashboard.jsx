@@ -12,6 +12,7 @@ import {
 import AdminOrdersTable from "../components/AdminOrdersTable";
 import AdminUsersTable from "../components/AdminUsersTable";
 import AdminStats from "../components/AdminStats";
+import AdminProductsTable from "../components/AdminProductsTable";
 import { useAuth } from "../Utils/authClient";
 import { useUserStore } from "../store/useUserStore";
 
@@ -21,9 +22,10 @@ const AdminDashboard = () => {
   const { authenticated, ready } = useAuth();
   const { isAdmin } = useUserStore(); // isAdmin ahora deriva de dbUser.role
 
-    const menuItems = [
+        const menuItems = [
     { id: "stats", label: "Estadísticas", icon: LayoutDashboard },
     { id: "orders", label: "Gestión de Órdenes", icon: Package },
+    { id: "products", label: "Moderación de Publicaciones", icon: ShieldCheck },
     { id: "users", label: "Usuarios", icon: Users },
     { id: "escrow", label: "Smart Contract", icon: ShieldCheck },
     { id: "settings", label: "Configuración", icon: Settings },
@@ -115,11 +117,13 @@ const AdminDashboard = () => {
         </header>
 
                                 <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-          {activeTab === "stats" && <AdminStats />}
+                    {activeTab === "stats" && <AdminStats />}
           {activeTab === "orders" && <AdminOrdersTable />}
+          {activeTab === "products" && <AdminProductsTable />}
           {activeTab === "users" && <AdminUsersTable />}
           {activeTab !== "stats" &&
             activeTab !== "orders" &&
+            activeTab !== "products" &&
             activeTab !== "users" && (
             <div className="h-64 flex items-center justify-center border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-[2.5rem]">
               <p className="text-zinc-400 font-medium italic">
