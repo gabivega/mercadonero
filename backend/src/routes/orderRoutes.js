@@ -1,11 +1,13 @@
 import express from 'express';
 const router = express.Router();
-import { createOrder, getMyOrders, markAsPaid, getOrderById, updateOrder, cancelOrder, vendorConfirmsRefund, buyerConfirmsRefundReceived, requestAdminRelease, retryCollateral, cancelCollateralHold, prepareEscrowFunding, confirmEscrowFunding, getEscrowStatus, cancelCryptoOrder, rollbackCryptoOrder, openDispute, uploadPaymentProof, buyerRequestEscrowRelease } from '../controllers/orderController.js';
+import { createOrder, getMyOrders, getMyCollateralBreakdown, markAsPaid, getOrderById, updateOrder, cancelOrder, vendorConfirmsRefund, buyerConfirmsRefundReceived, requestAdminRelease, retryCollateral, cancelCollateralHold, prepareEscrowFunding, updateOrderPaymentChain, confirmEscrowFunding, getEscrowStatus, cancelCryptoOrder, rollbackCryptoOrder, openDispute, uploadPaymentProof, buyerRequestEscrowRelease } from '../controllers/orderController.js';
 import verifyAuth from '../middleware/verifyAuth.js';
 import attachUser from '../middleware/attachUser.js';
 
 router.post('/create', verifyAuth, attachUser, createOrder);
 router.get('/my-orders', verifyAuth, attachUser, getMyOrders);
+// Desglose de colateral retenido del vendedor (orden por orden, fuente on-chain)
+router.get('/my-collateral', verifyAuth, attachUser, getMyCollateralBreakdown);
 router.patch('/mark-as-paid/:orderId', verifyAuth, attachUser, markAsPaid);
 router.get('/:orderId', verifyAuth, attachUser, getOrderById);
 router.patch('/:orderId', verifyAuth, attachUser, updateOrder);
@@ -21,6 +23,9 @@ router.get('/:orderId/escrow-status', verifyAuth, attachUser, getEscrowStatus);
 router.delete('/:orderId/escrow/rollback', verifyAuth, attachUser, rollbackCryptoOrder);
 // Preparar fondeo del escrow: valida saldo USDT + entrega gas drip (BNB) + devuelve token.
 router.post('/:orderId/escrow/prepare-funding', verifyAuth, attachUser, prepareEscrowFunding);
+// Cambiar la red de pago (USDT/BSC, USDC/Base, USDXM/Polygon) de una orden
+// crypto provisional aún no fondeada (el comprador elige la red en el modal).
+router.patch('/:orderId/payment-chain', verifyAuth, attachUser, updateOrderPaymentChain);
 router.post('/:orderId/escrow/fund', verifyAuth, attachUser, confirmEscrowFunding);
 // Colateral en espera: vendedor deposita y activa la orden / comprador no espera más
 router.post('/:orderId/retry-collateral', verifyAuth, attachUser, retryCollateral);

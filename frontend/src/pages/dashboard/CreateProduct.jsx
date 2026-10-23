@@ -254,9 +254,9 @@ export default function CreateProduct() {
                     className="underline font-semibold cursor-pointer hover:text-amber-900 dark:hover:text-amber-200"
                     onClick={() => navigate("/billetera")}
                   >
-                    Mi Billetera
+                    Mi Billetera.
                   </span>{" "}
-                  antes de cargar la publicación para no perder tu trabajo.
+                  
                 </p>
               </div>
             </div>
@@ -340,7 +340,7 @@ export default function CreateProduct() {
         draft={pendingProduct}
         prefill={onboardingPrefill}
       />
-      <ShippingQuoteCalculator />
+      {/* <ShippingQuoteCalculator /> */}
     </DashboardLayout>
   );
 }

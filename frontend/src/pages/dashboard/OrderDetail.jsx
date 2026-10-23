@@ -37,6 +37,12 @@ import CollateralHoldCard from "../../components/CollateralHoldCard";
 import CashbackBadge from "../../components/CashbackBadge";
 import CryptoPaymentModal from "../../components/CryptoPaymentModal";
 import { formatMoney } from "../../Utils/currencyFormatter";
+import {
+  txUrl,
+  addressUrl,
+  chainLabel,
+  shortenHash,
+} from "../../Utils/chainConfig";
 
 export default function OrderDetail() {
     const { id } = useParams();
@@ -302,10 +308,20 @@ export default function OrderDetail() {
     // Total retenido en USDT. Preferimos el monto exacto que el backend fijó en
     // el escrow (amountUsdRetained) y, si no está, lo derivamos de financials:
     // total de productos en USD + costo de envío en USD.
-    const orderTotalUsdt =
+            const orderTotalUsdt =
       Number(order.payment?.amountUsdRetained) ||
       (Number(order.financials?.totalUsd) || 0) +
         (Number(order.financials?.shippingCostUsd) || 0);
+
+    // Estados en los que la operación cripto YA se cerró desde el punto de vista
+    // del escrow: no tiene sentido mostrar la tarjeta "en proceso" (con textos de
+    // "fondos bloqueados / esperando fondeo"). En su lugar mostramos un resumen
+    // final (EscrowClosedSummary) idéntico para comprador y vendedor.
+        const isCryptoClosed =
+      isCryptoOrder &&
+      ["reception_confirmed", "completed", "cancelled", "expired"].includes(
+        order.status,
+      );
 
     // ⚠️ [POLÍTICA ACTUAL] El comprador SOLO puede cancelar mientras la orden NO
     // está marcada como pagada (aún en 'pending_payment'). Una vez que notificó
@@ -555,13 +571,26 @@ export default function OrderDetail() {
               - Comprador: ya ve la tarjeta en 'pending_payment'; se la mostramos
                 acá de nuevo cuando la orden ya avanzó (paid/shipped/completed).
               - Vendedor: se le muestra en cualquier estado activo de la orden. */}
-                    {isCryptoOrder &&
-            ["paid", "shipped", "reception_confirmed", "completed"].includes(order.status) &&
+                              {/* Pago cripto EN CURSO: la orden está pagada/despachada pero el escrow
+              todavía no se liberó. Mostramos el detalle activo (con hash on-chain
+              y estado del depósito) para comprador y vendedor. */}
+          {isCryptoOrder &&
+            ["paid", "shipped"].includes(order.status) &&
             (role === "buyer" || role === "seller") && (
               <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
-                                <EscrowPaymentStatus order={order} onUpdate={fetchOrder} role={role} />
+                <EscrowPaymentStatus order={order} onUpdate={fetchOrder} role={role} />
               </section>
             )}
+
+          {/* Pago cripto CERRADO: la operación ya se cerró (recepción confirmada,
+              completada, cancelada o expirada). Mostramos un resumen final
+              idéntico para ambas partes, sin textos de "en espera de fondeo" ni
+              botones de pago. */}
+          {isCryptoClosed && (role === "buyer" || role === "seller") && (
+            <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
+              <EscrowClosedSummary order={order} role={role} totalUsdt={orderTotalUsdt} />
+            </section>
+          )}
                                                                                 {role === "seller" && (order.status === "verifying_payment" || order.status === "pending_payment") && (
             <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
               <ConfirmPaymentAction
@@ -968,12 +997,29 @@ function EscrowPaymentStatus({ order, onUpdate, onPayClick, role }) {
   const isSeller = role === "seller";
 
     const payment = order.payment || {};
+
+  // ── DATOS DINÁMICOS DE RED / TOKEN / CONTRATO ──
+  // La orden puede pagarse en distintas redes y tokens (USDT, USDC, etc.). Todo
+  // lo que mostramos sale de la orden; el explorador y el nombre de red salen
+  // de chainConfig (para no asumir BSC cuando la orden fue en Base/Polygon).
+  const chainId = Number(
+    order.chainId ?? payment.chainId ?? order.onChain?.lockedChainId,
+  );
+  const tokenSymbol = order.tokenSymbol || payment.token || "USDT";
+  const tokenAddress = order.tokenAddress || payment.tokenAddress || "";
+  const escrowContract =
+    order.escrowContract || payment.escrowContract || "";
+  const networkName = chainLabel(chainId);
+  const fundTxLink = txUrl(chainId, payment.fundTxHash);
+  const escrowContractLink = addressUrl(chainId, escrowContract);
+  const tokenAddressLink = addressUrl(chainId, tokenAddress);
+
   // El escrow está fondeado cuando el sub-estado de pago lo indica (on-chain
   // confirmado por el backend) o el status de la orden ya está pagado.
   const isFunded =
     payment.status === "funded" ||
     ["paid", "shipped", "completed"].includes(order.status);
-  // Monto retenido en USDT: usamos lo que configuró el backend en el escrow.
+  // Monto retenido: usamos lo que configuró el backend en el escrow.
   const totalUsdt =
     payment.amountUsdRetained ||
     (order.financials?.totalUsd || 0) + (order.financials?.shippingCostUsd || 0);
@@ -1020,52 +1066,62 @@ function EscrowPaymentStatus({ order, onUpdate, onPayClick, role }) {
 
             <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-6 font-medium leading-relaxed">
         {isSeller
-          ? "Esta venta se cobra con USDT. El comprador depositó el importe en el contrato inteligente de Mercado Nero: los fondos están bloqueados y liberados a tu favor cuando el comprador confirme la recepción. Podés verificar la transacción on-chain antes de despachar."
-          : "Esta compra se abona con USDT. Tus fondos quedaron retenidos en el contrato inteligente de Mercado Nero y se liberarán al vendedor recién cuando confirmes la recepción del pedido."}
+          ? "El comprador depositó el importe en el contrato inteligente de Mercado Nero: los fondos están bloqueados y liberados a tu favor cuando el comprador confirme la recepción. Podés verificar la transacción on-chain antes de despachar."
+          : "Tus fondos quedaron retenidos en el contrato inteligente de Mercado Nero y se liberarán al vendedor recién cuando confirmes la recepción del pedido."}
       </p>
 
       <div className="bg-white dark:bg-[#252525] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 mb-6">
         <h4 className="text-xs font-black uppercase text-center tracking-widest text-[#F26722] mb-4">
           Detalle de la operación
         </h4>
-        <div className="space-y-3 md:px-[25%]">
+                <div className="space-y-3 md:px-[25%]">
+          <div className="flex justify-between items-center flex-col sm:flex-row">
+            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Red</span>
+            <span className="text-sm font-medium dark:text-white">{networkName}</span>
+          </div>
           <div className="flex justify-between items-center flex-col sm:flex-row">
             <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Token</span>
-            <span className="text-sm font-medium dark:text-white">{payment.token || "USDT"}</span>
+            <span className="text-sm font-medium dark:text-white">
+              {tokenAddressLink ? (
+                <a
+                  href={tokenAddressLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-[#3483fa] hover:underline"
+                  title={`Ver el contrato de ${tokenSymbol} en el explorador`}
+                >
+                  {tokenSymbol}
+                  <ExternalLink size={12} />
+                </a>
+              ) : (
+                tokenSymbol
+              )}
+            </span>
           </div>
           <div className="flex justify-between items-center flex-col sm:flex-row">
             <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Monto retenido</span>
             <span className="text-sm font-mono font-bold text-[#F26722]">
-              {totalUsdt > 0 ? totalUsdt.toFixed(2) : "—"} USDT
+              {totalUsdt > 0 ? totalUsdt.toFixed(2) : "—"} {tokenSymbol}
             </span>
           </div>
-                    <div className="flex justify-between items-center flex-col sm:flex-row">
-            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Contrato</span>
-                        <button
-              onClick={() => {
-                const addr = import.meta.env.VITE_ESCROW_CONTRACT_ADDRESS || "";
-                if (navigator.clipboard) {
-                  navigator.clipboard.writeText(addr);
-                }
-                Swal.fire({
-                  icon: "success",
-                  title: "Dirección copiada",
-                  text: "Contrato escrow copiado al portapapeles.",
-                  confirmButtonColor: "#F26722",
-                  toast: true,
-                  position: "top-end",
-                  timer: 2200,
-                  showConfirmButton: false,
-                });
-              }}
-              className="text-sm font-mono text-[#3483fa] hover:underline truncate max-w-[160px]"
-            >
-              {import.meta.env.VITE_ESCROW_CONTRACT_ADDRESS
-                ? import.meta.env.VITE_ESCROW_CONTRACT_ADDRESS.slice(0, 8) + "..." + import.meta.env.VITE_ESCROW_CONTRACT_ADDRESS.slice(-4)
-                : "—"}
-            </button>
+          <div className="flex justify-between items-center flex-col sm:flex-row">
+            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Contrato escrow</span>
+            {escrowContract ? (
+              <a
+                href={escrowContractLink || undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm font-mono text-[#3483fa] hover:underline truncate max-w-[160px]"
+                title="Ver el contrato escrow en el explorador"
+              >
+                {shortenHash(escrowContract, 8, 4)}
+                <ExternalLink size={12} />
+              </a>
+            ) : (
+              <span className="text-sm font-mono text-gray-400">—</span>
+            )}
           </div>
-                    <div className="flex justify-between items-center flex-col sm:flex-row">
+          <div className="flex justify-between items-center flex-col sm:flex-row">
             <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Estado del depósito</span>
             <span
               className={`text-sm font-bold ${
@@ -1079,23 +1135,22 @@ function EscrowPaymentStatus({ order, onUpdate, onPayClick, role }) {
           </div>
 
           {/* HASH DE LA TRANSACCIÓN DE FONDEO (prueba on-chain del pago).
-              Se muestra tanto al comprador como al vendedor una vez que el
-              escrow está fondeado. El vendedor puede abrir la transacción en
-              BscScan para verificar por su cuenta que los USDT están
-              efectivamente bloqueados en el contrato. */}
+              Se muestra tanto al comprador como al vendedor. El link apunta al
+              explorador de la RED de la orden (BscScan, BaseScan, PolygonScan,
+              según chainId), no a uno fijo. */}
           {payment.fundTxHash && (
             <div className="flex justify-between items-center flex-col sm:flex-row">
               <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
                 Tx del fondeo
               </span>
               <a
-                href={`https://testnet.bscscan.com/tx/${payment.fundTxHash}`}
+                href={fundTxLink || undefined}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-sm font-mono font-bold text-[#3483fa] hover:underline"
-                title="Ver la transacción del pago en BscScan"
+                title="Ver la transacción del pago en el explorador"
               >
-                {payment.fundTxHash.slice(0, 8)}...{payment.fundTxHash.slice(-6)}
+                {shortenHash(payment.fundTxHash)}
                 <ExternalLink size={13} />
               </a>
             </div>
@@ -1109,8 +1164,8 @@ function EscrowPaymentStatus({ order, onUpdate, onPayClick, role }) {
         <div className="mb-6 p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 flex items-start gap-3">
           <ShieldCheck className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" size={18} />
           <div className="text-xs text-emerald-700 dark:text-emerald-300 leading-relaxed">
-            <b className="block uppercase tracking-wide mb-0.5">Pago verificado on-chain</b>
-            Los {totalUsdt > 0 ? totalUsdt.toFixed(2) : ""} {payment.token || "USDT"} están
+                        <b className="block uppercase tracking-wide mb-0.5">Pago verificado on-chain</b>
+            Los {totalUsdt > 0 ? totalUsdt.toFixed(2) : ""} {tokenSymbol} están
             bloqueados en el contrato inteligente. Podés verificar la transacción
             en la blockchain antes de despachar el pedido.
           </div>
@@ -1127,8 +1182,8 @@ function EscrowPaymentStatus({ order, onUpdate, onPayClick, role }) {
               onClick={onPayClick}
               className="w-full group relative overflow-hidden py-4 bg-[#F26722] hover:bg-[#d95514] text-white rounded-2xl font-black uppercase tracking-widest transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
             >
-              <Wallet size={18} />
-              Completar pago en USDT
+                            <Wallet size={18} />
+              Completar pago en {tokenSymbol}
             </button>
           )}
 
@@ -1152,11 +1207,193 @@ function EscrowPaymentStatus({ order, onUpdate, onPayClick, role }) {
                 </>
               )}
             </div>
-          </button>
+                    </button>
         </div>
       )}
 
 
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// RESUMEN DE OPERACIÓN CRIPTO CERRADA.
+// Se muestra cuando la orden ya no está activa (reception_confirmed,
+// completed, cancelled o expired). En lugar de la tarjeta "en proceso"
+// (que hablaba de fondos bloqueados y esperas de fondeo), mostramos un
+// cierre claro: estado final, montos, hash on-chain y fechas relevantes.
+// Es idéntica para comprador y vendedor, cambiando solo el mensaje.
+// ──────────────────────────────────────────────────────────────
+function EscrowClosedSummary({ order, role, totalUsdt }) {
+  const payment = order.payment || {};
+  const isSeller = role === "seller";
+
+  // Datos dinámicos de red/token (la orden puede ser en Base, Polygon, BSC…).
+  const chainId = Number(
+    order.chainId ?? payment.chainId ?? order.onChain?.lockedChainId,
+  );
+  const tokenSymbol = order.tokenSymbol || payment.token || "USDT";
+  const networkName = chainLabel(chainId);
+  const fundTxLink = txUrl(chainId, payment.fundTxHash);
+  const releaseTxLink = txUrl(chainId, payment.releaseTxHash);
+
+  // Estados de cierre: verde para completado / recepción confirmada,
+  // gris-rojo para cancelado / expirado.
+  const isSuccess =
+    order.status === "completed" || order.status === "reception_confirmed";
+  const statusLabel =
+    order.status === "completed"
+      ? "Orden finalizada"
+      : order.status === "reception_confirmed"
+        ? "Recepción confirmada"
+        : order.status === "cancelled"
+          ? "Orden cancelada"
+          : order.status === "expired"
+            ? "Orden expirada"
+            : "Operación cerrada";
+
+  const message = isSuccess
+    ? isSeller
+        ? "La venta se completó correctamente. Los fondos retenidos en el escrow fueron liberados a tu favor (o están en el período de seguridad previo a la liberación)."
+        : "La compra se completó correctamente. El importe retenido en el contrato será liberado una vez completado el período de protección."
+    : order.status === "cancelled"
+      ? "La orden fue cancelada. El importe retenido en el escrow fue devuelto al comprador."
+      : "La orden expiró por no completarse el pago y no se retuvo ningún importe.";
+
+  const fmtDate = (value) =>
+    value
+      ? new Date(value).toLocaleString("es-AR", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : null;
+
+  const closedAt =
+    order.completedAt || order.updatedAt || order.releaseEligibleAt || null;
+
+  const accent = isSuccess ? "emerald" : "zinc";
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-4">
+        <div
+          className={`p-2 rounded-xl text-white shadow-lg ${
+            isSuccess
+              ? "bg-emerald-500 shadow-emerald-500/20"
+              : "bg-zinc-500 shadow-zinc-500/20"
+          }`}
+        >
+          {isSuccess ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
+        </div>
+        <div>
+          <h3 className="font-black uppercase tracking-tight dark:text-white italic">
+            Pago con Criptomonedas
+          </h3>
+          <p
+            className={`text-xs font-bold ${
+              isSuccess
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-zinc-500 dark:text-zinc-400"
+            }`}
+          >
+            {statusLabel}
+          </p>
+        </div>
+      </div>
+
+      <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-6 font-medium leading-relaxed">
+        {message}
+      </p>
+
+      <div className="bg-white dark:bg-[#252525] rounded-2xl p-5 border border-gray-100 dark:border-gray-800">
+        <h4
+          className={`text-xs font-black uppercase text-center tracking-widest mb-4 ${
+            isSuccess
+              ? "text-emerald-600 dark:text-emerald-400"
+              : "text-zinc-500 dark:text-zinc-400"
+          }`}
+        >
+          Resumen de la operación
+        </h4>
+                <div className="space-y-3 md:px-[25%]">
+          <div className="flex justify-between items-center flex-col sm:flex-row">
+            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+              Red
+            </span>
+            <span className="text-sm font-medium dark:text-white">
+              {networkName}
+            </span>
+          </div>
+
+          <div className="flex justify-between items-center flex-col sm:flex-row">
+            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+              Token
+            </span>
+            <span className="text-sm font-medium dark:text-white">
+              {tokenSymbol}
+            </span>
+          </div>
+
+          <div className="flex justify-between items-center flex-col sm:flex-row">
+            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+              Monto
+            </span>
+            <span className="text-sm font-mono font-bold text-[#F26722]">
+              {totalUsdt > 0 ? totalUsdt.toFixed(2) : "—"} {tokenSymbol}
+            </span>
+          </div>
+
+          {payment.fundTxHash && (
+            <div className="flex justify-between items-center flex-col sm:flex-row">
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                Tx del fondeo
+              </span>
+              <a
+                href={fundTxLink || undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm font-mono font-bold text-[#3483fa] hover:underline"
+                title="Ver la transacción del pago en el explorador"
+              >
+                {shortenHash(payment.fundTxHash)}
+                <ExternalLink size={13} />
+              </a>
+            </div>
+          )}
+
+          {payment.releaseTxHash && (
+            <div className="flex justify-between items-center flex-col sm:flex-row">
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                Tx de liberación
+              </span>
+              <a
+                href={releaseTxLink || undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm font-mono font-bold text-[#3483fa] hover:underline"
+                title="Ver la transacción de liberación en el explorador"
+              >
+                {shortenHash(payment.releaseTxHash)}
+                <ExternalLink size={13} />
+              </a>
+            </div>
+          )}
+
+          {fmtDate(closedAt) && (
+            <div className="flex justify-between items-center flex-col sm:flex-row">
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                Fecha
+              </span>
+              <span className="text-sm font-medium dark:text-white">
+                {fmtDate(closedAt)}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

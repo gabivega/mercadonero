@@ -98,7 +98,6 @@ const orderSchema = new Schema(
       locationId: { type: String, default: "" },
       name: String,
       street: String,
-      streetNumber: String,
       city: String,
       state: String,
       zipcode: String,
@@ -281,7 +280,9 @@ const orderSchema = new Schema(
       },
       token: {
         type: String,
-        enum: ["USDT", "USDC", "DAI", "BNB"],
+        // "POL"/"ETH"/"BNB" = moneda NATIVA de la red (fondeo native en redes
+        // donde la smart wallet Crossmint no puede pagar gas con el token).
+        enum: ["USDT", "USDC", "DAI", "BNB", "POL", "ETH"],
         default: "USDT",
       },
       status: {
@@ -289,13 +290,32 @@ const orderSchema = new Schema(
         enum: ["unpaid", "funding", "funded", "released", "cancelled_refunded"],
         default: "unpaid",
       },
+      // ── RED DEL ESCROW ─────────────────────────────────────────────
+      // chainId EVM donde se fondeó (o se va a fondear) el escrow. Se persiste
+      // al crear la orden para que verify/release/cancel del admin operen
+      // SIEMPRE sobre el mismo contrato. Sin esto, liberar una orden fondeada
+      // en Polygon Amoy contra el contrato de BSC revertía con "Sin fondos".
+      chainId: { type: Number, default: null },
+      // ── MODELO DE FONDEO ────────────────────────────────────────────
+      //   "token"  → el comprador fondeó con stablecoin (fundOrder).
+      //   "native" → fondeó con la moneda nativa (fundOrderNative), obligatorio
+      //              en la smart wallet Crossmint (paymaster sponsor: el gas no
+      //              se puede pagar con el token de prueba).
+      fundingMode: {
+        type: String,
+        enum: ["token", "native"],
+        default: "token",
+      },
       // ── MARCA DE COMPRA GRUPAL ─────────────────────────────────────
       // true cuando la orden nació de un pool (social selling). Sirve para:
       //   - NO re-liberar el escrow en updateOrder (el pool ya liberó on-chain).
       //   - Diferenciar el origen de la orden en backoffice/reportes.
       groupBuy: { type: Boolean, default: false },
-      tokenAddress: { type: String, default: "" },        // dirección del token usado
+
       amountUsdRetained: { type: Number, default: 0 },    // monto total USDT retenido (productos + envío)
+      // Dirección "espejo" con la que realmente se fondeó on-chain:
+      // address(0) si fue NATIVO. Permite auditar sin releer el contrato.
+      escrowTokenAddress: { type: String, default: "" },
       feeBps: { type: Number, default: 0 },               // fee global del contrato en puntos base al momento de la orden
       feeUsd: { type: Number, default: 0 },               // comisión del backend (feeBps sobre el total)
       sellerNetUsd: { type: Number, default: 0 },         // lo que recibe el vendedor (neto)

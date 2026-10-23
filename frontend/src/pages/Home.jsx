@@ -1,11 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import ProductCarousel from "../components/ProductCarousel";
-import SocialVideoCarousel from "../components/SocialVideoCarousel";
-import SocialPostFeed from "../components/SocialPostFeed";
-import SocialPostCarousel from "../components/SocialPostCarousel";
 import BannerCarousel from "../components/BannerCarousel";
 import productosRaw from "../data/mercadolibre_productos.json";
-import posts from "../data/posts";
 import HowToBuy from "../components/HowToBuy";
 // Transform raw ML data to product card format
 const transformProduct = (product, index) => {
@@ -149,13 +145,11 @@ export default function Home() {
           />
         )}
 
-      {/* Social Videos Section */}
-      <SocialVideoCarousel title="Reels" />
-
-      {/* Social Posts Carousel */}
-      <SocialPostCarousel posts={posts} />
-
-      {/* Social Posts Section */}
+            {/* Sección de Red Social — DESHABILITADA hasta post-lanzamiento.
+          Reels, posts y feed quedan fuera del Home por ahora.
+          Para reactivar: descomentar los imports y los componentes. */}
+      {/* <SocialVideoCarousel title="Reels" /> */}
+      {/* <SocialPostCarousel posts={posts} /> */}
       {/* <div className="max-w-2xl mx-auto w-full">
         <SocialPostFeed posts={posts} />
       </div> */}

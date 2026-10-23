@@ -1,25 +1,36 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { usePrivy } from "../Utils/authClient";
 import { useUserStore } from "../store/useUserStore";
-import { CreditCard, ShieldCheck, Loader2 } from "lucide-react";
+import {
+  CreditCard,
+  ShieldCheck,
+  Loader2,
+  ReceiptText,
+  Lock,
+  RefreshCcw,
+} from "lucide-react";
 import Swal from "sweetalert2";
+import axios from "axios";
 import {
   readContract,
   writeContract,
   approveToken,
   getContractCode,
   getWalletAddress,
-  deviceNeedsRecovery,
+  activateDeviceSigner,
+  isDeviceActivated,
 } from "../Utils/crossmintWallet";
 
 // ─────────────────────────────────────────────────────────────────────────
-// CONFIGURACIÓN
+// CONFIGURACIÓN MULTIRED
 // ─────────────────────────────────────────────────────────────────────────
 // ⚠️ Migración de Privy → Crossmint: esta pantalla firma con la smart wallet
 // Crossmint (device signer) vía `crossmintWallet.js`.
 //
-// La smart wallet vive en Polygon Amoy (testnet). El contrato de colateral
-// (NeroCollateral) y el token de garantía se resuelven por env.
+// La MISMA address EVM existe en todas las redes, pero el contrato NeroCollateral
+// y el token de garantía son PROPIOS de cada red. El seller elige en qué red
+// deposita/retira. La lectura siempre funciona; el depósito/retiro se firma con
+// Crossmint SOLO en redes que Crossmint soporta.
 //
 // ⚠️ NOTA CLAVE sobre la dirección del vendedor:
 //   La tx la firma la SMART WALLET de Crossmint. El mapping `vendors(address)`
@@ -28,19 +39,72 @@ import {
 //   (la address REAL que firma), NO `dbUser.walletAddress` (que puede estar
 //   desactualizada o ser otra). Ese era el motivo del FALSO NEGATIVO:
 //   "no se confirmó el aumento de saldo".
-const CONTRACT_ADDRESS =
-  import.meta.env.VITE_COLLATERAL_CONTRACT_ADDRESS ||
-  "0x4bDceCAa9bD92eE82EF9571c8940cd736Be9696a";
+//
+// `sendable`: true si Crossmint puede FIRMAR en esa red (depositar/retirar).
+//   ⚠️ BSC testnet NO está soportada por Crossmint (solo "bsc" mainnet), por eso
+//   queda como SOLO LECTURA. Polygon Amoy y Base Sepolia sí se pueden firmar.
+const NETWORKS = [
+  {
+    key: "polygonAmoy",
+    chainId: 80002,
+    chainName: "polygon-amoy", // nombre que usa Crossmint en send()
+    label: "Polygon Amoy",
+    contractAddress:
+      import.meta.env.VITE_COLLATERAL_CONTRACT_POLYGON ||
+      "0x4bDceCAa9bD92eE82EF9571c8940cd736Be9696a",
+    token: {
+      address:
+        import.meta.env.VITE_COLLATERAL_TOKEN_POLYGON ||
+        "0x14196F08a4Fa0B66B7331bC40dd6bCd8A1dEeA9F",
+      symbol: "USDXM",
+      decimals: 6,
+    },
+    explorer: "https://amoy.polygonscan.com",
+    sendable: true,
+  },
+  {
+    key: "baseSepolia",
+    chainId: 84532,
+    chainName: "base-sepolia",
+    label: "Base Sepolia",
+    contractAddress:
+      import.meta.env.VITE_COLLATERAL_CONTRACT_BASE ||
+      "0x43453f16965d1fb9706eff2B788deEb640560C35",
+    token: {
+      address:
+        import.meta.env.VITE_COLLATERAL_TOKEN_BASE ||
+        "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      symbol: "USDC",
+      decimals: 6,
+    },
+    explorer: "https://sepolia.basescan.org",
+    sendable: true,
+  },
+  {
+    key: "bscTestnet",
+    chainId: 97,
+    chainName: "bsc-testnet", // NO soportada por Crossmint → sendable=false
+    label: "BSC Testnet",
+    contractAddress:
+      import.meta.env.VITE_COLLATERAL_CONTRACT_BSC || "",
+    token: {
+      address:
+        import.meta.env.VITE_COLLATERAL_TOKEN_BSC ||
+        "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd",
+      symbol: "USDT",
+      decimals: 18,
+    },
+    explorer: "https://testnet.bscscan.com",
+    sendable: false,
+  },
+];
 
-// Token de garantía en Polygon Amoy.
-const COLLATERAL_TOKEN_ADDRESS =
-  import.meta.env.VITE_COLLATERAL_TOKEN_ADDRESS ||
-  "0x14196F08a4Fa0B66B7331bC40dd6bCd8A1dEeA9F";
-const COLLATERAL_TOKEN_DECIMALS = Number(
-  import.meta.env.VITE_COLLATERAL_TOKEN_DECIMALS || 6,
-);
-const COLLATERAL_TOKEN_SYMBOL =
-  import.meta.env.VITE_COLLATERAL_TOKEN_SYMBOL || "USDT";
+const DEFAULT_NETWORK_KEY = "polygonAmoy";
+
+// Muestra/oculta el aviso proactivo de "activar billetera". Oculto por ahora:
+// la smart wallet firma sin activación previa y el OTP aparece solo si el SDK lo
+// pide (vía el CrossmintOtpModal global). Cambiar a true para reactivarlo.
+const SHOW_ACTIVATION_UI = false;
 
 // ABIs (fragmentos) requeridos.
 const COLLATERAL_POOL_ABI = [
@@ -76,6 +140,55 @@ const COLLATERAL_POOL_ABI = [
   },
 ];
 
+// ABI mínimo ERC-20 para leer allowance/balance (diagnóstico del revert).
+const ERC20_READ_ABI = [
+  {
+    type: "function",
+    name: "allowance",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+];
+
+/** Espera hasta que el allowance del token hacia el spender sea >= amount. */
+async function waitForAllowance({
+  tokenAddress,
+  owner,
+  spender,
+  amount,
+  chainName,
+  tries = 20,
+  delayMs = 2000,
+}) {
+  for (let i = 0; i < tries; i += 1) {
+    try {
+      const current = await readContract({
+        address: tokenAddress,
+        abi: ERC20_READ_ABI,
+        functionName: "allowance",
+        args: [owner, spender],
+        chain: chainName,
+      });
+      if (BigInt(current) >= BigInt(amount)) return true;
+    } catch (err) {
+      console.warn("waitForAllowance: no se pudo leer allowance:", err);
+    }
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return false;
+}
+
 const isDark = () =>
   typeof document !== "undefined" &&
   document.documentElement.classList.contains("dark");
@@ -95,14 +208,15 @@ function fromBaseUnits(value, decimals) {
   return Number(`${intPart}.${fracPart}`);
 }
 
-/** Lee vendors(wallet).totalCollateral on-chain. Devuelve null si falla. */
-async function readVendorTotal(walletAddress) {
+/** Lee vendors(wallet).totalCollateral on-chain para un contrato dado. */
+async function readVendorTotal(walletAddress, contractAddress, chainName) {
   try {
     const [totalCollateral] = await readContract({
-      address: CONTRACT_ADDRESS,
+      address: contractAddress,
       abi: COLLATERAL_POOL_ABI,
       functionName: "vendors",
       args: [walletAddress],
+      chain: chainName,
     });
     return BigInt(totalCollateral);
   } catch (error) {
@@ -138,34 +252,34 @@ async function resolveSignerAddress(fallbackAddress) {
  * El bundler de ERC-4337 puede tardar en incluir la UserOp on-chain, por lo que
  * damos una ventana generosa (~40s) con reintentos.
  */
-async function verifyDepositApplied(amountInBase, signerAddress) {
+async function verifyDepositApplied(amountInBase, signerAddress, contractAddress, chainName) {
   if (!signerAddress) return { ok: true, reason: "no-wallet" };
 
-  const before = await readVendorTotal(signerAddress);
+  const before = await readVendorTotal(signerAddress, contractAddress, chainName);
   if (before === null) return { ok: false, reason: "no-read" };
 
   const expected = before + BigInt(amountInBase);
 
   for (let attempt = 0; attempt < 20; attempt += 1) {
     await new Promise((r) => setTimeout(r, 2000));
-    const now = await readVendorTotal(signerAddress);
+    const now = await readVendorTotal(signerAddress, contractAddress, chainName);
     if (now !== null && now >= expected) return { ok: true, reason: "confirmed" };
   }
   return { ok: false, reason: "not-detected", expected: expected.toString() };
 }
 
 /** Verifica que el retiro se refleje: el total on-chain debe DISMINUIR. */
-async function verifyWithdrawApplied(amountInBase, signerAddress) {
+async function verifyWithdrawApplied(amountInBase, signerAddress, contractAddress, chainName) {
   if (!signerAddress) return { ok: true, reason: "no-wallet" };
 
-  const before = await readVendorTotal(signerAddress);
+  const before = await readVendorTotal(signerAddress, contractAddress, chainName);
   if (before === null) return { ok: false, reason: "no-read" };
 
   const expectedMax = before - BigInt(amountInBase);
 
   for (let attempt = 0; attempt < 20; attempt += 1) {
     await new Promise((r) => setTimeout(r, 2000));
-    const now = await readVendorTotal(signerAddress);
+    const now = await readVendorTotal(signerAddress, contractAddress, chainName);
     if (now !== null && now <= expectedMax) return { ok: true, reason: "confirmed" };
   }
   return { ok: false, reason: "not-detected" };
@@ -175,9 +289,9 @@ async function verifyWithdrawApplied(amountInBase, signerAddress) {
  * Comprueba que la dirección del contrato tenga CÓDIGO (eth_getCode != "0x").
  * Si no lo tiene, cualquier depósito será "fantasma".
  */
-async function checkContractHasCode(address) {
+async function checkContractHasCode(address, chainName) {
   try {
-    const code = await getContractCode({ address });
+    const code = await getContractCode({ address, chain: chainName });
     const len = code ? code.length : 0;
     return { hasCode: Boolean(code) && code !== "0x", codeLength: len };
   } catch (error) {
@@ -187,40 +301,15 @@ async function checkContractHasCode(address) {
 }
 
 /**
- * Aviso de SEGURIDAD cuando el dispositivo es NUEVO (no tiene device signer
- * local). Crossmint pedirá un código por email para autorizar el dispositivo
- * (recovery), UNA sola vez por dispositivo. Lo avisamos ANTES de iniciar la
- * firma para que el usuario entienda el paso extra.
+ * (Eliminado) confirmNewDeviceIfNeeded.
  *
- * @returns {Promise<boolean>} true = el usuario aceptó continuar.
+ * Antes mostrábamos un cartel preventivo de "dispositivo nuevo" consultando
+ * `deviceNeedsRecovery()`. Era engañoso: (1) decía "te enviaremos un código"
+ * pero NO lo enviaba (el envío real ocurre en el CrossmintOtpModal cuando el
+ * SDK lo pide), y (2) consultaba needsRecovery en una chain fija. Ahora el OTP
+ * lo maneja 100% el SDK vía `onAuthRequired` + el modal global, que ya está
+ * montado en App.jsx. Si el device signer es válido → firma silenciosa.
  */
-async function confirmNewDeviceIfNeeded(actionLabel) {
-  let needsRecovery = false;
-  try {
-    needsRecovery = await deviceNeedsRecovery();
-  } catch {
-    needsRecovery = false;
-  }
-  if (!needsRecovery) return true;
-
-  const dark = isDark();
-  const result = await Swal.fire({
-    icon: "info",
-    title: "Autorización del dispositivo",
-    html:
-      `<p style="text-align:left;margin:0 0 10px">Estás intentando <b>${actionLabel}</b> con tu billetera desde un <b>dispositivo nuevo</b>.</p>` +
-      `<p style="text-align:left;margin:0">Para autorizar esta operación de forma segura, te enviaremos un <b>código de seguridad a tu correo electrónico</b> mediante nuestro gestor de billetera.</p>` +
-      `<p style="text-align:left;margin:10px 0 0;font-size:13px;opacity:.75">Esto se realiza <b>una sola vez</b> por cada dispositivo que utilices.</p>`,
-    showCancelButton: true,
-    confirmButtonText: "Continuar",
-    cancelButtonText: "Cancelar",
-    confirmButtonColor: "#F26722",
-    cancelButtonColor: "#6b7280",
-    background: dark ? "#252525" : "#fff",
-    color: dark ? "#fff" : "#111",
-  });
-  return result.isConfirmed;
-}
 
 /** Toast reutilizable con el estilo de la app. */
 const Toast = Swal.mixin({
@@ -241,14 +330,45 @@ function describeError(error) {
   return error?.reason || error?.message || "Operación cancelada";
 }
 
+// Estados de la orden en los que el vendedor tiene garantía retenida (o
+// reservando capacidad, si el hold aún no se depositó).
+const HOLDING_STATUSES = [
+  "awaiting_collateral",
+  "pending_payment",
+  "verifying_payment",
+  "paid",
+  "shipped",
+  "reception_confirmed",
+];
+
+// Motivo legible por estado para la tabla de órdenes.
+const STATUS_REASON = {
+  awaiting_collateral: "Esperando depósito de garantía",
+  pending_payment: "Esperando pago del comprador",
+  verifying_payment: "Verificando pago",
+  paid: "Pago confirmado, en preparación",
+  shipped: "Pedido en camino",
+  reception_confirmed: "Recibido por el comprador",
+};
+
 export default function CollateralManager() {
-  const { authenticated, user } = usePrivy();
+  const { authenticated, user, getAccessToken } = usePrivy();
   const dbWalletAddress = useUserStore((s) => s.dbUser?.walletAddress || null);
   // Address "de negocio" (Mongo). Se usa para gating de UI y como fallback.
   const walletAddress = dbWalletAddress || user?.wallet?.address || null;
 
   // Address REAL que firma (smart wallet Crossmint). Se resuelve al montar.
   const [signerAddress, setSignerAddress] = useState(null);
+
+  // Red seleccionada para operar (depositar/retirar/leer saldos).
+  const [selectedNetworkKey, setSelectedNetworkKey] = useState(DEFAULT_NETWORK_KEY);
+  const network =
+    NETWORKS.find((n) => n.key === selectedNetworkKey) || NETWORKS[0];
+  // Constantes de la red activa (para reemplazar las viejas globales).
+  const CONTRACT_ADDRESS = network.contractAddress;
+  const COLLATERAL_TOKEN_ADDRESS = network.token.address;
+  const COLLATERAL_TOKEN_DECIMALS = network.token.decimals;
+  const COLLATERAL_TOKEN_SYMBOL = network.token.symbol;
 
   // Estados para los saldos de la Blockchain
   const [balances, setBalances] = useState({
@@ -261,6 +381,10 @@ export default function CollateralManager() {
   // vacío / error). Se apaga recién cuando la lectura termina.
   const [loadingBalances, setLoadingBalances] = useState(true);
 
+  // Órdenes del vendedor con garantía retenida (reutiliza /api/order/my-orders).
+  const [holdingOrders, setHoldingOrders] = useState([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+
   // Estados para los inputs y loaders
   const [depositAmount, setDepositAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
@@ -271,17 +395,95 @@ export default function CollateralManager() {
   // Estado del contrato de colateral: { hasCode, codeLength }.
   const [contractStatus, setContractStatus] = useState(null);
 
-  // Chequeo inicial: ¿la dirección del contrato tiene bytecode en esta red?
+  // ¿La billetera necesita activarse (device signer) para firmar en esta red?
+  // null = todavía no se sabe. true/false tras consultar.
+  const [needsActivation, setNeedsActivation] = useState(null);
+  const [activating, setActivating] = useState(false);
+
+  // Consulta si falta activar el device signer en la red seleccionada.
+  // ⚠️ Usamos el flag persistente (`isDeviceActivated`), NO needsRecovery(),
+  // porque needsRecovery() da falsos positivos (devolvía true aunque la firma
+  // funcionara, dejando el aviso para siempre). El flag se marca al completar
+  // la activación o al firmar con éxito.
   useEffect(() => {
     let mounted = true;
+    setNeedsActivation(null);
     (async () => {
-      const res = await checkContractHasCode(CONTRACT_ADDRESS);
+      if (!network.sendable) {
+        if (mounted) setNeedsActivation(false);
+        return;
+      }
+      try {
+        const addr = await getWalletAddress({ chain: network.chainName });
+        const activated = isDeviceActivated({ address: addr, chain: network.chainName });
+        if (mounted) setNeedsActivation(!activated);
+      } catch {
+        if (mounted) setNeedsActivation(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [network.chainName, network.sendable, signerAddress]);
+
+  // Activa el device signer para la red seleccionada (dispara OTP si hace
+  // falta). Al terminar, re-evalúa el estado.
+  const handleActivate = async () => {
+    const dark = isDark();
+    const confirm = await Swal.fire({
+      icon: "info",
+      title: "Activar billetera en esta red",
+      html:
+        `<p style="text-align:left;margin:0 0 10px">Vas a habilitar tu billetera para firmar en <b>${network.label}</b>.</p>` +
+        `<p style="text-align:left;margin:0 0 10px">Si hace falta, te enviaremos un <b>código de verificación por email</b> desde nuestro proveedor de billetera <b>Crossmint</b> — <b>no es de Mercado Nero</b>. Revisá también spam.</p>` +
+        `<p style="text-align:left;margin:0;font-size:13px;opacity:.75">Se realiza <b>una sola vez por dispositivo</b> en esta red.</p>`,
+      showCancelButton: true,
+      confirmButtonText: "Activar ahora",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#F26722",
+      cancelButtonColor: "#6b7280",
+      background: dark ? "#252525" : "#fff",
+      color: dark ? "#fff" : "#111",
+    });
+    if (!confirm.isConfirmed) return;
+
+    setActivating(true);
+    try {
+      const r = await activateDeviceSigner({ chain: network.chainName });
+      setNeedsActivation(false);
+      Toast.fire({
+        icon: "success",
+        title: r.alreadyReady
+          ? `Billetera lista en ${network.label}.`
+          : `Billetera activada en ${network.label}.`,
+      });
+    } catch (error) {
+      if (error?.code !== "AUTH_REJECTED") {
+        console.error(error);
+      }
+      Toast.fire({ icon: "error", title: describeError(error) });
+    } finally {
+      setActivating(false);
+    }
+  };
+
+  // Chequeo: ¿la dirección del contrato tiene bytecode en la red elegida?
+  // Se re-ejecuta al cambiar de red.
+  useEffect(() => {
+    let mounted = true;
+    setContractStatus(null);
+    (async () => {
+      if (!CONTRACT_ADDRESS) {
+        if (mounted) setContractStatus({ hasCode: false, codeLength: 0 });
+        return;
+      }
+      const res = await checkContractHasCode(CONTRACT_ADDRESS, network.chainName);
       if (mounted) setContractStatus(res);
     })();
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [CONTRACT_ADDRESS, network.chainName]);
 
   // Resolver la address real del signer (smart wallet Crossmint) al montar.
   useEffect(() => {
@@ -295,10 +497,11 @@ export default function CollateralManager() {
     };
   }, [walletAddress]);
 
-  // 1. FUNCIÓN PARA LEER LOS SALDOS (READ) — contra la address del signer.
+  // 1. FUNCIÓN PARA LEER LOS SALDOS (READ) — contra la address del signer y la
+  // red seleccionada.
   const fetchBalances = useCallback(async () => {
     const addr = signerAddress || (await resolveSignerAddress(walletAddress));
-    if (!addr) return;
+    if (!addr || !CONTRACT_ADDRESS) return;
     setLoadingBalances(true);
     try {
       const [totalCollateral, lockedCollateral] = await readContract({
@@ -306,6 +509,7 @@ export default function CollateralManager() {
         abi: COLLATERAL_POOL_ABI,
         functionName: "vendors",
         args: [addr],
+        chain: network.chainName,
       });
 
       const total = fromBaseUnits(totalCollateral, COLLATERAL_TOKEN_DECIMALS);
@@ -322,14 +526,58 @@ export default function CollateralManager() {
     } finally {
       setLoadingBalances(false);
     }
-  }, [signerAddress, walletAddress]);
+  }, [
+    signerAddress,
+    walletAddress,
+    CONTRACT_ADDRESS,
+    COLLATERAL_TOKEN_DECIMALS,
+    network.chainName,
+  ]);
 
-  // Leer saldos cuando haya signer resuelto y usuario autenticado.
+  // Lee las órdenes del vendedor (role=seller) y se queda solo con las que
+  // tienen garantía retenida. Reutiliza el endpoint ya existente /my-orders.
+  const fetchHoldingOrders = useCallback(async () => {
+    if (!authenticated) return;
+    setLoadingOrders(true);
+    try {
+      const token = await getAccessToken();
+      const { data } = await axios.get(
+        `${import.meta.env.VITE_SERVER_URL}/api/order/my-orders?role=seller`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const all = Array.isArray(data?.orders) ? data.orders : [];
+      const filtered = all.filter((o) => HOLDING_STATUSES.includes(o.status));
+      setHoldingOrders(filtered);
+    } catch (error) {
+      console.error("Error al cargar órdenes con garantía retenida:", error);
+      setHoldingOrders([]);
+    } finally {
+      setLoadingOrders(false);
+    }
+  }, [authenticated, getAccessToken]);
+
+  // Leer saldos cuando haya signer resuelto y usuario autenticado (y al cambiar
+  // de red — fetchBalances ya depende de CONTRACT_ADDRESS/chain).
   useEffect(() => {
     if (authenticated && (signerAddress || walletAddress)) {
       fetchBalances();
     }
   }, [authenticated, signerAddress, walletAddress, fetchBalances]);
+
+  // Cargar órdenes con garantía retenida al autenticarse.
+  useEffect(() => {
+    if (authenticated) {
+      fetchHoldingOrders();
+    }
+  }, [authenticated, fetchHoldingOrders]);
+
+  // Refresca cotizaciones (saldos on-chain + órdenes) en un solo gesto.
+  const refreshAll = useCallback(async () => {
+    await Promise.all([
+      fetchBalances(),
+      fetchHoldingOrders(),
+    ]);
+  }, [fetchBalances, fetchHoldingOrders]);
 
   // 2. FUNCIÓN PARA DEPOSITAR (WRITE)
   const handleDeposit = async (e) => {
@@ -344,7 +592,7 @@ export default function CollateralManager() {
 
     // 🛡️ Guardia anti-depósito-fantasma ANTES de firmar.
     const codeCheck =
-      contractStatus || (await checkContractHasCode(CONTRACT_ADDRESS));
+      contractStatus || (await checkContractHasCode(CONTRACT_ADDRESS, network.chainName));
     if (codeCheck.hasCode === false) {
       Toast.fire({
         icon: "error",
@@ -354,11 +602,20 @@ export default function CollateralManager() {
       return;
     }
 
-    // 🔐 Dispositivo nuevo: avisamos ANTES de firmar (una vez por dispositivo).
-    const proceed = await confirmNewDeviceIfNeeded(
-      `depositar ${depositAmount} ${COLLATERAL_TOKEN_SYMBOL} en garantía`,
-    );
-    if (!proceed) return;
+    // 🚫 Red no firmable con Crossmint (p.ej. BSC testnet): no permitimos operar.
+    if (!network.sendable) {
+      Toast.fire({
+        icon: "error",
+        title: `No se puede operar en ${network.label} con esta billetera (red no soportada para firmar).`,
+      });
+      return;
+    }
+
+    // 🔐 El OTP (si hiciera falta) lo maneja el SDK + el CrossmintOtpModal
+    // global vía `onAuthRequired`. NO mostramos un aviso previo: si el device
+    // signer es válido, la firma es silenciosa; si no, aparece el modal real de
+    // OTP (con su botón "Enviar código"). Evitamos así el falso aviso de
+    // "dispositivo nuevo" que no enviaba ningún correo.
 
     setLoading(true);
     setProgress(`Aprobando ${COLLATERAL_TOKEN_SYMBOL}...`);
@@ -369,32 +626,98 @@ export default function CollateralManager() {
         COLLATERAL_TOKEN_DECIMALS,
       );
 
+      // Resolvemos la address REAL que firma (smart wallet), dueña de los fondos
+      // y del allowance. Es la key de `vendors` en el contrato.
+      const addr =
+        signerAddress || (await resolveSignerAddress(walletAddress));
+
+      // ── DIAGNÓSTICO PREVIO: balance y allowance ──
+      // Evita el `ExecutionReverted()` opaco del token (p. ej. USDC en Base)
+      // cuando no hay saldo o el allowance no alcanza.
+      try {
+        const bal = await readContract({
+          address: COLLATERAL_TOKEN_ADDRESS,
+          abi: ERC20_READ_ABI,
+          functionName: "balanceOf",
+          args: [addr],
+          chain: network.chainName,
+        });
+        if (BigInt(bal) < amountInBase) {
+          Toast.fire({
+            icon: "error",
+            title: `Saldo insuficiente de ${COLLATERAL_TOKEN_SYMBOL} en esta red.`,
+          });
+          return;
+        }
+      } catch (e) {
+        console.warn("No se pudo leer balance del token:", e);
+      }
+
+      // ── APPROVE ──
       await approveToken({
         tokenAddress: COLLATERAL_TOKEN_ADDRESS,
         spender: CONTRACT_ADDRESS,
         amount: amountInBase,
+        chain: network.chainName,
       });
 
-      setProgress("Confirmando el depósito en el contrato...");
-      const tx = await writeContract({
-        address: CONTRACT_ADDRESS,
-        abi: COLLATERAL_POOL_ABI,
-        functionName: "depositCollateral",
-        args: [COLLATERAL_TOKEN_ADDRESS, amountInBase],
+      // ── ESPERAR el allowance on-chain antes de depositar ──
+      // El bundler de ERC-4337 puede tardar en incluir el approve; si
+      // depositamos antes de que impacte, `transferFrom` revierte
+      // (ExecutionReverted). Esperamos a ver el allowance confirmado.
+      setProgress("Esperando confirmación del approve...");
+      const allowanceReady = await waitForAllowance({
+        tokenAddress: COLLATERAL_TOKEN_ADDRESS,
+        owner: addr,
+        spender: CONTRACT_ADDRESS,
+        amount: amountInBase,
+        chainName: network.chainName,
       });
+      if (!allowanceReady) {
+        Toast.fire({
+          icon: "warning",
+          title: "El approve aún no se reflejó on-chain. Reintentá en unos segundos.",
+        });
+        return;
+      }
+
+      setProgress("Confirmando el depósito en el contrato...");
+      // El depósito puede revertir si el estado cambió justo tras el approve.
+      // Reintentamos UNA vez para cubrir la carrera del bundler.
+      let tx;
+      try {
+        tx = await writeContract({
+          address: CONTRACT_ADDRESS,
+          abi: COLLATERAL_POOL_ABI,
+          functionName: "depositCollateral",
+          args: [COLLATERAL_TOKEN_ADDRESS, amountInBase],
+          chain: network.chainName,
+        });
+      } catch (depositErr) {
+        console.warn("Depósito revirtió; reintentando una vez:", depositErr);
+        await new Promise((r) => setTimeout(r, 3000));
+        tx = await writeContract({
+          address: CONTRACT_ADDRESS,
+          abi: COLLATERAL_POOL_ABI,
+          functionName: "depositCollateral",
+          args: [COLLATERAL_TOKEN_ADDRESS, amountInBase],
+          chain: network.chainName,
+        });
+      }
 
       setProgress("Verificando el depósito on-chain...");
       // ⚠️ Verificación contra la address REAL del signer (no la de Mongo), para
       // no dar falsos negativos.
-      const addrForVerify =
-        signerAddress || (await resolveSignerAddress(walletAddress));
+      const addrForVerify = addr;
       const depositConfirmed = await verifyDepositApplied(
         amountInBase,
         addrForVerify,
+        CONTRACT_ADDRESS,
+        network.chainName,
       );
 
       setDepositAmount("");
-      await fetchBalances();
+      await refreshAll();
 
       if (!depositConfirmed.ok) {
         Toast.fire({
@@ -440,11 +763,17 @@ export default function CollateralManager() {
       return;
     }
 
-    // 🔐 Dispositivo nuevo: avisamos ANTES de firmar.
-    const proceed = await confirmNewDeviceIfNeeded(
-      `retirar ${withdrawAmount} ${COLLATERAL_TOKEN_SYMBOL} de garantía`,
-    );
-    if (!proceed) return;
+    // 🚫 Red no firmable con Crossmint (p.ej. BSC testnet): no permitimos operar.
+    if (!network.sendable) {
+      Toast.fire({
+        icon: "error",
+        title: `No se puede operar en ${network.label} con esta billetera (red no soportada para firmar).`,
+      });
+      return;
+    }
+
+    // 🔐 El OTP (si hiciera falta) lo maneja el SDK + el CrossmintOtpModal
+    // global vía `onAuthRequired` (ver nota en handleDeposit).
 
     setLoading(true);
     setProgress("Confirmando el retiro...");
@@ -460,6 +789,7 @@ export default function CollateralManager() {
         abi: COLLATERAL_POOL_ABI,
         functionName: "withdrawCollateral",
         args: [COLLATERAL_TOKEN_ADDRESS, amountInBase],
+        chain: network.chainName,
       });
 
       setProgress("Verificando el retiro on-chain...");
@@ -468,10 +798,12 @@ export default function CollateralManager() {
       const withdrawConfirmed = await verifyWithdrawApplied(
         amountInBase,
         addrForVerify,
+        CONTRACT_ADDRESS,
+        network.chainName,
       );
 
       setWithdrawAmount("");
-      await fetchBalances();
+      await refreshAll();
 
       if (!withdrawConfirmed.ok) {
         Toast.fire({
@@ -497,9 +829,11 @@ export default function CollateralManager() {
     }
   };
 
-  // No permitimos operar si no hay wallet o si el contrato no tiene código.
+  // No permitimos operar si no hay wallet, si el contrato no tiene código, o si
+  // la red no es firmable con Crossmint (BSC testnet). La lectura sigue visible.
   const contractMissing = contractStatus?.hasCode === false;
-  const disabled = loading || !walletAddress || contractMissing;
+  const canSign = network.sendable;
+  const disabled = loading || !walletAddress || contractMissing || !canSign;
   const withdrawDisabled =
     disabled || loadingBalances || balances.available === "0.00";
 
@@ -538,6 +872,73 @@ export default function CollateralManager() {
         <p className="text-sm text-gray-500 dark:text-gray-400">
           Gestioná tus activos en garantía para poder vender.
         </p>
+
+        {/* SELECTOR DE RED: cada red tiene su contrato y token de colateral.
+            BSC testnet aparece pero no es firmable con Crossmint (solo lectura). */}
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            Red:
+          </span>
+          {NETWORKS.map((n) => {
+            const active = n.key === selectedNetworkKey;
+            return (
+              <button
+                key={n.key}
+                type="button"
+                onClick={() => {
+                  if (loading) return;
+                  setSelectedNetworkKey(n.key);
+                }}
+                disabled={loading}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors disabled:opacity-50 ${
+                  active
+                    ? "bg-[#F26722] text-white border-[#F26722]"
+                    : "bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700"
+                }`}
+                title={!n.sendable ? "Solo lectura: esta red no es firmable con la billetera Crossmint" : n.label}
+              >
+                {n.label}
+                {!n.sendable && <span className="ml-1 opacity-70">· lectura</span>}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+          Token de colateral en {network.label}: <b>{network.token.symbol}</b> ·{" "}
+          <a
+            href={`${network.explorer}/address/${CONTRACT_ADDRESS}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-[#F26722]"
+          >
+            ver contrato
+          </a>
+        </p>
+
+        {!network.sendable && (
+          <div className="mt-3 p-3 rounded-lg text-xs font-medium bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-400 border border-amber-200 dark:border-amber-900">
+            ⚠️ En {network.label} solo podés <b>ver</b> tu garantía. Para depositar/retirar elegí Polygon Amoy o Base Sepolia (redes donde tu billetera puede firmar).
+          </div>
+        )}
+
+        {SHOW_ACTIVATION_UI && network.sendable && needsActivation === true && (
+          <div className="mt-3 p-3 rounded-lg text-xs bg-[#F26722]/5 dark:bg-[#F26722]/10 border border-[#F26722]/30 flex items-start gap-2 flex-wrap">
+            <ShieldCheck className="h-4 w-4 text-[#F26722] mt-0.5 shrink-0" />
+            <span className="flex-1 min-w-[10rem] text-gray-700 dark:text-gray-300">
+              Tu billetera todavía no está habilitada para firmar en <b>{network.label}</b>.
+              Activá para operar y recibirás un código de <b>Crossmint</b> por email (no de Mercado Nero).
+            </span>
+            <button
+              type="button"
+              onClick={handleActivate}
+              disabled={activating || loading}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[#F26722] text-white hover:brightness-110 disabled:opacity-60 flex items-center gap-1.5"
+            >
+              {activating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              {activating ? "Activando..." : "Activar ahora"}
+            </button>
+          </div>
+        )}
 
         {contractStatus && contractStatus.hasCode === false && (
           <div className="mt-4 p-3 rounded-lg text-xs font-medium bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-400 border border-red-200 dark:border-red-900">
@@ -608,6 +1009,112 @@ export default function CollateralManager() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* SECCIÓN: ÓRDENES CON GARANTÍA RETENIDA
+          Desglosa el total "En Órdenes Activas" en cada venta que lo compone.
+          Reutiliza /api/order/my-orders (role=seller). Muestra el colateral
+          esperado del vendedor y la comisión (3% + referidos) a descontar. */}
+      <div>
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h3 className="text-sm font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wide flex items-center gap-2">
+            <ReceiptText className="h-4 w-4 text-orange-500" />
+            Órdenes con garantía retenida
+          </h3>
+          <button
+            onClick={refreshAll}
+            disabled={loadingOrders || loadingBalances}
+            className="flex items-center gap-1.5 text-xs text-[#F26722] font-medium hover:underline disabled:opacity-50"
+          >
+            <RefreshCcw
+              size={14}
+              className={loadingOrders || loadingBalances ? "animate-spin" : ""}
+            />
+            Actualizar
+          </button>
+        </div>
+
+        {loadingOrders ? (
+          <div className="py-8 text-center text-gray-400 dark:text-gray-500 text-sm flex items-center justify-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Cargando órdenes...
+          </div>
+        ) : holdingOrders.length === 0 ? (
+          <div className="py-8 px-4 text-center rounded-xl bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-800">
+            <Lock className="h-6 w-6 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              No tenés saldo retenido en órdenes activas.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-800">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 dark:bg-gray-800/60 text-gray-500 dark:text-gray-400">
+                <tr className="text-left">
+                  <th className="px-4 py-2.5 font-bold text-xs uppercase tracking-wide">Orden</th>
+                  <th className="px-4 py-2.5 font-bold text-xs uppercase tracking-wide">Comprador</th>
+                  <th className="px-4 py-2.5 font-bold text-xs uppercase tracking-wide">Estado</th>
+                  <th className="px-4 py-2.5 font-bold text-xs uppercase tracking-wide text-right">Garantía</th>
+                  <th className="px-4 py-2.5 font-bold text-xs uppercase tracking-wide text-right">Comisión</th>
+                  <th className="px-4 py-2.5 font-bold text-xs uppercase tracking-wide text-right">Fecha</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {holdingOrders.map((order) => {
+                  // Monto de garantía que retiene el vendedor para esta orden.
+                  const collateralUsd =
+                    Number(order.financials?.sellerNetReleaseUsd) ||
+                    Number(order.financials?.totalUsd) ||
+                    Number(order.totalAmount) ||
+                    0;
+                  // Comisión total a descontar (base 3% + referidos).
+                  const feeUsd = Number(order.financials?.platformFeeUsd || 0);
+                  const buyerName =
+                    [order.buyer?.firstName, order.buyer?.lastName]
+                      .filter(Boolean)
+                      .join(" ")
+                      .trim() ||
+                    order.buyer?.username ||
+                    "El comprador";
+                  const code = String(order._id || "").slice(-6).toUpperCase();
+
+                  return (
+                    <tr key={order._id} className="dark:text-gray-200">
+                      <td className="px-4 py-2.5 whitespace-nowrap font-mono text-xs text-gray-600 dark:text-gray-400">
+                        #{code}
+                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap">{buyerName}</td>
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        <span className="text-xs text-gray-600 dark:text-gray-300">
+                          {STATUS_REASON[order.status] || order.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-bold whitespace-nowrap text-gray-900 dark:text-white">
+                        {collateralUsd.toFixed(2)}{" "}
+                        <span className="text-xs font-normal text-gray-400">
+                          {COLLATERAL_TOKEN_SYMBOL}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-right whitespace-nowrap text-rose-500 dark:text-rose-400">
+                        -{feeUsd.toFixed(2)}{" "}
+                        <span className="text-xs font-normal"> {COLLATERAL_TOKEN_SYMBOL}</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-right whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">
+                        {order.createdAt
+                          ? new Date(order.createdAt).toLocaleDateString("es-AR", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "numeric",
+                            })
+                          : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <hr className="border-gray-200 dark:border-gray-800" />

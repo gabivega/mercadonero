@@ -90,8 +90,8 @@ export default function CrossmintOtpModal() {
           Verificación de seguridad
         </h2>
         <p className="text-sm text-gray-500 mt-1">
-          Para firmar esta operación con tu billetera necesitamos confirmar tu
-          identidad por email.
+          Para firmar esta operación con tu billetera de forma segura, necesitamos confirmar tu
+          identidad por email. Recibirás un código de verificacion de nuestro proveedor de pagos Crossmint. Ingresalo en el campo de abajo para continuar.
         </p>
 
         {!state.otpSent ? (

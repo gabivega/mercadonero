@@ -12,6 +12,12 @@ import {
   triggerOrderDispute,
 } from "../services/blockchainServices.js";
 import { DEFAULT_CHAIN_ID, getChainConfig } from "../config/chains.js";
+// Config del ESCROW de pagos crypto (multichain + modo de fondeo nativo). Se
+// mantiene separada del registro de colateral para no mezclar conceptos.
+import {
+  getEscrowChainConfig,
+  ESCROW_DEFAULT_CHAIN_ID,
+} from "../config/chains.js";
 
 
 import User from "../models/User.js";
@@ -475,11 +481,22 @@ const createOrder = async (req, res) => {
         });
       }
 
+            // ── CONFIG DEL ESCROW MULTICHAIN ─────────────────────────────────
+            // Resolvemos la red del escrow UNA sola vez al crear la orden. Todo el
+            // ciclo de vida (verify → release/cancel del admin) usará ESTE chainId,
+            // así nunca escribimos/leemos el contrato equivocado.
+            // El `token` que manda el front (USDT/POL/…): si no viene, usamos el
+            // símbolo por defecto de la red (POL en Amoy, USDT en BSC).
+            const escrowChain = getEscrowChainConfig(
+              req.body.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
+            );
+            const escrowTokenSymbol = token || escrowChain.tokenSymbol;
+
             // El fee del escrow es GLOBAL y lo define el admin en el contrato (feeBps).
-      // Al crear la orden leemos el fee ACTUAL on-chain para que la comisión de
-      // esta orden coincida con la que cobrará el contrato al liberar el escrow.
+            // Al crear la orden leemos el fee ACTUAL on-chain para que la comisión de
+            // esta orden coincida con la que cobrará el contrato al liberar el escrow.
             const { getFeeBps } = await import("../services/escrowServices.js");
-      const feeRead = await getFeeBps();
+            const feeRead = await getFeeBps(escrowChain.chainId);
       const currentFeeBps = feeRead.success ? feeRead.feeBps : 300;
       // Recalculamos la comisión BASE de ESTA orden según el fee global vigente
       // del contrato y le sumamos el reward de referidos (si aplica). El fee
@@ -535,9 +552,12 @@ const createOrder = async (req, res) => {
           : undefined,
         payment: {
           method: "crypto",
-          token: token,
+          token: escrowTokenSymbol,
           status: "funding",
-          tokenAddress: "",
+          // Red + modo de fondeo del escrow (ver config/chains.js).
+          chainId: escrowChain.chainId,
+          fundingMode: escrowChain.fundingMode,
+          tokenAddress: escrowChain.tokenAddress || "",
           amountUsdRetained: financials.totalUsd + financials.shippingCostUsd,
           feeUsd: financials.platformFeeUsd,
           feeBps: currentFeeBps,
@@ -556,15 +576,24 @@ const createOrder = async (req, res) => {
       // sendVendorCryptoPaid). Al comprador tampoco hace falta un mail: ya está
       // en el modal firmando el fondeo en ese instante.
 
-      // Notificación in-app informativa al vendedor (no un mail): visibilidad
-      // temprana de que hay un comprador interesado, sin compromiso de pago.
-            createNotification({
-        recipient: sellerId,
-        type: "order_created",
-        title: "Nuevo comprador interesado (cripto)",
-        message: `${buyer.firstName || buyer.username || "El comprador"} inició la orden #${savedCryptoOrder._id.toString().slice(-6).toUpperCase()} y está por abonar en USDT. Te avisaremos por mail cuando el pago quede confirmado en el contrato.`,
-        data: { orderId: savedCryptoOrder._id, totalAmount: savedCryptoOrder.totalAmount },
-      }).catch((err) => console.error("Falló notif in-app a vendedor:", err));
+      // ⛔ NOTIFICACIÓN DESACTIVADA A PROPÓSITO.
+      // Antes se avisaba al vendedor "Nuevo comprador interesado (cripto)" al
+      // crear la orden en 'pending_payment'/'funding' (ANTES del fondeo). Esto
+      // generaba ruido y falsas ventas: si el comprador cierra el modal sin
+      // fondear, la orden se descarta (rollback) y el aviso ya se había enviado.
+      // La orden recién es VÁLIDA cuando el escrow queda fondeado on-chain; ese
+      // es el único punto que debe avisar al vendedor (ver confirmEscrowFunding
+      // → sendVendorCryptoPaid + la createNotification de 'payment_confirmed').
+      //
+      // Se conserva comentado para poder reactivarlo rápidamente si se deseara.
+      //
+      // createNotification({
+      //   recipient: sellerId,
+      //   type: "order_created",
+      //   title: "Nuevo comprador interesado (cripto)",
+      //   message: `${buyer.firstName || buyer.username || "El comprador"} inició la orden #${savedCryptoOrder._id.toString().slice(-6).toUpperCase()} y está por abonar en USDT. Te avisaremos por mail cuando el pago quede confirmado en el contrato.`,
+      //   data: { orderId: savedCryptoOrder._id, totalAmount: savedCryptoOrder.totalAmount },
+      // }).catch((err) => console.error("Falló notif in-app a vendedor:", err));
 
             return res.status(201).json({
         success: true,
@@ -573,7 +602,11 @@ const createOrder = async (req, res) => {
         order: savedCryptoOrder,
         sellerWallet: seller.walletAddress,
         buyerWallet: buyer.walletAddress,
-        escrowContract: process.env.ESCROW_CONTRACT_ADDRESS,
+        escrowContract: escrowChain.contractAddress,
+        // Necesarios por el front para elegir fundOrder vs fundOrderNative.
+        chainId: escrowChain.chainId,
+        fundingMode: escrowChain.fundingMode,
+        tokenSymbol: escrowTokenSymbol,
       });
     }
 
@@ -2276,7 +2309,10 @@ const adminCompleteOrder = async (req, res) => {
           });
         }
         const { releaseOrderEscrow } = await import("../services/escrowServices.js");
-        const escrowResult = await releaseOrderEscrow(order._id.toString());
+        const escrowResult = await releaseOrderEscrow(
+          order._id.toString(),
+          order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
+        );
         if (!escrowResult.success) {
           return res.status(500).json({
             success: false,
@@ -3001,7 +3037,7 @@ const cancelCollateralHold = async (req, res) => {
 const confirmEscrowFunding = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const { fundTxHash, tokenAddress, token } = req.body;
+    const { fundTxHash, tokenAddress, token, fundingMode } = req.body;
     const userId = req.user._id.toString();
 
     const order = await Order.findById(orderId);
@@ -3042,11 +3078,17 @@ const confirmEscrowFunding = async (req, res) => {
     }
 
     // Verificamos on-chain que el escrow quedó fondeado y que el monto retenido
-    // coincida con lo esperado (total productos + envío en USD).
+    // coincida con lo esperado (total productos + envío en USD). SIEMPRE sobre
+    // la red del escrow persistida en la orden (multichain).
+    // Aceptamos `fundingMode`/`token` en el body: el front sabe si firmó
+    // fundOrder (token) o fundOrderNative (nativo) y lo informa para que el
+    // backend lo persista sin tener que adivinarlo.
+    const escrowChainId = order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID;
     const { verifyOrderFunded } = await import("../services/escrowServices.js");
     const verification = await verifyOrderFunded(
       order._id.toString(),
       order.financials.totalUsd + order.financials.shippingCostUsd,
+      escrowChainId,
     );
 
     if (!verification.success || !verification.funded) {
@@ -3068,17 +3110,38 @@ const confirmEscrowFunding = async (req, res) => {
     }
 
     // Actualizamos la orden y el sub-estado de pago.
+    const escrowInfo = verification.escrow || {};
+    const resolvedFundingMode =
+      fundingMode ||
+      order.payment?.fundingMode ||
+      (escrowInfo.isNative ? "native" : "token");
+
     order.payment.status = "funded";
     order.payment.fundTxHash = fundTxHash;
-    order.payment.tokenAddress = tokenAddress || verification.escrow?.token || order.payment.tokenAddress;
-    order.payment.token = token || order.payment.token;
+    order.payment.chainId = escrowChainId;
+    order.payment.fundingMode = resolvedFundingMode;
+    // Dirección real con la que se fondeó (address(0) = nativo). Preferimos la
+    // lectura on-chain por sobre lo que mande el cliente.
+    order.payment.escrowTokenAddress =
+      escrowInfo.token ||
+      tokenAddress ||
+      order.payment.escrowTokenAddress ||
+      "";
+    order.payment.tokenAddress =
+      resolvedFundingMode === "native"
+        ? ""
+        : tokenAddress || escrowInfo.token || order.payment.tokenAddress;
+    order.payment.token =
+      token ||
+      order.payment.token ||
+      getEscrowChainConfig(escrowChainId).tokenSymbol;
     order.payment.amountUsdRetained =
       order.financials.totalUsd + order.financials.shippingCostUsd;
     order.payment.fundedAt = new Date();
     order.statusHistory.push({
       status: "paid",
       changedAt: new Date(),
-      comment: "El comprador abonó con cripto (USDT). Fondos retenidos en el contrato.",
+      comment: `El comprador abonó con cripto (${order.payment.token || "USDT"}). Fondos retenidos en el contrato de escrow.`,
     });
     // Mapeamos a "paid" para que el vendedor pueda despachar (ya no está pendiente de pago).
     order.status = "paid";
@@ -3145,8 +3208,11 @@ const getEscrowStatus = async (req, res) => {
       return res.status(403).json({ message: "No tenés permisos para ver esta orden" });
     }
 
+    // Red del escrow persistida al crear la orden (multichain). Todo verify/
+    // release/cancel debe pegarle a ESTE contrato, no al default.
+    const escrowChainId = order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID;
     const { getEscrow } = await import("../services/escrowServices.js");
-    const escrow = await getEscrow(order._id.toString());
+    const escrow = await getEscrow(order._id.toString(), escrowChainId);
 
     return res.status(200).json({
       success: true,
@@ -3361,7 +3427,11 @@ const adminReleaseEscrow = async (req, res) => {
     }
 
     const { releaseOrderEscrow } = await import("../services/escrowServices.js");
-    const result = await releaseOrderEscrow(order._id.toString());
+
+    const result = await releaseOrderEscrow(
+      order._id.toString(),
+      order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
+    );
     if (!result.success) {
       return res.status(500).json({
         success: false,
@@ -3450,7 +3520,10 @@ const adminCancelEscrow = async (req, res) => {
     }
 
     const { cancelOrderEscrow } = await import("../services/escrowServices.js");
-    const result = await cancelOrderEscrow(order._id.toString());
+    const result = await cancelOrderEscrow(
+      order._id.toString(),
+      order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
+    );
     if (!result.success) {
       return res.status(500).json({
         success: false,
@@ -3583,7 +3656,11 @@ const adminUpdateEscrowFee = async (req, res) => {
     }
 
     const { setEscrowFeeBps } = await import("../services/escrowServices.js");
-    const result = await setEscrowFeeBps(Math.round(feeBps));
+
+    const result = await setEscrowFeeBps(
+      Math.round(feeBps),
+      req.body.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
+    );
     if (!result.success) {
       return res.status(500).json({
         success: false,
@@ -3644,23 +3721,37 @@ const prepareEscrowFunding = async (req, res) => {
       });
     }
 
-    // Token FIJO definido por el backend (USDT en la red configurada).
-    const tokenAddress =
-      process.env.USDT_TOKEN_ADDRESS || process.env.USDT_TESTNET_ADDRESS || "";
-    const tokenSymbol = order.payment?.token || "USDT";
+
+    // Red + contrato + modo de fondeo persistidos al crear la orden. En modo
+    // native el "token" es la moneda de red (POL/ETH) → tokenAddress vacío.
+    const escrowChain = getEscrowChainConfig(
+      order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
+    );
+    const isNativeFunding = escrowChain.fundingMode === "native";
+    const tokenAddress = isNativeFunding
+      ? ""
+      : order.payment?.tokenAddress ||
+        escrowChain.tokenAddress ||
+        process.env.USDT_TOKEN_ADDRESS ||
+        process.env.USDT_TESTNET_ADDRESS ||
+        "";
+    const tokenSymbol = order.payment?.token || escrowChain.tokenSymbol;
 
     // Monto total a fondear (productos + envio en USD).
     const requiredUsd =
       (order.financials?.totalUsd || 0) +
       (order.financials?.shippingCostUsd || 0);
 
-    // Validacion de saldo USDT on-chain + gas drip (si hace falta).
+    // Validacion de saldo on-chain + gas drip (si hace falta). En modo native
+    // el saldo de "token" ES el saldo nativo de la red, así que el drip valida
+    // contra la moneda de red (usdtAddress vacío).
     const { prepareFunding } = await import("../services/gasDripService.js");
     const gas = await prepareFunding({
       userId,
       walletAddress: buyerWallet,
       usdtAddress: tokenAddress,
       requiredUsd,
+      chainId: escrowChain.chainId,
       reason: "approve",
       refId: order._id,
     });
@@ -3669,7 +3760,6 @@ const prepareEscrowFunding = async (req, res) => {
         success: false,
         message: gas.error || "No se pudo preparar el gas/saldo para el fondeo.",
         insufficientUsdt: !!gas.insufficientUsdt,
-        required: gas.requiredUsd ?? requiredUsd,
         balance: gas.balanceUsd ?? 0,
       });
     }
@@ -3682,7 +3772,12 @@ const prepareEscrowFunding = async (req, res) => {
     // por compatibilidad y exponemos gasDripped para el aviso de gas.
     const fundingPayload = {
       orderId: order._id.toString(),
-      contractAddress: process.env.ESCROW_CONTRACT_ADDRESS,
+      // Red + contrato + modo de fondeo (lo usa el front para elegir
+      // fundOrder vs fundOrderNative y armar la tx).
+      chainId: escrowChain.chainId,
+      contractAddress: escrowChain.contractAddress,
+      fundingMode: escrowChain.fundingMode,
+      isNativeFunding,
       tokenAddress,
       token: tokenSymbol,
       sellerWallet: seller?.walletAddress || null,
@@ -3755,6 +3850,90 @@ const rollbackCryptoOrder = async (req, res) => {
     });
   } catch (error) {
     console.error("Error al hacer rollback de orden crypto:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * CAMBIAR LA RED DE PAGO de una orden crypto PROVISIONAL (solo comprador).
+ * Se usa desde el modal de pago: el comprador ve 3 botones (USDT/BSC,
+ * USDC/Base, USDXM/Polygon) con su saldo y puede elegir en qué red pagar
+ * DESPUÉS de creada la orden. Solo permitido mientras la orden NO esté fondeada
+ * (payment.status en 'funding'/'unpaid'); una vez fondeada, la red queda atada.
+ *
+ * Actualiza payment.chainId/tokenAddress/fundingMode/token con la config real
+ * de la red elegida y devuelve la orden + metadata para que el front arme la tx.
+ */
+const updateOrderPaymentChain = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { chainId } = req.body;
+    const userId = req.user._id.toString();
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    if (order.buyer.toString() !== userId) {
+      return res
+        .status(403)
+        .json({ message: "Solo el comprador puede cambiar la red de pago." });
+    }
+    if (order.payment?.method !== "crypto") {
+      return res.status(400).json({
+        success: false,
+        message: "Esta orden no usa pago en criptomonedas (escrow).",
+      });
+    }
+    // No se puede cambiar de red si ya hay dinero on-chain.
+    if (!["funding", "unpaid"].includes(order.payment?.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `No se puede cambiar la red: el pago está en estado "${order.payment?.status}".`,
+      });
+    }
+    if (!["pending_payment", "verifying_payment"].includes(order.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `No se puede cambiar la red en estado "${order.status}".`,
+      });
+    }
+    if (chainId == null) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Falta el chainId destino." });
+    }
+
+    const escrowChain = getEscrowChainConfig(Number(chainId));
+
+    // Resolvemos la wallet del vendedor (para devolverla al front).
+    const seller = await User.findById(order.seller);
+
+    order.payment.chainId = escrowChain.chainId;
+    order.payment.fundingMode = escrowChain.fundingMode;
+    order.payment.tokenAddress = escrowChain.tokenAddress || "";
+    order.payment.token = escrowChain.tokenSymbol;
+    order.statusHistory.push({
+      status: order.status,
+      changedAt: new Date(),
+      comment: `El comprador eligió pagar en ${escrowChain.key} (chain ${escrowChain.chainId}, ${escrowChain.tokenSymbol}).`,
+    });
+    await order.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Red de pago actualizada a ${escrowChain.tokenSymbol} (${escrowChain.key}).`,
+      order,
+      // Metadata aplanada para que el modal re-arme la tx sin re-preparar.
+      chainId: escrowChain.chainId,
+      contractAddress: escrowChain.contractAddress,
+      fundingMode: escrowChain.fundingMode,
+      isNativeFunding: escrowChain.fundingMode === "native",
+      tokenAddress: escrowChain.tokenAddress || "",
+      token: escrowChain.tokenSymbol,
+      sellerWallet: seller?.walletAddress || null,
+    });
+  } catch (error) {
+    console.error("Error al cambiar la red de pago:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -3882,7 +4061,9 @@ const buyerRequestEscrowRelease = async (req, res) => {
 const adminGetEscrowConfig = async (req, res) => {
   try {
     const { getEscrowConfig } = await import("../services/escrowServices.js");
-    const config = await getEscrowConfig();
+    const config = await getEscrowConfig(
+      req.query.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
+    );
     if (!config.success) {
       return res.status(500).json({
         success: false,
@@ -3918,7 +4099,11 @@ const adminUpdateEscrowFeeWallet = async (req, res) => {
     }
 
     const { setEscrowFeeWallet } = await import("../services/escrowServices.js");
-    const result = await setEscrowFeeWallet(feeWallet);
+
+    const result = await setEscrowFeeWallet(
+      feeWallet,
+      req.body.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
+    );
     if (!result.success) {
       return res.status(500).json({
         success: false,
@@ -4602,9 +4787,154 @@ const adminResolvePaymentDispute = async (req, res) => {
   }
 };
 
+/**
+ * DESGLOSE DE COLATERAL DEL VENDEDOR (solo el propio vendedor).
+ *
+ * En el panel de billetera el vendedor veía SÓLO el total "En Órdenes Activas"
+ * on-chain, sin saber QUÉ órdenes le tenían retenido ese saldo. Con varias
+ * ventas simultáneas no podía cruzar el total del CollateralManager con sus
+ * órdenes. Este endpoint devuelve, orden por orden, cuánto tiene retenido, en
+ * qué red y en qué estado, para que el desglose sea transparente.
+ *
+ * Fuente de verdad: la BLOCKCHAIN. Para cada orden activa leemos el lock real
+ * (getOrderLock) en la red donde se congeló. El monto "contratado" en DB se usa
+ * como respaldo cuando el lock no se puede leer o aún no existe (hold). Es de
+ * solo lectura: no mueve fondos.
+ */
+const getMyCollateralBreakdown = async (req, res) => {
+  try {
+    const sellerId = req.user._id;
+
+    // Estados en los que una orden puede tener colateral del vendedor retenido
+    // (o reservando capacidad, en el caso de un hold aún sin depositar).
+    const HOLDING_STATUSES = [
+      "awaiting_collateral",
+      "pending_payment",
+      "verifying_payment",
+      "paid",
+      "shipped",
+      "reception_confirmed",
+    ];
+
+    const orders = await Order.find({
+      seller: sellerId,
+      status: { $in: HOLDING_STATUSES },
+      $or: [
+        { collateralTxHash: { $exists: true, $ne: "" } },
+        { "collateralHold.status": "pending" },
+      ],
+    })
+      .populate("buyer", "username firstName lastName")
+      .select(
+        "status totalAmount financials collateralChainId collateralTxHash releaseTxHash collateralHold createdAt itemsSnapshot buyer",
+      )
+      .sort({ createdAt: -1 });
+
+    const breakdown = await Promise.all(
+      orders.map(async (order) => {
+        const chainId = order.collateralChainId || DEFAULT_CHAIN_ID;
+
+        // Monto que la orden reserva/retiene según la DB (referencia).
+        const contractedUsd =
+          Number(order.financials?.sellerNetReleaseUsd) ||
+          Number(order.financials?.totalUsd) ||
+          Number(order.totalAmount) ||
+          0;
+
+        // Hold aún sin depositar (todavía no hay lock on-chain).
+        const isPendingHold =
+          order.status === "awaiting_collateral" &&
+          order.collateralHold?.status === "pending";
+
+        // Lock real on-chain (solo cuando ya se congeló y no se liberó).
+        let onChainLockUsd = null;
+        let onChainReadable = false;
+        if (order.collateralTxHash && !order.releaseTxHash) {
+          const lock = await getOrderLock(order._id.toString(), chainId);
+          if (lock.success) {
+            onChainReadable = true;
+            onChainLockUsd = lock.lockUsd;
+          }
+        }
+
+        // Monto mostrado: preferimos el lock on-chain cuando está disponible.
+        const effectiveLockedUsd =
+          onChainLockUsd != null && onChainLockUsd > 0
+            ? onChainLockUsd
+            : isPendingHold
+              ? 0
+              : contractedUsd;
+
+        const reasonByStatus = {
+          awaiting_collateral: "Esperando depósito de garantía",
+          pending_payment: "Esperando pago del comprador",
+          verifying_payment: "Verificando pago",
+          paid: "Pago confirmado, en preparación",
+          shipped: "Pedido en camino",
+          reception_confirmed: "Recibido por el comprador (período de seguridad)",
+        };
+
+        const buyerName =
+          [order.buyer?.firstName, order.buyer?.lastName]
+            .filter(Boolean)
+            .join(" ")
+            .trim() ||
+          order.buyer?.username ||
+          "El comprador";
+
+        return {
+          orderId: order._id,
+          code: String(order._id).slice(-6).toUpperCase(),
+          status: order.status,
+          createdAt: order.createdAt,
+          buyerName,
+          itemsCount: Array.isArray(order.itemsSnapshot)
+            ? order.itemsSnapshot.length
+            : 0,
+          chainId,
+          // Referencia de negocio (lo que la orden requiere en garantía).
+          contractedUsd: Number(contractedUsd.toFixed(2)),
+          // Lo que realmente está congelado on-chain (null si no se pudo leer).
+          onChainLockUsd,
+          onChainReadable,
+          // Cuánto cuenta para el total (lo que mostramos al vendedor).
+          lockedUsd: Number(effectiveLockedUsd.toFixed(2)),
+          isPendingHold,
+          holdExpiresAt: isPendingHold ? order.collateralHold?.expiresAt : null,
+          reason: reasonByStatus[order.status] || order.status,
+        };
+      }),
+    );
+
+    const totals = breakdown.reduce(
+      (acc, r) => {
+        acc.lockedUsd += r.lockedUsd;
+        if (r.isPendingHold) acc.pendingHoldCount += 1;
+        return acc;
+      },
+      { lockedUsd: 0, pendingHoldCount: 0 },
+    );
+
+    res.status(200).json({
+      success: true,
+      count: breakdown.length,
+      totals: {
+        lockedUsd: Number(totals.lockedUsd.toFixed(2)),
+        activeOrders: breakdown.length,
+        pendingHoldCount: totals.pendingHoldCount,
+      },
+      orders: breakdown,
+    });
+  } catch (error) {
+    console.error("Error al obtener desglose de colateral:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export {
   createOrder,
   getMyOrders,
+  getMyCollateralBreakdown,
   markAsPaid,
   getOrderById,
   updateOrder,
@@ -4625,6 +4955,7 @@ export {
   adminCancelEscrow,
   adminUpdateEscrowFee,
   prepareEscrowFunding,
+  updateOrderPaymentChain,
   rollbackCryptoOrder,
   buyerRequestEscrowRelease,
   adminGetEscrowConfig,

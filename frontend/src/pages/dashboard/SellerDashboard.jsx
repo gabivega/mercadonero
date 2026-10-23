@@ -15,8 +15,9 @@ import {
   Search,
   ChevronLeft,
     ChevronRight,
-  Store,
+    Store,
   AlertTriangle,
+  DownloadCloud,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
@@ -24,6 +25,7 @@ import axios from "axios";
 import LoadingSpinner from "../../components/LoadingSpinner";
 import ProductEditModal from "../../components/ProductEditModal";
 import SellerOnboarding from "../../components/SellerOnboarding";
+import MyStoreImporter from "../../components/MyStoreImporter";
 import { useUserStore } from "../../store/useUserStore";
 import { useSyncUser } from "../../Utils/userSync";
 import { authFetch } from "../../Utils/axiosAuth";
@@ -38,22 +40,49 @@ export default function SellerDashboard() {
   const [selectedProduct, setSelectedProduct] = useState(null); //[cite: 1]
   const [isEditModalOpen, setIsEditModalOpen] = useState(false); //[cite: 1]
   const [isShopEditOpen, setIsShopEditOpen] = useState(false);
+  const [isImporterOpen, setIsImporterOpen] = useState(false);
   const navigate = useNavigate(); //[cite: 1]
 
-  // 🔍 ESTADOS NUEVOS PARA FILTRADO Y PAGINACIÓN
+    // 🔍 BÚSQUEDA + PAGINACIÓN (SERVER-SIDE)
+  // Un vendedor puede tener miles de productos (import masivo). Por eso NO
+  // traemos todo: el backend devuelve de a una página y busca en el server.
+  //   - searchTerm      → lo que el usuario escribe (control del input)
+  //   - debouncedSearch → término efectivo enviado al backend (con delay)
+  //   - currentPage / itemsPerPage → página y tamaño
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(25); // Paginación por defecto de 25
+  const [itemsPerPage, setItemsPerPage] = useState(100); // 100 por página
 
+  // Metadatos que devuelve el backend para la paginación.
+  const [totalProducts, setTotalProducts] = useState(0); // total con filtro
+  const [totalPages, setTotalPages] = useState(1);
+  const [isProductsLoading, setIsProductsLoading] = useState(false);
+
+  // Carga inicial de órdenes (independiente de la paginación de productos).
   useEffect(() => {
-    fetchMyProducts(); //[cite: 1]
-    fetchMyOrders(); //[cite: 1]
+    fetchMyOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Resetear a la página 1 si el usuario escribe un filtro de búsqueda
+  // Debounce del buscador: espera 400ms tras la última tecla antes de
+  // consultar. Al cambiar el término volvemos a la página 1.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(searchTerm.trim());
+      setCurrentPage(1);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
+
+  // Recargamos cada vez que cambia página, tamaño o término buscado.
+  useEffect(() => {
+    fetchMyProducts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, itemsPerPage, debouncedSearch]);
+
   const handleSearchChange = (e) => {
     setSearchTerm(e.target.value);
-    setCurrentPage(1);
   };
 
     const handleEditClick = (product) => {
@@ -84,25 +113,38 @@ export default function SellerDashboard() {
     }
   };
 
-    const fetchMyProducts = async () => {
+      // Trae SOLO la página actual (con búsqueda server-side, si hay término).
+  const fetchMyProducts = async () => {
+    setIsProductsLoading(true);
     try {
+      const params = new URLSearchParams({
+        page: String(currentPage),
+        limit: String(itemsPerPage),
+      });
+      if (debouncedSearch) params.set("search", debouncedSearch);
+
       const response = await authFetch(
-        `${import.meta.env.VITE_SERVER_URL}/api/product/my-products`,
+        `${import.meta.env.VITE_SERVER_URL}/api/product/my-products?${params.toString()}`,
         {},
         getAccessToken,
       );
       const data = await response.json();
-      if (data.success) setProducts(data.products);
+      if (data.success) {
+        setProducts(data.products || []);
+        setTotalProducts(data.total ?? (data.products?.length || 0));
+        setTotalPages(data.totalPages ?? 1);
+      }
     } catch (error) {
       console.error("Error cargando productos", error);
     } finally {
+      setIsProductsLoading(false);
       setIsLoading(false);
     }
   };
 
-    const toggleStatus = async (id, currentStatus) => {
+      // Pausa/activa un producto. Actualización optimista de la fila mostrada.
+  const toggleStatus = async (id, currentStatus) => {
     const newStatus = currentStatus === "active" ? "paused" : "active";
-    setIsLoading(true);
 
     try {
       const response = await authFetch(
@@ -134,15 +176,13 @@ export default function SellerDashboard() {
         color: "#fff", //[cite: 1]
       });
     } catch (error) {
-      Swal.fire({
-        title: "Error", //[cite: 1]
-        text: "No se pudo cambio el estado. Intenta de nuevo.", //[cite: 1]
-        icon: "error", //[cite: 1]
-        background: "#1A1A1A", //[cite: 1]
-        color: "#fff", //[cite: 1]
+            Swal.fire({
+        title: "Error",
+        text: "No se pudo cambiar el estado. Intenta de nuevo.",
+        icon: "error",
+        background: "#1A1A1A",
+        color: "#fff",
       });
-    } finally {
-      setIsLoading(false); //[cite: 1]
     }
   };
 
@@ -158,9 +198,8 @@ export default function SellerDashboard() {
       cancelButtonText: "Cancelar", //[cite: 1]
       background: "#1A1A1A", //[cite: 1]
       color: "#fff", //[cite: 1]
-    }).then(async (result) => {
+        }).then(async (result) => {
       if (result.isConfirmed) {
-                setIsLoading(true);
         try {
           const response = await authFetch(
             `${import.meta.env.VITE_SERVER_URL}/api/product/delete/${id}`,
@@ -173,9 +212,16 @@ export default function SellerDashboard() {
             getAccessToken,
           );
 
-          if (!response.ok) throw new Error("Error al eliminar"); //[cite: 1]
+                    if (!response.ok) throw new Error("Error al eliminar");
 
-          setProducts(products.filter((p) => p._id !== id)); //[cite: 1]
+          // Refrescamos la página actual (el total baja en el server). Si la
+          // página queda vacía y no es la primera, retrocedemos una página.
+          const remaining = products.filter((p) => p._id !== id);
+          if (remaining.length === 0 && currentPage > 1) {
+            setCurrentPage((p) => p - 1);
+          } else {
+            fetchMyProducts();
+          }
 
           Swal.fire({
             title: "¡Eliminado!", //[cite: 1]
@@ -186,32 +232,16 @@ export default function SellerDashboard() {
           });
         } catch (error) {
           Swal.fire({
-            title: "Error", //[cite: 1]
-            text: "No se pudo eliminar el producto.", //[cite: 1]
-            icon: "error", //[cite: 1]
-            background: "#1A1A1A", //[cite: 1]
-            color: "#fff", //[cite: 1]
+                        title: "Error",
+            text: "No se pudo eliminar el producto.",
+            icon: "error",
+            background: "#1A1A1A",
+            color: "#fff",
           });
-        } finally {
-          setIsLoading(false); //[cite: 1]
         }
       }
     });
   };
-
-  // 🧮 LOGICA DE FILTRADO Y PAGINACIÓN LOCAL (Variables Derivadas)
-  const filteredProducts = products.filter((product) => {
-    const nameMatch = product.name?.toLowerCase().includes(searchTerm.toLowerCase());
-    const categoryMatch = product.category?.toLowerCase().includes(searchTerm.toLowerCase());
-    return nameMatch || categoryMatch;
-  });
-
-  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
-  const indexOfLastItem = currentPage * itemsPerPage;
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  
-  // Estos son los productos recortados finales que se van a mapear en el render
-  const currentProducts = filteredProducts.slice(indexOfFirstItem, indexOfLastItem);
 
   // Datos reales de la tienda para el modal de edición (prefilleo).
   const shop = dbUser?.shop || {};
@@ -237,15 +267,17 @@ export default function SellerDashboard() {
     .filter((order) => order.status === "completed")
     .reduce((acc, order) => acc + (order.financials?.totalUsd || 0), 0);
 
+    // ⚠️ "Productos" usa el total real del server (no solo la página). "Vistas"
+  // refleja la página actual, porque no traemos todo el catálogo.
   const stats = [
     {
       label: "Productos",
-      value: products.length,
+      value: totalProducts,
       icon: <Package size={20} />,
       color: "text-blue-500",
     },
     {
-      label: "Vistas Totales",
+      label: "Vistas (página)",
       value: products.reduce((acc, p) => acc + (p.views || 0), 0),
       icon: <Eye size={20} />,
       color: "text-purple-500",
@@ -266,12 +298,17 @@ export default function SellerDashboard() {
     },
   ];
 
-  if (isLoading)
+    if (isLoading)
     return (
       <div className="p-10 text-center">
         <LoadingSpinner size="lg" text="Cargando Panel..." />
       </div>
     );
+
+  // Rango visible actual para el pie de paginación (ej: "1–100 de 9714").
+  const rangeStart = totalProducts === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
+  const rangeEnd = Math.min(currentPage * itemsPerPage, totalProducts);
+
 
     return (
     <div className="w-full max-w-6xl mx-auto p-4 md:p-6 space-y-6 md:space-y-8">
@@ -307,8 +344,20 @@ export default function SellerDashboard() {
             Gestiona tus publicaciones y ventas en tiempo real.
           </p>
         </div>
-                <div className="w-full md:w-auto flex flex-col sm:flex-row gap-3">
-          {dbUser?.shop?.active && (
+                                <div className="w-full md:w-auto flex flex-col sm:flex-row gap-3">
+                  {/* ── Importador Tiendanube OCULTO ──
+                      Feature INTERNA (no expuesta a sellers). Se conserva el
+                      código y el estado (`isImporterOpen`) para reactivarlo más
+                      adelante, pero el botón NO se muestra. */}
+                  {false && dbUser?.shop?.active && (
+                    <button
+                      onClick={() => setIsImporterOpen(true)}
+                      className="w-full md:w-auto bg-[#F26722]/10 hover:bg-[#F26722]/20 text-[#F26722] border border-[#F26722]/30 px-6 py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all active:scale-95 uppercase text-xs tracking-widest"
+                    >
+                      <DownloadCloud size={18} /> Importar mi Tienda
+                    </button>
+                  )}
+                  {dbUser?.shop?.active && (
             <button
               onClick={() => setIsShopEditOpen(true)}
               className="w-full md:w-auto bg-white dark:bg-[#1A1A1A] hover:bg-gray-50 dark:hover:bg-[#252525] text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700 px-6 py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all active:scale-95 uppercase text-xs tracking-widest"
@@ -406,18 +455,24 @@ export default function SellerDashboard() {
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-              {currentProducts.length === 0 ? ( // Usamos los del slice
+                        <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+              {isProductsLoading ? (
+                <tr>
+                  <td colSpan="4" className="p-20 text-center">
+                    <LoadingSpinner size="md" text="Cargando productos..." />
+                  </td>
+                </tr>
+              ) : products.length === 0 ? (
                 <tr>
                   <td
                     colSpan="4"
                     className="p-20 text-center text-gray-400 font-bold"
                   >
-                    {searchTerm ? "No se encontraron productos coincidentes." : "No tienes productos publicados todavía."}
+                    {debouncedSearch ? "No se encontraron productos coincidentes." : "No tienes productos publicados todavía."}
                   </td>
                 </tr>
               ) : (
-                currentProducts.map((p) => ( // Cambiado a currentProducts
+                products.map((p) => (
                   <tr
                     key={p._id}
                     className="group hover:bg-gray-50/50 dark:hover:bg-blue-500/5 transition-colors"
@@ -427,8 +482,8 @@ export default function SellerDashboard() {
                         <div className="w-14 h-14 rounded-2xl overflow-hidden bg-gray-100 dark:bg-[#252525] border border-gray-100 dark:border-gray-800 flex-shrink-0">
                           <img
                             src={
-                              p.images.find((i) => i.isMain)?.url ||
-                              p.images[0]?.url //[cite: 1]
+                                                            p.images?.find((i) => i.isMain)?.url ||
+                              p.images?.[0]?.url
                             }
                             className="w-full h-full object-cover"
                             alt=""
@@ -458,8 +513,8 @@ export default function SellerDashboard() {
                             </p>
                           </>
                         ) : (
-                          <p className="font-black dark:text-white text-lg">
-                            ${p.price.toLocaleString("es-AR")}
+                                                    <p className="font-black dark:text-white text-lg">
+                            ${Number(p.price || 0).toLocaleString("es-AR")}
                           </p>
                         )}
                       </div>
@@ -535,13 +590,17 @@ export default function SellerDashboard() {
         </div>
 
         {/* Vista Mobile - Cards */}
-        <div className="md:hidden p-4 space-y-4">
-          {currentProducts.length === 0 ? ( // Cambiado a currentProducts
+                <div className="md:hidden p-4 space-y-4">
+          {isProductsLoading ? (
+            <div className="p-8 text-center">
+              <LoadingSpinner size="md" text="Cargando productos..." />
+            </div>
+          ) : products.length === 0 ? (
             <div className="p-8 text-center text-gray-400 font-bold">
-              {searchTerm ? "No se encontraron productos coincidentes." : "No tienes productos publicados todavía."}
+              {debouncedSearch ? "No se encontraron productos coincidentes." : "No tienes productos publicados todavía."}
             </div>
           ) : (
-            currentProducts.map((p) => ( // Cambiado a currentProducts
+            products.map((p) => (
               <div
                 key={p._id}
                 className="bg-gray-50 dark:bg-[#252525] rounded-2xl p-4 border border-gray-100 dark:border-gray-800"
@@ -550,7 +609,8 @@ export default function SellerDashboard() {
                   <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-200 dark:bg-[#333] flex-shrink-0">
                     <img
                       src={
-                        p.images.find((i) => i.isMain)?.url || p.images[0]?.url //[cite: 1]
+                        p.images?.find((i) => i.isMain)?.url ||
+                        p.images?.[0]?.url
                       }
                       className="w-full h-full object-cover"
                       alt=""
@@ -576,8 +636,8 @@ export default function SellerDashboard() {
                           </p>
                         </>
                       ) : (
-                        <p className="font-black dark:text-white text-base">
-                          ${p.price.toLocaleString("es-AR")}
+                                                <p className="font-black dark:text-white text-base">
+                          ${Number(p.price || 0).toLocaleString("es-AR")}
                         </p>
                       )}
                     </div>
@@ -649,8 +709,8 @@ export default function SellerDashboard() {
         {/* 📑 CONTROLADOR DE PAGINACIÓN DEBAJO DE LA TABLA (Solo renderiza si hay más de 1 página) */}
         {totalPages > 1 && (
           <div className="p-4 md:p-6 bg-gray-50 dark:bg-[#222] border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
-            <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">
-              Página {currentPage} de {totalPages} ({filteredProducts.length} ítems)
+                        <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">
+              Mostrando {rangeStart}–{rangeEnd} de {totalProducts} ({totalPages} páginas)
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -694,8 +754,8 @@ export default function SellerDashboard() {
                 })}
               </div>
 
-              <button
-                onClick={() => setCurrentPage((prev) => Math.max(prev + 1, totalPages))}
+                            <button
+                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
                 disabled={currentPage === totalPages}
                 className="p-2 bg-white dark:bg-[#1A1A1A] border border-gray-100 dark:border-gray-800 rounded-xl text-gray-500 dark:text-gray-400 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95"
               >
@@ -706,13 +766,18 @@ export default function SellerDashboard() {
         )}
       </div>
 
-            <ProductEditModal
-        product={selectedProduct} //[cite: 1]
-        isOpen={isEditModalOpen} //[cite: 1]
-        onClose={() => setIsEditModalOpen(false)} //[cite: 1]
+                  <ProductEditModal
+        product={selectedProduct}
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          // Al cerrar, refrescamos: editar vuelve el producto a "pending" y
+          // queremos reflejar el estado de moderación en la tabla.
+          fetchMyProducts();
+        }}
       />
 
-      <SellerOnboarding
+            <SellerOnboarding
         isOpen={isShopEditOpen}
         mode="edit"
         prefill={shopPrefill}
@@ -723,6 +788,29 @@ export default function SellerDashboard() {
         }}
         onComplete={() => {}}
       />
+
+            {/* Importador de Tiendanube (tienda propia del vendedor) — OCULTO.
+          Se mantiene por si se reactiva el feature interno. `isImporterOpen`
+          nunca se pone en true (el botón está oculto), así que no se renderiza. */}
+      {false && isImporterOpen && (
+        <div className="fixed inset-0 z-[70] flex items-start justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+          <div className="w-full max-w-5xl my-4">
+            <div className="flex justify-end mb-2">
+              <button
+                onClick={() => {
+                  setIsImporterOpen(false);
+                  // Refrescamos productos: pudo haber importado.
+                  fetchMyProducts();
+                }}
+                className="px-4 py-2 rounded-xl bg-white/10 text-white font-bold text-xs uppercase hover:bg-white/20 transition-all"
+              >
+                Cerrar
+              </button>
+            </div>
+            <MyStoreImporter />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

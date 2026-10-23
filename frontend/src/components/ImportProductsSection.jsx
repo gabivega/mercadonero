@@ -370,8 +370,9 @@ export const ImportSection = () => {
         const data = error.response?.data;
         const errorMsg = data?.message || error.message;
 
-        // Si el backend bloquea la publicación porque el vendedor no tiene
-        // wallet Web3, lo invitamos a crear/activar su billetera en "Mi Billetera".
+                // Si el backend bloquea la publicación lo informamos y guiamos.
+        //  - blocked === "wallet"     → invitar a crear/activar billetera.
+        //  - blocked === "onboarding" → invitar a completar datos del vendedor.
         if (data?.blocked === "wallet") {
           Swal.fire({
             title: "Necesitás una wallet para vender",
@@ -382,11 +383,20 @@ export const ImportSection = () => {
             confirmButtonColor: "#2563eb",
             confirmButtonText: "Ir a Mi Billetera",
             customClass: { popup: "rounded-3xl border border-gray-800" },
-                    }).then((result) => {
+          }).then((result) => {
             if (result.isConfirmed) {
               navigate("/billetera");
             }
           });
+          setIsBulkSubmitting(false);
+          return;
+        }
+
+        if (data?.blocked === "onboarding") {
+          // Falta completar datos del vendedor (tienda/cuenta bancaria).
+          // Abrimos el modal de onboarding para completarlos y reintentar.
+          setPendingBulk(parsedRows);
+          setIsOnboardingOpen(true);
           setIsBulkSubmitting(false);
           return;
         }
@@ -635,24 +645,30 @@ export const ImportSection = () => {
                   </div>
                 )}
 
-                {/* Botón de importación */}
-                <div className="mt-5 flex items-center justify-end">
-                  <button
-                    onClick={handleBulkSubmit}
-                    disabled={isBulkSubmitting || validCount === 0}
-                    className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold text-xs shadow-lg shadow-blue-500/20 hover:bg-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isBulkSubmitting ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin" /> Importando {validCount}...
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 size={14} /> IMPORTAR {validCount} PRODUCTO(S)
-                      </>
-                    )}
-                  </button>
-                </div>
+                              <div className="mt-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <p className="text-[10px] text-gray-400 dark:text-gray-500 flex items-start gap-1.5 max-w-md">
+                  <AlertTriangle size={12} className="flex-shrink-0 mt-px" />
+                  <span>
+                    Los productos importados quedan <b>En revisión</b> hasta que un
+                    administrador los apruebe. Podés verlos y editarlos desde tu panel.
+                  </span>
+                </p>
+                <button
+                  onClick={handleBulkSubmit}
+                  disabled={isBulkSubmitting || validCount === 0}
+                  className="flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold text-xs shadow-lg shadow-blue-500/20 hover:bg-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isBulkSubmitting ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" /> Importando {validCount}...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={14} /> IMPORTAR {validCount} PRODUCTO(S)
+                    </>
+                  )}
+                </button>
+              </div>
               </div>
             )}
 

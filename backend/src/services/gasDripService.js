@@ -25,32 +25,60 @@
 import { ethers } from "ethers";
 import dotenv from "dotenv";
 import GasDrip from "../models/GasDrip.js";
+import { getEscrowChainConfig } from "../config/chains.js";
 
 dotenv.config();
 
 // ── CONFIGURACIÓN ──
-const PROVIDER_URL =
+// Antes TODO el servicio estaba atado a BSC (provider, wallet admin, balance y
+// umbral). Con el escrow multichain el comprador puede fondear en Polygon Amoy
+// o Base Sepolia, así que resolvemos provider/wallet/parámetros POR RED.
+const BSC_PROVIDER_URL =
   process.env.BSC_TESTNET_RPC || "https://bsc-testnet-rpc.publicnode.com";
 const PRIVATE_KEY = process.env.WALLET_PK;
 
 // Switch maestro: si está en "false", el drip queda deshabilitado.
 const GAS_DRIP_ENABLED = String(process.env.GAS_DRIP_ENABLED ?? "true") === "true";
-// Monto entregado por drip (BNB). Default 0.001 BNB.
-const GAS_DRIP_AMOUNT_BNB = process.env.GAS_DRIP_AMOUNT_BNB || "0.001";
-// Si el usuario YA tiene >= este BNB, no se le entrega drip.
-const GAS_DRIP_MIN_BNB = process.env.GAS_DRIP_MIN_BNB || "0.0005";
+// Monto entregado por drip de la MONEDA NATIVA de la red (BNB/POL/ETH).
+// Default 0.001.
+const GAS_DRIP_AMOUNT_NATIVE = process.env.GAS_DRIP_AMOUNT_BNB || "0.001";
+// Si el usuario YA tiene >= este monto nativo, no se le entrega drip.
+const GAS_DRIP_MIN_NATIVE = process.env.GAS_DRIP_MIN_BNB || "0.0005";
 // Máximo de drips por usuario por día (ventana rodante de 24h).
 const GAS_DRIP_MAX_PER_DAY = Number(process.env.GAS_DRIP_MAX_PER_DAY || 5);
 
-const provider = new ethers.JsonRpcProvider(PROVIDER_URL);
-const adminWallet = PRIVATE_KEY ? new ethers.Wallet(PRIVATE_KEY, provider) : null;
+// Alias retrocompatibles (los usan poolController / scripts existentes).
+const GAS_DRIP_AMOUNT_BNB = GAS_DRIP_AMOUNT_NATIVE;
+const GAS_DRIP_MIN_BNB = GAS_DRIP_MIN_NATIVE;
+
+// ── RUNTIME POR RED (provider + admin wallet cacheados) ──
+// Se usa la MISMA PRIVATE_KEY como admin en todas las redes (los deploys del
+// escrow usan la misma cuenta). El RPC sale del registro de redes.
+const runtimeCache = new Map(); // chainId → { provider, adminWallet, config }
+
+function getRuntime(chainId) {
+  const config = getEscrowChainConfig(chainId);
+  const key = config.chainId;
+  if (runtimeCache.has(key)) return runtimeCache.get(key);
+
+  const rpc = config.chain?.rpc || BSC_PROVIDER_URL;
+  const provider = new ethers.JsonRpcProvider(rpc);
+  const adminWallet = PRIVATE_KEY
+    ? new ethers.Wallet(PRIVATE_KEY, provider)
+    : null;
+
+  const runtime = { provider, adminWallet, config };
+  runtimeCache.set(key, runtime);
+  return runtime;
+}
 
 /**
- * Lee el balance de BNB (nativo) de una dirección.
- * @returns {Promise<{success:boolean, balanceWei?:bigint, balanceBnb?:number, error?:string}>}
+ * Lee el balance de la MONEDA NATIVA (BNB/POL/ETH) de una dirección en una red.
+ * @returns {Promise<{success:boolean, balanceWei?:bigint, balanceNative?:number, error?:string}>}
  */
-export async function getBnbBalance(address) {
+export async function getNativeBalance(address, chainId) {
   try {
+    const { provider, config } = getRuntime(chainId);
     if (!ethers.isAddress(address)) {
       return { success: false, error: "Dirección inválida" };
     }
@@ -58,26 +86,40 @@ export async function getBnbBalance(address) {
     return {
       success: true,
       balanceWei,
-      balanceBnb: Number(ethers.formatEther(balanceWei)),
+      balanceNative: Number(ethers.formatEther(balanceWei)),
+      nativeSymbol: config.nativeSymbol,
     };
   } catch (error) {
-    console.error("[GasDrip] Error leyendo balance BNB:", error.message);
+    console.error("[GasDrip] Error leyendo balance nativo:", error.message);
     return { success: false, error: error.message };
   }
 }
 
 /**
- * Determina si un usuario necesita un drip de gas.
- * @returns {Promise<{success:boolean, needsDrip:boolean, balanceBnb?:number, error?:string}>}
+ * Compat: lee el balance nativo en la red por defecto del escrow.
+ * (Los callers viejos asumían BSC; ahora respetan la red del escrow.)
  */
-export async function needsGas(address) {
-  const bal = await getBnbBalance(address);
+export async function getBnbBalance(address, chainId) {
+  const bal = await getNativeBalance(address, chainId);
+  return bal.success
+    ? { ...bal, balanceBnb: bal.balanceNative, balanceNative: undefined }
+    : bal;
+}
+
+/**
+ * Determina si un usuario necesita un drip de gas en una red.
+ * @returns {Promise<{success:boolean, needsDrip:boolean, balanceNative?:number, error?:string}>}
+ */
+export async function needsGas(address, chainId) {
+  const bal = await getNativeBalance(address, chainId);
   if (!bal.success) return { success: false, needsDrip: false, error: bal.error };
-  const threshold = Number(GAS_DRIP_MIN_BNB);
+  const threshold = Number(GAS_DRIP_MIN_NATIVE);
   return {
     success: true,
-    needsDrip: bal.balanceBnb < threshold,
-    balanceBnb: bal.balanceBnb,
+    needsDrip: bal.balanceNative < threshold,
+    balanceNative: bal.balanceNative,
+    balanceBnb: bal.balanceNative, // compat
+    nativeSymbol: bal.nativeSymbol,
     threshold,
   };
 }
@@ -102,13 +144,21 @@ async function countRecentDrips(userId) {
  * @param {string} opts.walletAddress - wallet que firma (embedded del comprador)
  * @param {"create_group"|"join_group"|"approve"|"other"} [opts.reason]
  * @param {string} [opts.refId]       - id del Pool/orden (opcional)
+ * @param {number} [opts.chainId]     - red del escrow (default: red del escrow)
  * @returns {Promise<object>} resultado del drip
  */
-export async function dripGas({ userId, walletAddress, reason = "other", refId }) {
+export async function dripGas({
+  userId,
+  walletAddress,
+  reason = "other",
+  refId,
+  chainId,
+}) {
   // 0) Switch maestro.
   if (!GAS_DRIP_ENABLED) {
     return { success: true, skipped: true, reason: "GAS_DRIP_ENABLED=false" };
   }
+  const { provider, adminWallet, config } = getRuntime(chainId);
   if (!adminWallet) {
     return { success: false, error: "WALLET_PK no configurada en el backend." };
   }
@@ -119,15 +169,15 @@ export async function dripGas({ userId, walletAddress, reason = "other", refId }
     return { success: false, error: "walletAddress inválida." };
   }
 
-  // 1) ¿Ya tiene BNB suficiente? → no hace falta drip.
-  const check = await needsGas(walletAddress);
+  // 1) ¿Ya tiene gas nativo suficiente? → no hace falta drip.
+  const check = await needsGas(walletAddress, chainId);
   if (!check.success) return { success: false, error: check.error };
   if (!check.needsDrip) {
     return {
       success: true,
       skipped: true,
-      reason: "El usuario ya tiene BNB suficiente.",
-      balanceBnb: check.balanceBnb,
+      reason: "El usuario ya tiene gas nativo suficiente.",
+      balanceNative: check.balanceNative,
     };
   }
 
@@ -143,21 +193,22 @@ export async function dripGas({ userId, walletAddress, reason = "other", refId }
   }
 
   // 3) Registrar el intento (pending) para auditoría.
-  const amountWei = ethers.parseEther(String(GAS_DRIP_AMOUNT_BNB));
+  const amountWei = ethers.parseEther(String(GAS_DRIP_AMOUNT_NATIVE));
   const dripRow = await GasDrip.create({
     user: userId,
     walletAddress: walletAddress.toLowerCase(),
-    amountBnb: Number(GAS_DRIP_AMOUNT_BNB),
+    amountBnb: Number(GAS_DRIP_AMOUNT_NATIVE),
     amountWei: amountWei.toString(),
     reason,
     refId,
-    balanceBeforeWei: check.balanceBnb !== undefined ? String(check.balanceBnb) : "0",
+    balanceBeforeWei:
+      check.balanceNative !== undefined ? String(check.balanceNative) : "0",
     status: "pending",
   });
 
   try {
     console.log(
-      `[GasDrip] Enviando ${GAS_DRIP_AMOUNT_BNB} BNB a ${walletAddress} (${reason})...`,
+      `[GasDrip] Enviando ${GAS_DRIP_AMOUNT_NATIVE} ${config.nativeSymbol} a ${walletAddress} (${reason}, chain ${config.chainId})...`,
     );
     const tx = await adminWallet.sendTransaction({
       to: walletAddress,
@@ -189,7 +240,9 @@ export async function dripGas({ userId, walletAddress, reason = "other", refId }
       success: true,
       delivered: true,
       txHash: tx.hash,
-      amountBnb: Number(GAS_DRIP_AMOUNT_BNB),
+      amountNative: Number(GAS_DRIP_AMOUNT_NATIVE),
+      amountBnb: Number(GAS_DRIP_AMOUNT_NATIVE), // compat
+      nativeSymbol: config.nativeSymbol,
       blockNumber: receipt.blockNumber,
     };
   } catch (error) {
@@ -202,16 +255,23 @@ export async function dripGas({ userId, walletAddress, reason = "other", refId }
 }
 
 /**
- * Preparación completa del fondeo: valida balance USDT del user y garantiza
+ * Preparación completa del fondeo: valida el saldo del comprador y garantiza
  * el gas (drip si hace falta). Pensado para llamarse ANTES de que el user firme.
+ *
+ * Soporta los DOS modelos de fondeo del escrow:
+ *  - "token":  el comprador necesita saldo del TOKEN de pago + gas nativo.
+ *  - "native": el comprador fondea con la MONEDA NATIVA, así que el "saldo de
+ *              pago" ES el saldo nativo: se valida contra `requiredUsd` y el
+ *              drip solo cubre el gas extra.
  *
  * @param {object} opts
  * @param {string} opts.userId
  * @param {string} opts.walletAddress
- * @param {string} opts.usdtAddress    - token USDT
- * @param {number} opts.requiredUsd    - monto USDT requerido para el fondeo
+ * @param {string} [opts.usdtAddress]  - token de pago (vacío en modo native)
+ * @param {number} opts.requiredUsd    - monto requerido para el fondeo
  * @param {"create_group"|"join_group"|"approve"} [opts.reason]
  * @param {string} [opts.refId]
+ * @param {number} [opts.chainId]      - red del escrow
  */
 export async function prepareFunding({
   userId,
@@ -220,44 +280,80 @@ export async function prepareFunding({
   requiredUsd,
   reason = "other",
   refId,
+  chainId,
 }) {
-  // 1) Validar saldo USDT del comprador on-chain.
+  const config = getEscrowChainConfig(chainId);
+  const isNative = config.fundingMode === "native";
+  const { provider } = getRuntime(chainId);
+
+  if (!ethers.isAddress(walletAddress)) {
+    return { success: false, error: "Dirección de wallet inválida." };
+  }
+
+  // 1) Validar saldo de pago on-chain.
   try {
-    if (!ethers.isAddress(walletAddress) || !ethers.isAddress(usdtAddress)) {
-      return { success: false, error: "Dirección de wallet o token inválida." };
-    }
-    const erc20 = new ethers.Contract(
-      usdtAddress,
-      ["function balanceOf(address) view returns (uint256)"],
-      provider,
-    );
-    const balWei = await erc20.balanceOf(walletAddress);
-    const balUsd = Number(ethers.formatUnits(balWei, 18));
-    if (requiredUsd && balUsd < Number(requiredUsd)) {
-      return {
-        success: false,
-        insufficientUsdt: true,
-        balanceUsd: balUsd,
-        requiredUsd: Number(requiredUsd),
-        error: `Saldo USDT insuficiente (tenés ${balUsd.toFixed(2)}, necesitás ${Number(
-          requiredUsd,
-        ).toFixed(2)}).`,
-      };
+    if (isNative) {
+      // Modo nativo: el saldo de pago es el nativo de la red.
+      const balWei = await provider.getBalance(walletAddress);
+      const balUsd = Number(ethers.formatEther(balWei));
+      if (requiredUsd && balUsd < Number(requiredUsd)) {
+        return {
+          success: false,
+          insufficientUsdt: true,
+          balanceUsd: balUsd,
+          requiredUsd: Number(requiredUsd),
+          nativeSymbol: config.nativeSymbol,
+          error: `Saldo ${config.nativeSymbol} insuficiente (tenés ${balUsd.toFixed(
+            4,
+          )}, necesitás ${Number(requiredUsd).toFixed(2)}).`,
+        };
+      }
+    } else {
+      if (!ethers.isAddress(usdtAddress)) {
+        return { success: false, error: "Dirección de token inválida." };
+      }
+      // ⚠️ NO asumir 18 decimales: usamos los declarados por la red.
+      const decimals = Number.isFinite(config.tokenDecimals)
+        ? config.tokenDecimals
+        : 18;
+      const erc20 = new ethers.Contract(
+        usdtAddress,
+        ["function balanceOf(address) view returns (uint256)"],
+        provider,
+      );
+      const balWei = await erc20.balanceOf(walletAddress);
+      const balUsd = Number(ethers.formatUnits(balWei, decimals));
+      if (requiredUsd && balUsd < Number(requiredUsd)) {
+        return {
+          success: false,
+          insufficientUsdt: true,
+          balanceUsd: balUsd,
+          requiredUsd: Number(requiredUsd),
+          error: `Saldo ${config.tokenSymbol} insuficiente (tenés ${balUsd.toFixed(
+            2,
+          )}, necesitás ${Number(requiredUsd).toFixed(2)}).`,
+        };
+      }
     }
   } catch (error) {
-    console.error("[GasDrip] Error validando saldo USDT:", error.message);
+    console.error("[GasDrip] Error validando saldo de pago:", error.message);
     return { success: false, error: error.message };
   }
 
   // 2) Garantizar gas (drip si hace falta).
-  const drip = await dripGas({ userId, walletAddress, reason, refId });
+  const drip = await dripGas({ userId, walletAddress, reason, refId, chainId });
   if (!drip.success) return drip;
 
   return {
     success: true,
     gasReady: true,
     drip: drip.delivered
-      ? { delivered: true, txHash: drip.txHash, amountBnb: drip.amountBnb }
+      ? {
+          delivered: true,
+          txHash: drip.txHash,
+          amountNative: drip.amountNative,
+          amountBnb: drip.amountBnb,
+        }
       : { delivered: false, reason: drip.reason || "ya tenía gas" },
   };
 }
@@ -265,6 +361,8 @@ export async function prepareFunding({
 export {
   GAS_DRIP_ENABLED,
   GAS_DRIP_AMOUNT_BNB,
+  GAS_DRIP_AMOUNT_NATIVE,
   GAS_DRIP_MIN_BNB,
+  GAS_DRIP_MIN_NATIVE,
   GAS_DRIP_MAX_PER_DAY,
 };

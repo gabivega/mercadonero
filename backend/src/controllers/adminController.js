@@ -3,6 +3,10 @@
 import Order from '../models/Order.js';
 import User from '../models/User.js';
 import Product from '../models/Product.js';
+import {
+  auditCollateral,
+  summarizeAudit,
+} from '../services/collateralAuditService.js';
 
 export const getAllOrders = async (req, res) => {
   try {
@@ -338,7 +342,104 @@ export const adminModerateProduct = async (req, res) => {
     });
   } catch (error) {
     console.log(error);
-    res.status(500).json({ message: "Error al moderar la publicaciÃ³n" });
+        res.status(500).json({ message: "Error al moderar la publicaciÃ³n" });
+  }
+};
+
+// POST /api/admin/products/moderate-bulk
+// Body (opciÃ³n A): { ids: [..], action: "approve"|"reject", reason? }
+// Body (opciÃ³n B): { selectAll: true, moderation?: "pending"|..., search?, action, reason? }
+//   â†’ aplica a TODOS los productos que matcheen el filtro (carga masiva).
+//
+// Aprueba/rechaza en bloque. Usa updateMany para que 2000 productos sean UNA
+// operaciÃ³n en Mongo en vez de 2000 requests. Devuelve cuÃ¡ntos se modificaron.
+export const adminModerateProductsBulk = async (req, res) => {
+  try {
+    const {
+      ids,
+      action,
+      reason = "",
+      selectAll = false,
+      moderation,
+      search = "",
+    } = req.body || {};
+
+    if (!["approve", "reject"].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: "AcciÃ³n invÃ¡lida. UsÃ¡ 'approve' o 'reject'.",
+      });
+    }
+
+    if (action === "reject" && !String(reason).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "El motivo de rechazo es obligatorio.",
+      });
+    }
+
+    // Construimos el filtro.
+    const match = { status: { $ne: "deleted" } };
+
+    if (selectAll) {
+      // Modo "todo lo filtrado": respeta el tab + bÃºsqueda del panel.
+      if (moderation && moderation !== "all") {
+        match["moderation.status"] = moderation;
+      }
+      if (search) {
+        const reg = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+        match.$or = [{ name: reg }, { brand: reg }, { category: reg }];
+      }
+    } else {
+      const idList = Array.isArray(ids) ? ids.filter(Boolean) : [];
+      if (idList.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "No se enviaron publicaciones para moderar.",
+        });
+      }
+      match._id = { $in: idList };
+    }
+
+    const now = new Date();
+    const update = {
+      $set: {
+        "moderation.status": action === "approve" ? "approved" : "rejected",
+        "moderation.reason": action === "reject" ? String(reason).trim() : "",
+        "moderation.reviewedBy": req.user._id,
+        "moderation.reviewedAt": now,
+      },
+    };
+    if (action === "approve") {
+      update.$set["moderation.approvedAt"] = now;
+    }
+
+    const result = await Product.updateMany(match, update);
+
+    // Contadores actualizados para que el panel refresque las pestaÃ±as.
+    const [pendingCount, approvedCount, rejectedCount] = await Promise.all([
+      Product.countDocuments({ "moderation.status": "pending", status: { $ne: "deleted" } }),
+      Product.countDocuments({ "moderation.status": "approved", status: { $ne: "deleted" } }),
+      Product.countDocuments({ "moderation.status": "rejected", status: { $ne: "deleted" } }),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      message:
+        action === "approve"
+          ? `${result.modifiedCount} publicaciÃ³n(es) aprobada(s).`
+          : `${result.modifiedCount} publicaciÃ³n(es) rechazada(s).`,
+      modifiedCount: result.modifiedCount,
+      matchedCount: result.matchedCount,
+      counts: {
+        pending: pendingCount,
+        approved: approvedCount,
+        rejected: rejectedCount,
+      },
+    });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Error al moderar las publicaciones" });
   }
 };
 
@@ -593,9 +694,9 @@ export const getStats = async (req, res) => {
     // Con la polÃ­tica actual (3% fee - 2.5% cashback) ronda el 0.5%.
     const effectiveMarginPct = gmvUsd > 0 ? (feeNetUsd / gmvUsd) * 100 : 0;
 
-    res.status(200).json({
-      success: true,
-      stats: {
+        res.status(200).json({
+          success: true,
+          stats: {
         orders: {
           total: Object.values(statusMap).reduce((a, b) => a + b, 0),
           completed: completedCount,
@@ -670,5 +771,56 @@ export const getStats = async (req, res) => {
   } catch (error) {
     console.log(error);
     res.status(500).json({ message: "Error al obtener las estadÃ­sticas" });
+  }
+};
+
+// --------------------------------------------------------------------
+// GET /api/admin/collateral/audit
+// Auditoría del colateral de vendedores: contrasta la DB con la blockchain
+// y devuelve las órdenes que requieren acción del admin (liberar garantía,
+// completar tras el buffer o reconciliar la DB).
+//
+// Query:
+//   ?since=<días | ISO date>  Ventana de antigüedad de las órdenes (default 60).
+//   ?attention=true           Devuelve SOLO las que requieren atención.
+//
+// Respuesta: { summary, since, count, orders }. Es de SOLO LECTURA: no mueve
+// fondos. El admin acciona luego con los endpoints existentes
+// (release-guarantee / complete).
+// --------------------------------------------------------------------
+export const auditCollateralHandler = async (req, res) => {
+  try {
+    const { since, attention } = req.query;
+
+    // Aceptamos "since" como número de días o como fecha ISO.
+    let sinceDate;
+    if (since && Number.isFinite(Number(since))) {
+      sinceDate = new Date(Date.now() - Number(since) * 24 * 60 * 60 * 1000);
+    } else if (since) {
+      const parsed = new Date(since);
+      sinceDate = Number.isNaN(parsed.getTime()) ? undefined : parsed;
+    }
+
+    const { since: sinceDateUsed, orders } = await auditCollateral({
+      since: sinceDate,
+    });
+
+    const onlyAttention = String(attention || "").toLowerCase() === "true";
+    const visible = onlyAttention
+      ? orders.filter((o) => o.needsAttention)
+      : orders;
+
+    res.status(200).json({
+      success: true,
+      since: sinceDateUsed,
+      count: visible.length,
+      summary: summarizeAudit(visible),
+      orders: visible,
+    });
+  } catch (error) {
+    console.log(error);
+    res
+      .status(500)
+      .json({ success: false, message: "Error al auditar el colateral." });
   }
 };

@@ -69,7 +69,16 @@ const buildItem = (product) => {
   };
 };
 
-export default function ShippingQuoteBox({ product, onQuoteChange }) {
+export default function ShippingQuoteBox({
+  product,
+  onQuoteChange,
+  // En modo compact (ProductDetail) mostramos SOLO la opción más barata
+  // ("Envío a domicilio desde $X"). El desglose completo (ver N opciones,
+  // puntos de entrega, etc.) se reserva para el Checkout, donde el comprador
+  // realmente elige cómo recibir el producto. Evita el ruido de 17 opciones
+  // en la ficha.
+  compact = false,
+}) {
   const { authenticated, getAccessToken, login } = usePrivy();
   const dbUser = useUserStore((s) => s.dbUser);
 
@@ -260,7 +269,7 @@ export default function ShippingQuoteBox({ product, onQuoteChange }) {
         <Truck className="w-4 h-4 shrink-0 mt-0.5 text-gray-400" />
         <div className="flex-1 min-w-0">
           <p className="text-gray-900 dark:text-gray-200 text-sm font-medium">
-            Envío a cargo del comprador
+            Envío a domicilio a cargo del comprador
           </p>
           <button
             type="button"
@@ -293,7 +302,7 @@ export default function ShippingQuoteBox({ product, onQuoteChange }) {
           <Truck className="w-4 h-4 shrink-0 mt-0.5 text-green-500" />
           <div className="min-w-0">
             <p className="text-green-600 dark:text-green-500 text-sm font-medium">
-              Envío desde {formatArs(cheapest.amounts?.price_incl_tax)}
+              Envío a domicilio desde {formatArs(cheapest.amounts?.price_incl_tax)}
             </p>
             <p className="text-gray-500 text-xs">
               {cheapest.carrier?.name || "Logística"} · llega en{" "}
@@ -303,7 +312,9 @@ export default function ShippingQuoteBox({ product, onQuoteChange }) {
                 : ""}
             </p>
 
-            {rest.length > 0 && (
+            {/* En modo compact NO mostramos el desglose de opciones ni los
+                puntos de entrega: eso se elige en el Checkout. */}
+            {!compact && rest.length > 0 && (
               <button
                 type="button"
                 onClick={() => setShowAll((v) => !v)}
@@ -319,8 +330,8 @@ export default function ShippingQuoteBox({ product, onQuoteChange }) {
             {/* PUNTOS DE ENTREGA (Correo Argentino, OCA, etc.): la opción más
                 barata ofrece sucursales donde el comprador puede retirar. Como
                 en la ficha solo informamos, mostramos un botón que abre un
-                modal con las primeras 5. */}
-            {cheapestPoints.length > 0 && (
+                modal con las primeras 5. En modo compact no se muestra. */}
+            {!compact && cheapestPoints.length > 0 && (
               <button
                 type="button"
                 onClick={() => {
@@ -337,7 +348,7 @@ export default function ShippingQuoteBox({ product, onQuoteChange }) {
           </div>
         </div>
 
-        {showAll && rest.length > 0 && (
+        {!compact && showAll && rest.length > 0 && (
           <ul className="ml-6 space-y-1.5 border-l border-gray-100 dark:border-gray-800 pl-3">
             {rest.map((r, i) => (
               <li key={i} className="text-xs text-gray-600 dark:text-gray-400">
@@ -379,17 +390,20 @@ export default function ShippingQuoteBox({ product, onQuoteChange }) {
       </div>
 
       {/* Modal de puntos de entrega — SOLO LECTURA en la ficha (el comprador
-          elige el punto definitivo recién en el checkout). Máximo 5 puntos. */}
-      <PickupPointsModal
-        open={showPointsModal}
-        onClose={() => setShowPointsModal(false)}
-        points={pickupPoints}
-        selectable={false}
-        limit={5}
-        serviceLabel={`${cheapest.carrier?.name || "Logística"}${
-          cheapest.service_type?.name ? ` · ${cheapest.service_type.name}` : ""
-        }`}
-      />
+          elige el punto definitivo recién en el checkout). Máximo 5 puntos.
+          En modo compact no se usa (no hay botón que lo abra). */}
+      {!compact && (
+        <PickupPointsModal
+          open={showPointsModal}
+          onClose={() => setShowPointsModal(false)}
+          points={pickupPoints}
+          selectable={false}
+          limit={5}
+          serviceLabel={`${cheapest.carrier?.name || "Logística"}${
+            cheapest.service_type?.name ? ` · ${cheapest.service_type.name}` : ""
+          }`}
+        />
+      )}
       </>
     );
   }
@@ -400,7 +414,7 @@ export default function ShippingQuoteBox({ product, onQuoteChange }) {
       <Truck className="w-4 h-4 shrink-0 mt-0.5 text-gray-400" />
       <div className="flex-1 min-w-0">
         <p className="text-gray-900 dark:text-gray-200 text-sm font-medium">
-          Envío a cargo del comprador
+          Envío a domicilio a cargo del comprador
         </p>
 
         {!showManual ? (

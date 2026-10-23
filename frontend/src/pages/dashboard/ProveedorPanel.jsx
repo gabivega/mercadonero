@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Server, Package, RefreshCw, Wine, Car } from 'lucide-react';
+import { Server, Package, RefreshCw, Wine, Car, ShoppingBag } from 'lucide-react';
 import ElitCatalogExplorer from '../../components/ElitCatalogExplorer.jsx';
 import ElitSyncPanel from '../../components/ElitSyncPanel.jsx';
 import FlamingCatalogExplorer from '../../components/FlamingCatalogExplorer.jsx';
 import DirectcarCatalogExplorer from '../../components/DirectcarCatalogExplorer.jsx';
+import TiendanubeCatalogExplorer from '../../components/TiendanubeCatalogExplorer.jsx';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ProveedorPanel
@@ -22,10 +23,12 @@ import DirectcarCatalogExplorer from '../../components/DirectcarCatalogExplorer.
 //   - elit:      proveedor tech (API propia con credenciales, sync de stock/precio).
 //   - flaming:   proveedor bebidas/almacén (Woo Store API pública, import masivo).
 //   - directcar: proveedor autopartes (Woo Store API pública, import masivo).
+//   - tiendanube: proveedor deportes (scraping sitemap + JSON-LD, import masivo).
 const PROVIDERS = [
   { id: 'elit', label: 'Elit', icon: Server },
   { id: 'flaming', label: 'Flaming', icon: Wine },
   { id: 'directcar', label: 'DirectCar', icon: Car },
+  { id: 'tiendanube', label: 'Santiago Deportes', icon: ShoppingBag },
 ];
 
 // Pestañas de cada proveedor. Flaming y DirectCar no tienen sync (todavía):
@@ -39,6 +42,9 @@ const TABS_BY_PROVIDER = {
     { id: 'catalogo', label: 'Catálogo', icon: Package },
   ],
   directcar: [
+    { id: 'catalogo', label: 'Catálogo', icon: Package },
+  ],
+  tiendanube: [
     { id: 'catalogo', label: 'Catálogo', icon: Package },
   ],
 };
@@ -131,6 +137,14 @@ export default function ProveedorPanel() {
               por <b>hotlink</b> (sin Cloudinary). Catálogo grande (~16k): podés importar
               todo o ir por búsqueda.
             </p>
+          ) : activeProvider === 'tiendanube' ? (
+            <p className="text-xs text-gray-600 dark:text-zinc-400 leading-relaxed">
+              Importá el catálogo de <b>Santiago Deportes</b> (Tiendanube) con un click o un
+              producto puntual. Se lee el <b>sitemap</b> y el <b>JSON-LD</b> de cada ficha
+              para traer título, precio final, stock, categoría y descripción. Las
+              categorías se mapean a <b>Deportes y Fitness</b> y se guarda <b>1 imagen</b>
+              por hotlink (sin Cloudinary).
+            </p>
           ) : (
             <p className="text-xs text-gray-600 dark:text-zinc-400 leading-relaxed">
               Importá todo el catálogo de Flaming con un click o un producto puntual.
@@ -146,6 +160,7 @@ export default function ProveedorPanel() {
       {activeProvider === 'elit' && activeTab === 'sync' && <ElitSyncPanel />}
       {activeProvider === 'flaming' && activeTab === 'catalogo' && <FlamingCatalogExplorer />}
       {activeProvider === 'directcar' && activeTab === 'catalogo' && <DirectcarCatalogExplorer />}
+      {activeProvider === 'tiendanube' && activeTab === 'catalogo' && <TiendanubeCatalogExplorer />}
     </div>
   );
 }

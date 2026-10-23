@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   User, Wallet, Bell, ShoppingBag, History,
-  FileText, Tag, LogOut, LayoutDashboard, Heart,
+  Tag, LogOut, LayoutDashboard, Heart,
   ChevronLeft, ChevronRight, Menu, X, MessageSquare, Server,
   Store
 } from 'lucide-react';
@@ -21,7 +21,8 @@ const Sidebar = ({ handleLogout }) => {
     { name: 'Favoritos', icon: <Heart size={20} />, path: '/favoritos' },
     { name: 'Compras', icon: <ShoppingBag size={20} />, path: '/compras' },
     { name: 'Vender', icon: <Tag size={20} />, path: '/vender' },
-    { name: 'Posts', icon: <FileText size={20} />, path: '/posts' },
+    // 'Posts' deshabilitado: sección social post-lanzamiento
+    // { name: 'Posts', icon: <FileText size={20} />, path: '/posts' },
     { name: 'Mis Publicaciones', icon: <LayoutDashboard size={20} />, path: '/publicaciones' },
     // Puntos de retiro: solo visible para vendedores con tienda activa.
     ...(dbUser?.shop?.active ? [{ name: 'Puntos de retiro', icon: <Store size={20} />, path: '/puntos-retiro' }] : []),

@@ -278,7 +278,7 @@ export default function ShippingStatusCard({ order, role, onUpdate }) {
                   <code className="text-sm font-mono font-bold dark:text-zinc-200">{shippingDetails.trackingNumber}</code>
                 </div>
 
-                <button
+                {/* <button
                   onClick={() => externalUrl && window.open(externalUrl, '_blank')}
                   disabled={!externalUrl}
                   className={`flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold uppercase text-xs transition-all ${
@@ -289,7 +289,7 @@ export default function ShippingStatusCard({ order, role, onUpdate }) {
                 >
                   <ExternalLink size={14} />
                   Rastrear Paquete
-                </button>
+                </button> */}
               </div>
             </div>
           )}

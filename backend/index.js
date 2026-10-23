@@ -18,10 +18,14 @@ import shippingRoutes from './src/routes/shippingRoutes.js';
 import elitRoutes from './src/routes/elitRoutes.js';
 import flamingRoutes from './src/routes/flamingRoutes.js';
 import directcarRoutes from './src/routes/directcarRoutes.js';
+import tiendanubeRoutes from './src/routes/tiendanubeRoutes.js';
+import myStoreRoutes from './src/routes/myStoreRoutes.js';
+import adminStoreRoutes from './src/routes/adminStoreRoutes.js';
 import testAuthRoutes from './src/routes/testAuthRoutes.js';
 import startOrderCleanup from './src/services/orderCleanup.js';
 import startElitSyncCron from './src/services/elitSyncCron.js';
 import { getSitemap } from './src/controllers/seoController.js';
+import { getEscrowPaymentOptions } from './src/config/chains.js';
 
 const PORT = process.env.PORT || 3000;
 const app = express();
@@ -66,10 +70,27 @@ try {
   app.use('/api/elit', elitRoutes);
     app.use('/api/flaming', flamingRoutes);
   app.use('/api/directcar', directcarRoutes);
+  app.use('/api/tiendanube', tiendanubeRoutes);
+  // Importador de Tiendanube del USUARIO (scopeado a su StoreConnection verificada).
+  app.use('/api/my-store', myStoreRoutes);
+  // Gestión de ADMIN de las conexiones de tienda (habilitar/verificar por OTP).
+  app.use('/api/admin/store-connections', adminStoreRoutes);
   // Ruta de prueba para validar Supabase Auth (temporal, se borra al decidir)
   app.use('/api/test-auth', testAuthRoutes);
   // Sitemap dinámico para motores de búsqueda (SEO orgánico)
   app.get('/sitemap.xml', getSitemap);
+  // Config PÚBLICA de medios de pago crypto: redes con escrow desplegado y su
+  // token de pago (USDT en BSC, USDC en Base, USDXM en Polygon). El Checkout
+  // la consume para ofrecer al comprador en qué red/token pagar y mostrarle su
+  // saldo real. No expone secretos: solo direcciones de contratos públicos.
+  app.get('/api/config/payment-options', (req, res) => {
+    try {
+      res.json({ success: true, options: getEscrowPaymentOptions() });
+    } catch (error) {
+      console.error('Error al obtener payment-options:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
   app.get('/', (req, res) => res.json({ success: true, message: 'API running' }));
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
@@ -82,4 +103,6 @@ try {
   console.error('DB connection failed', err);
   process.exit(1);
 }
+
+
 

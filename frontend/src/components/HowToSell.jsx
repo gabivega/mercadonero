@@ -18,7 +18,7 @@ const [isOpen, setIsOpen] = useState(isExpanded);
     {
       id: 2,
       title: "Crear la publicación",
-      detail: "Completá el formulario con todos los datos requeridos, imágenes de alta calidad. Elegí métodos de pago y envío de tu preferencia.",
+      detail: "Completá el formulario con todos los datos requeridos, imágenes de alta calidad. Elegí métodos de pago y envío de tu preferencia. También podes cargar productos masivamente mediante un archivo.",
       icon: FileText,
       iconColor: "text-orange-500 bg-orange-50 dark:bg-orange-950/30",
     },

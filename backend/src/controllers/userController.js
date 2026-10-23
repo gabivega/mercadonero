@@ -51,7 +51,7 @@ export const completeSellerOnboarding = async (req, res) => {
       return res.status(400).json({ success: false, field: "cuitCuil", message: cuitValidation.reason });
     }
 
-    const required = { bankName, holderName, cuitCuil, cbuCvu, shopName, city, province };
+        const required = { bankName, holderName, cuitCuil, cbuCvu, alias, shopName, city, province };
     const missing = Object.entries(required).find(([, v]) => !v || !String(v).trim());
     if (missing) {
       const [field] = missing;
@@ -60,6 +60,7 @@ export const completeSellerOnboarding = async (req, res) => {
         holderName: "el titular de la cuenta",
         cuitCuil: "el CUIT/CUIL",
         cbuCvu: "el CBU/CVU",
+        alias: "el alias de la cuenta",
         shopName: "el nombre de la tienda",
         city: "la ciudad",
         province: "la provincia",
@@ -91,9 +92,9 @@ export const completeSellerOnboarding = async (req, res) => {
       accountType: accountTypeValue,
       cbuCvu: cbuCvuClean,
       cuitCuil: String(cuitCuil || "").replace(/[\s-]/g, ""),
-      holderName,
-      // El alias es opcional en el onboarding; lo persistimos si vino.
-      ...(alias ? { alias } : {}),
+            holderName,
+      // El alias es obligatorio (bankAccounts.alias required:true en el modelo).
+      alias: String(alias).trim(),
       isDefault: true,
       titularVerified: checkTitular,
     };

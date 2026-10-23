@@ -563,11 +563,21 @@ export default function ProductDetail() {
                 {/* Envío: solo para productos (no clasificados). */}
                 {product.listingType !== "classified" && (
                   <>
-                    {/* Retiro en sucursal — GRATIS. Solo si el vendedor lo
-                        habilitó. Los productos viejos sin `delivery` no lo tienen. */}
-                    {product.shipping?.delivery?.pickup === true && (
-                      <PickupOption product={product} compact />
-                    )}
+                    {/* Retiro en sucursal — GRATIS. Se muestra SIEMPRE (y arriba
+                        del envío a domicilio) para que el comprador sepa que
+                        existe la posibilidad, incluso sin estar logueado.
+                        El propio PickupOption se auto-oculta (return null) si el
+                        vendedor no tiene puntos de retiro activos, así que no
+                        hace falta depender del flag `delivery.pickup`. */}
+                    <PickupOption
+                      product={product}
+                      compact
+                      // Separador "o envío a domicilio": solo si además se
+                      // mostrará el envío a domicilio (homeDelivery !== false).
+                      showDivider={
+                        product.shipping?.delivery?.homeDelivery !== false
+                      }
+                    />
 
                     {/* Envío a domicilio. Se oculta si el vendedor lo
                         desactivó explícitamente (homeDelivery === false).
@@ -597,7 +607,7 @@ export default function ProductDetail() {
                             <Truck className="w-4 h-4 shrink-0 mt-1 text-gray-500" />
                             <div>
                               <p className="text-sm font-medium dark:text-gray-200">
-                                Envío a domicilio:{" "}
+                                Envío a domicilio: Desde {" "}
                                 <span className="font-bold">
                                   {formatPrice(
                                     Number(product.shipping?.cost) || 0,
@@ -629,7 +639,10 @@ export default function ProductDetail() {
                           </div>
                         ) : (
                           // Modo por defecto: cotización dinámica (Zipnova).
-                          <ShippingQuoteBox product={product} />
+                          // En modo `compact` mostramos SOLO la opción más
+                          // barata ("Envío a domicilio desde $X"); el desglose
+                          // completo de opciones se elige en el Checkout.
+                          <ShippingQuoteBox product={product} compact />
                         )}
                       </>
                     )}

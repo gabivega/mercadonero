@@ -7,7 +7,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import PostDetail from "./pages/PostDetail";
 import ProductDetail from "./pages/ProductDetail";
 import SearchResults from "./pages/SearchResults";
-import SocialMedia from "./pages/SocialMedia";
+// import SocialMedia from "./pages/SocialMedia"; // Sección social deshabilitada (post-lanzamiento)
 import CategoryResults from "./pages/CategoryResults";
 import Cart from "./pages/Cart";
 import MyProducts from "./pages/dashboard/MyProducts";
@@ -19,7 +19,7 @@ import SellProduct from "./pages/dashboard/SellProduct";
 import Profile from "./pages/dashboard/Profile";
 import DashboardLayout from "./components/DashboardLayout";
 import History from "./pages/dashboard/History";
-import Posts from "./pages/dashboard/Posts";
+import Posts from "./pages/dashboard/Posts"; // Deshabilitado: sección social post-lanzamiento
 import NotFound from "./pages/NotFound";
 import CreateProduct from "./pages/dashboard/CreateProduct";
 import SellerDashboard from "./pages/dashboard/SellerDashboard";
@@ -77,14 +77,16 @@ export default function App() {
             <Route path="/auth-test" element={<AuthTest />} />
             {/* Ruta AISLADA de prueba de Crossmint Wallets (no usa Privy) */}
             <Route path="/wallet-test" element={<WalletTest />} />
-            <Route path="/" element={<Home />} />
-                        <Route path="/post/:id" element={<PostDetail />} />
-            {/* URL SEO-friendly de producto: /producto/<slug> */}
+                        <Route path="/" element={<Home />} />
             <Route path="/producto/:idOrSlug" element={<ProductDetail />} />
             {/* Compatibilidad con enlaces viejos basados en ObjectId */}
             <Route path="/product/:idOrSlug" element={<ProductDetail />} />
             <Route path="/search" element={<SearchResults />} />
+            {/* SECCIÓN SOCIAL DESHABILITADA (post-lanzamiento):
+                /social y /post/:id quedan inaccesibles por ahora.
             <Route path="/social" element={<SocialMedia />} />
+            <Route path="/post/:id" element={<PostDetail />} />
+            */}
             <Route path="/c/:categorySlug" element={<CategoryResults />} />
             <Route path="/cart" element={<Cart />} />
 
@@ -111,8 +113,8 @@ export default function App() {
               <Route path="puntos-retiro" element={<PickupLocations />} />
               <Route path="proveedor" element={<ProveedorPanel />} />
               <Route path="favoritos" element={<Favorites />} />
-              <Route path="historial" element={<History />} />
-              <Route path="posts" element={<Posts />} />
+                            <Route path="historial" element={<History />} />
+              {/* <Route path="posts" element={<Posts />} /> */} {/* Deshabilitado: sección social post-lanzamiento */}
               <Route path="mis-ordenes" element={<MyOrders />} />
               <Route path="referidos" element={<Referrals />} />
               {/* Agrega historial y posts de la misma forma */}

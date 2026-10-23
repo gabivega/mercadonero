@@ -8,7 +8,7 @@ const ProductSchema = new Schema(
     // ── SEO / URL AMIGABLE ───────────────────────────────────────────────
     // Slug único para construir URLs indexables: /producto/<slug>.
     // Se genera automáticamente desde el título + un sufijo corto derivado
-    // del ObjectId (ver pre-save hook y utils/slugify.js).
+        // del ObjectId (ver pre-save hook y utils/slugify.js).
     slug: { type: String, trim: true, index: true, unique: true, sparse: true },
     description: { type: String, required: true },
     brand: { type: String, default: "Genérico" },
@@ -225,6 +225,20 @@ const ProductSchema = new Schema(
   },
     { timestamps: true },
 );
+
+// ── ÍNDICES DE RENDIMIENTO ────────────────────────────────────────────
+// Un vendedor puede tener MILES de publicaciones (import masivo). El panel
+// pagina y ordena por fecha, filtrando por status. Sin este índice compuesto
+// Mongo hace un COLLSCAN + sort en memoria (lento y limitado a 32MB). Este
+// índice cubre exactamente: find({ seller, status:{$ne} }).sort({createdAt:-1}).
+ProductSchema.index({ seller: 1, status: 1, createdAt: -1 });
+// El catálogo público filtra por status + moderación y ordena por fecha.
+ProductSchema.index({ status: 1, "moderation.status": 1, createdAt: -1 });
+// Listados por categoría (CategoryResults): filtran por categoría + status +
+// moderación y ordenan por fecha. Sin este índice, una categoría con miles de
+// productos obliga a ordenar toda la colección en memoria (~12s). Con él, el
+// sort por createdAt se resuelve por el índice.
+ProductSchema.index({ category: 1, status: 1, "moderation.status": 1, createdAt: -1 });
 
 // Virtual con la disponibilidad real: stock físico menos lo reservado por
 // pools de compra grupal abiertos. Se expone en toJSON/toObject.

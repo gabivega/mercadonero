@@ -21,6 +21,42 @@
 const MAX_SLUG_LENGTH = 70;
 
 /**
+ * Convierte un texto en un PATRÓN de regex tolerante a acentos, para búsquedas
+ * que no dependen de si el usuario escribió con o sin tildes.
+ *
+ * Ej: "bujia" -> "b[uúü]j[ií]a"
+ *     "telefono" -> "t[eé]l[eé]fono"
+ *
+ * Cada vocal (incluida la variante acentuada y la diéresis) se reemplaza por
+ * una clase de caracteres que matchea TODAS sus formas. La "ñ" matchea "ñ" o
+ * "n". El resto de los caracteres se escapan para que no rompan la regex.
+ * (La "i" mayúscula con punto y los dígitos/símbolos se dejan literales.)
+ */
+export const accentInsensitivePattern = (text = "") => {
+  const accentMap = {
+    a: "[aáàäâ]",
+    e: "[eéèëê]",
+    i: "[iíìïî]",
+    o: "[oóòöô]",
+    u: "[uúùüû]",
+    n: "[nñ]",
+  };
+
+  // Recorremos el texto YA en minúsculas carácter por carácter. Escapamos los
+  // que sean especiales para regex y traducimos las vocales acentuables.
+  return String(text)
+    .toLowerCase()
+    .split("")
+    .map((ch) => {
+      if (accentMap[ch]) return accentMap[ch];
+      // El resto de caracteres especiales de regex se escapan para que un
+      // término como "12.5" o "c++" no rompa ni altere la query.
+      return ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    })
+    .join("");
+};
+
+/**
  * Convierte un texto libre en un slug SEO-friendly.
  * - Quita acentos y diacríticos.
  * - Minúsculas.
@@ -84,3 +120,4 @@ export const extractSuffix = (slug = "") => {
   const parts = String(slug).split("-");
   return parts.length ? parts[parts.length - 1] : "";
 };
+

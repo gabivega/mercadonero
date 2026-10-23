@@ -1,8 +1,53 @@
 import React from 'react';
 import { 
-  X, Package, Truck, User, CreditCard, ExternalLink, 
-  MapPin, Calendar, Clock, ShieldCheck, AlertCircle, FileText 
+  X, Package, User, ExternalLink, 
+  MapPin, Calendar, ShieldCheck, AlertCircle, FileText,
+  Undo2, Wrench,
 } from 'lucide-react';
+
+// ─────────────────────────────────────────────────────────────────────────
+// Botón de acción reutilizable: garantiza tamaños y estilos HOMOGÉNEOS para
+// que el footer no quede con botones de distinto alto/ancho ni texto
+// desbordado. Todas las acciones pasan por acá.
+//   size    : "md" (principal) | "sm" (herramientas de admin)
+//   variant : colores sólidos y de contorno
+//   full    : ocupa todo el ancho disponible
+// ─────────────────────────────────────────────────────────────────────────
+const ActionButton = ({ children, onClick, variant = 'emerald', size = 'md', full = false, icon: Icon, className = '' }) => {
+  const base =
+    'inline-flex items-center justify-center gap-2 rounded-xl font-black uppercase tracking-wide ' +
+    'text-center leading-tight select-none w-full ' +
+    'focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ' +
+    'focus-visible:ring-offset-zinc-50 dark:focus-visible:ring-offset-zinc-900';
+
+  const sizes = {
+    md: 'min-h-[48px] px-4 py-3 text-[11px]',
+    sm: 'min-h-[40px] px-3.5 py-2 text-[10px]',
+  };
+
+  const variants = {
+    emerald: 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm',
+    indigo: 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm',
+    amber: 'bg-amber-500 text-white hover:bg-amber-600 shadow-sm',
+    rose: 'bg-rose-600 text-white hover:bg-rose-700 shadow-sm',
+    dark: 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-100 shadow-sm',
+    outline: 'bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-700',
+    'outline-amber': 'bg-transparent border border-amber-300 dark:border-amber-700/70 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/20',
+    'outline-blue': 'bg-transparent border border-blue-300 dark:border-blue-700/70 text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/20',
+    'outline-rose': 'bg-transparent border border-rose-200 dark:border-rose-900/60 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20',
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`${base} ${sizes[size]} ${variants[variant] || variants.emerald} ${full ? '' : 'w-auto'} ${className}`}
+    >
+      {Icon ? <Icon size={size === 'sm' ? 13 : 15} className="shrink-0" /> : null}
+      <span className="min-w-0 break-words">{children}</span>
+    </button>
+  );
+};
 
 const AdminOrderModal = ({ order, isOpen, onClose, onAction }) => {
   if (!isOpen || !order) return null;
@@ -243,182 +288,184 @@ const AdminOrderModal = ({ order, isOpen, onClose, onAction }) => {
 
         </div>
 
-        {/* FOOTER ACTION BUTTONS DYNAMIC */}
-        <div className="p-6 bg-zinc-50 dark:bg-zinc-800/30 border-t border-zinc-100 dark:border-zinc-800 flex flex-wrap gap-3">
-          
-          {/* ACCIÓN: PENDING PAYMENT */}
-          {order.status === 'pending_payment' && (
-            <button 
-              onClick={() => onAction(order._id, 'force_expire')}
-              className="flex-1 bg-rose-600 text-white py-3 rounded-2xl font-black italic uppercase text-xs hover:bg-rose-700 transition-colors"
-            >
-              Forzar Expiración (Liberar Pool)
-            </button>
-          )}
+                        {/* FOOTER ACTION BUTTONS DYNAMIC */}
+        <div className="border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/30">
+          <div className="p-5 md:p-6 space-y-5">
 
-          {/* ACCIÓN: VERIFYING PAYMENT */}
-          {order.status === 'verifying_payment' && (
-            <>
-              <button 
-                onClick={() => onAction(order._id, 'approve_payment')}
-                className="flex-1 bg-emerald-600 text-white py-3 rounded-2xl font-black italic uppercase text-xs hover:bg-emerald-700 transition-colors"
-              >
-                Aprobar Pago Manual (Pasar a Paid)
-              </button>
-              <button 
-                onClick={() => onAction(order._id, 'reject_payment')}
-                className="bg-zinc-200 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-4 py-3 rounded-2xl font-bold text-xs hover:bg-zinc-300 dark:hover:bg-zinc-600 transition-colors"
-              >
-                Rechazar Comprobante
-              </button>
-            </>
-          )}
+            {/* ── BANNERS DE CONTEXTO ───────────────────────────────────── */}
 
-          {/* ACCIÓN: PAID (Vendedor colgado con el envío) */}
-          {order.status === 'paid' && (
-            <button 
-              onClick={() => onAction(order._id, 'force_ship')}
-              className="flex-1 bg-indigo-600 text-white py-3 rounded-2xl font-black italic uppercase text-xs hover:bg-indigo-700 transition-colors"
-            >
-              Cargar Tracking / Forzar Despacho
-            </button>
-          )}
-
-                    {/* ACCIÓN: RECEPTION_CONFIRMED (el comprador confirmó la recepción y
-              corre el período de seguridad/buffer). El admin CIERRA la orden y
-              libera la garantía/escrow manualmente con este botón. El backend
-              exige el buffer cumplido salvo que se fuerce. */}
-          {order.status === 'reception_confirmed' && (
-            <>
-              <div className="w-full">
-                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400 mb-1">
-                  El comprador confirmó la recepción
+            {/* RECEPTION_CONFIRMED: aviso del período de seguridad */}
+            {order.status === 'reception_confirmed' && (
+              <div className="rounded-2xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/30 px-4 py-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-400 mb-1 flex items-center gap-1.5">
+                  <ShieldCheck size={13} /> El comprador confirmó la recepción
                 </p>
-                <p className="text-[11px] text-zinc-500">
+                <p className="text-[11px] leading-relaxed text-emerald-700/80 dark:text-emerald-300/80">
                   {order.releaseEligibleAt
                     ? `Período de seguridad hasta: ${new Date(order.releaseEligibleAt).toLocaleString('es-AR')}. `
                     : ''}
                   Completá la orden para liberar la garantía/escrow al vendedor.
                 </p>
               </div>
-              <button
-                onClick={() => onAction(order._id, 'admin_complete')}
-                className="flex-1 bg-emerald-600 text-white py-3 rounded-2xl font-black italic uppercase text-xs hover:bg-emerald-700 transition-colors"
-              >
-                Completar Orden y Liberar Garantía
-              </button>
-            </>
-          )}
+            )}
 
-          {/* ACCIÓN: SHIPPED (Arbitraje / El comprador no confirma) */}
-          {order.status === 'shipped' && (
-            <button 
-              onClick={() => onAction(order._id, 'force_release_escrow')}
-              className="flex-1 bg-zinc-950 dark:bg-white text-white dark:text-black py-3 rounded-2xl font-black italic uppercase text-xs hover:scale-[1.01] transition-transform shadow-md"
-            >
-              Liberar Escrow Manual (Arbitraje 0% Fee)
-            </button>
-          )}
-
-                                        {/* LIBERACIÓN MANUAL DE GARANTÍA SOLICITADA POR EL VENDEDOR → cancela la orden.
-                        Solo tiene sentido si el VENDEDOR abrió una solicitud de cancelación/liberación
-                        (releaseRequest). Se excluye 'reception_confirmed' porque en ese estado la venta
-                        ya está encaminada a completarse (usar "Completar Orden y Liberar Garantía"). */}
-                    {!['completed', 'cancelled', 'expired', 'reception_confirmed'].includes(order.status) &&
-                      order.releaseRequest?.exists && (
-                        <button
-                          onClick={() => onAction(order._id, 'release_guarantee')}
-                          className="flex-1 bg-amber-500 text-white py-3 rounded-2xl font-black italic uppercase text-xs hover:bg-amber-600 transition-colors"
-                        >
-                          Liberar Garantía Solicitada por Vendedor
-                        </button>
-                      )}
-
-                                                                                {/* LIBERACIÓN MANUAL DE GARANTÍA (Admin) → cancela la orden.
-                                            Se muestra cuando la orden NO está completada/expirada, NO está
-                                            pendiente de pago y NO está en 'reception_confirmed'. En
-                                            'reception_confirmed' el camino correcto es "Completar Orden y
-                                            Liberar Garantía" (admin_complete), que CIERRA la venta; este
-                                            botón (release_guarantee) CANCELA la orden, por lo que ocultarlo
-                                            evita que el admin cierre por error una venta ya recibida.
-                                            Ya NO se oculta cuando existe releaseTxHash: un releaseTxHash
-                                            puede ser un FALSO POSITIVO (la tx se minó pero el colateral quedó
-                                            congelado). La verificación on-chain previa se hace con el botón
-                                            "Verificar colateral (on-chain)". */}
-                                        {![ 'completed', 'expired', 'reception_confirmed' ].includes(order.status) &&
-                                          order.status !== 'pending_payment' && (
-                                          <button 
-                                            onClick={() => onAction(order._id, 'release_guarantee')}
-                                            className="px-5 py-3 border border-amber-300 dark:border-amber-700/60 text-amber-700 dark:text-amber-400 rounded-2xl font-bold text-xs hover:bg-amber-50 dark:hover:bg-amber-950/20 transition-colors"
-                                          >
-                                            Liberar Garantía (Admin)
-                                          </button>
-                                        )}
-
-                                        {/* VERIFICAR ESTADO REAL DEL COLATERAL ON-CHAIN (Admin).
-                                            PRIMER paso recomendado ante una orden cancelada con garantía
-                                            presuntamente congelada: consulta el lock real en el contrato. */}
-                                        {![ 'expired' ].includes(order.status) && (
-                                          <button 
-                                            onClick={() => onAction(order._id, 'check_collateral')}
-                                            className="px-5 py-3 border border-blue-300 dark:border-blue-700/60 text-blue-700 dark:text-blue-400 rounded-2xl font-bold text-xs hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors"
-                                          >
-                                            Verificar colateral (on-chain)
-                                          </button>
-                                        )}
-
-                    {/* ACCIÓN COMPARTIDA: CANCELAR SIEMPRE QUE NO ESTÉ COMPLETADO.
-              Solo marca la orden como cancelada; NO libera la garantía. */}
-          {!['completed', 'cancelled', 'expired'].includes(order.status) && (
-            <button 
-              onClick={() => onAction(order._id, 'cancel_order')}
-              className="px-5 py-3 border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 rounded-2xl font-bold text-xs hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-colors"
-            >
-              Cancelar Orden (sin liberar garantía)
-            </button>
-          )}
-
-
-          {/* RESOLUCION DE DISPUTA DE PAGO NO RECIBIDO (abierta por el vendedor).
-              El comprador pudo subir su comprobante (order.paymentProof). */}
-          {order.dispute?.exists &&
-            order.dispute.status === "open" &&
-            String(order.dispute.raisedBy) === String(order.seller?._id) &&
-            order.status === "verifying_payment" &&
-            order.payment?.method !== "crypto" && (
-            <>
-              <div className="w-full">
-                <p className="text-[10px] font-black uppercase tracking-widest text-amber-600 dark:text-amber-400 mb-2">
-                  El vendedor reporto "pago no recibido" - Resolver disputa
+            {/* DISPUTA DE PAGO NO RECIBIDO */}
+            {order.dispute?.exists &&
+              order.dispute.status === "open" &&
+              String(order.dispute.raisedBy) === String(order.seller?._id) &&
+              order.status === "verifying_payment" &&
+              order.payment?.method !== "crypto" && (
+              <div className="rounded-2xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 px-4 py-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-400 mb-1">
+                  El vendedor reportó "pago no recibido" — Resolver disputa
                 </p>
-                {order.paymentProof ? (
-                  <p className="text-[11px] text-zinc-500 mb-2">
-                    El comprador adjunto un comprobante. Revisalo antes de decidir.
-                  </p>
-                ) : (
-                  <p className="text-[11px] text-rose-500 mb-2">
-                    El comprador aun NO adjunto comprobante.
-                  </p>
-                )}
+                <p className={`text-[11px] leading-relaxed ${order.paymentProof ? 'text-amber-700/80 dark:text-amber-300/80' : 'text-rose-600 dark:text-rose-400'}`}>
+                  {order.paymentProof
+                    ? 'El comprador adjuntó un comprobante. Revisalo antes de decidir.'
+                    : 'El comprador aún NO adjuntó comprobante.'}
+                </p>
               </div>
-              <button
-                onClick={() => onAction(order._id, 'resolve_payment_received')}
-                className="flex-1 bg-emerald-600 text-white py-3 rounded-2xl font-black italic uppercase text-xs hover:bg-emerald-700 transition-colors"
-              >
-                El pago SI se acredito (volver a verificacion)
-              </button>
-              <button
-                onClick={() => onAction(order._id, 'resolve_payment_no')}
-                className="flex-1 bg-rose-600 text-white py-3 rounded-2xl font-black italic uppercase text-xs hover:bg-rose-700 transition-colors"
-              >
-                No se acredito - Cancelar y liberar garantia
-              </button>
-            </>
-          )}
+            )}
 
-<button onClick={onClose} className="px-5 py-3 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-2xl font-bold text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors ml-auto">
-            Cerrar Panel
-          </button>
+            {/* ── ACCIONES PRINCIPALES (según estado) ─────────────────────
+                Grilla de 2 columnas en desktop, 1 en mobile. Todas las
+                acciones principales comparten tamaño y estilo vía ActionButton. */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* PENDING PAYMENT */}
+              {order.status === 'pending_payment' && (
+                <ActionButton full variant="rose" onClick={() => onAction(order._id, 'force_expire')}>
+                  Forzar Expiración (Liberar Pool)
+                </ActionButton>
+              )}
+
+              {/* VERIFYING PAYMENT */}
+              {order.status === 'verifying_payment' && (
+                <>
+                  <ActionButton variant="emerald" onClick={() => onAction(order._id, 'approve_payment')}>
+                    Aprobar Pago Manual (→ Paid)
+                  </ActionButton>
+                  <ActionButton variant="outline" onClick={() => onAction(order._id, 'reject_payment')}>
+                    Rechazar Comprobante
+                  </ActionButton>
+                </>
+              )}
+
+              {/* PAID: vendedor colgado con el envío */}
+              {order.status === 'paid' && (
+                <ActionButton full variant="indigo" onClick={() => onAction(order._id, 'force_ship')}>
+                  Cargar Tracking / Forzar Despacho
+                </ActionButton>
+              )}
+
+              {/* RECEPTION_CONFIRMED: cerrar venta y liberar */}
+              {order.status === 'reception_confirmed' && (
+                <ActionButton full variant="emerald" onClick={() => onAction(order._id, 'admin_complete')}>
+                  Completar Orden y Liberar Garantía
+                </ActionButton>
+              )}
+
+              {/* SHIPPED: arbitraje */}
+              {order.status === 'shipped' && (
+                <ActionButton full variant="dark" onClick={() => onAction(order._id, 'force_release_escrow')}>
+                  Liberar Escrow Manual (Arbitraje 0% Fee)
+                </ActionButton>
+              )}
+
+              {/* LIBERACIÓN SOLICITADA POR EL VENDEDOR */}
+              {!['completed', 'cancelled', 'expired', 'reception_confirmed'].includes(order.status) &&
+                order.releaseRequest?.exists && (
+                  <ActionButton
+                    full
+                    variant="amber"
+                    onClick={() => onAction(order._id, 'release_guarantee')}
+                  >
+                    Liberar Garantía Solicitada por Vendedor
+                  </ActionButton>
+                )}
+
+              {/* REEMBOLSAR AL COMPRADOR */}
+              {!['completed', 'cancelled', 'expired'].includes(order.status) && (
+                <ActionButton
+                  variant="rose"
+                  icon={Undo2}
+                  onClick={() => onAction(order._id, 'refund_buyer')}
+                >
+                  {order.payment?.method === 'crypto' && order.payment?.status === 'funded'
+                    ? 'Reembolsar Comprador (Escrow)'
+                    : 'Reembolsar / Cancelar Comprador'}
+                </ActionButton>
+              )}
+
+              {/* RESOLUCIÓN DE DISPUTA */}
+              {order.dispute?.exists &&
+                order.dispute.status === "open" &&
+                String(order.dispute.raisedBy) === String(order.seller?._id) &&
+                order.status === "verifying_payment" &&
+                order.payment?.method !== "crypto" && (
+                  <>
+                    <ActionButton variant="emerald" onClick={() => onAction(order._id, 'resolve_payment_received')}>
+                      Pago SÍ acreditado (→ Verificación)
+                    </ActionButton>
+                    <ActionButton variant="rose" onClick={() => onAction(order._id, 'resolve_payment_no')}>
+                      No se acreditó — Cancelar y liberar
+                    </ActionButton>
+                  </>
+                )}
+            </div>
+
+            {/* ── HERRAMIENTAS DE ADMIN (secundarias) ──────────────────────
+                Agrupadas aparte y más discretas para no competir con las
+                acciones principales. Tamaño uniforme y wrap limpio. */}
+            {(
+              (!['completed', 'expired', 'reception_confirmed'].includes(order.status) && order.status !== 'pending_payment') ||
+              order.status !== 'expired'
+            ) && (
+              <div className="pt-4 border-t border-dashed border-zinc-200 dark:border-zinc-700/70">
+                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-2.5 flex items-center gap-1.5">
+                  <Wrench size={11} /> Herramientas de administración
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {/* LIBERAR GARANTÍA (Admin) */}
+                  {!['completed', 'expired', 'reception_confirmed'].includes(order.status) &&
+                    order.status !== 'pending_payment' && (
+                      <ActionButton
+                        size="sm"
+                        variant="outline-amber"
+                        className="!w-auto"
+                        onClick={() => onAction(order._id, 'release_guarantee')}
+                      >
+                        Liberar Garantía (Admin)
+                      </ActionButton>
+                    )}
+
+                  {/* VERIFICAR COLATERAL ON-CHAIN */}
+                  {order.status !== 'expired' && (
+                    <ActionButton
+                      size="sm"
+                      variant="outline-blue"
+                      className="!w-auto"
+                      onClick={() => onAction(order._id, 'check_collateral')}
+                    >
+                      Verificar Colateral (on-chain)
+                    </ActionButton>
+                  )}
+
+                  {/* CANCELAR ORDEN (sin liberar garantía) */}
+                  {!['completed', 'cancelled', 'expired'].includes(order.status) && (
+                    <ActionButton
+                      size="sm"
+                      variant="outline-rose"
+                      className="!w-auto"
+                      onClick={() => onAction(order._id, 'cancel_order')}
+                    >
+                      Cancelar Orden (sin liberar garantía)
+                    </ActionButton>
+                  )}
+                </div>
+              </div>
+            )}
+
+          </div>
         </div>
       </div>
     </div>

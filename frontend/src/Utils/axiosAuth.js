@@ -20,6 +20,9 @@ import axios from "axios";
 
 // Handler de "sesión inválida". Lo setea el AuthProvider al montarse.
 let onUnauthorized = null;
+// Handler para forzar un refresh de token (getAccessToken del AuthProvider).
+// Permite reintentar una request tras un 401 ANTES de cerrar la sesión.
+let onRefreshToken = null;
 // Evita disparar el logout/redirect múltiples veces si llegan varios 401 en
 // paralelo (lo normal cuando la sesión se cae y hay varias requests en vuelo).
 let redirecting = false;
@@ -30,6 +33,14 @@ let redirecting = false;
  */
 export const setUnauthorizedHandler = (handler) => {
   onUnauthorized = handler;
+};
+
+/**
+ * Conecta el "refrescador" de token. Se llama UNA vez desde el AuthProvider.
+ * @param {Function} handler  async () => token | null  (normalmente getAccessToken).
+ */
+export const setRefreshHandler = (handler) => {
+  onRefreshToken = handler;
 };
 
 /**
@@ -65,13 +76,45 @@ export const handleUnauthorized = async () => {
 // Interceptor de RESPUESTA: reaccionamos a 401 del backend.
 axios.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     const status = error?.response?.status;
-    // 401 = token inválido/expirado → sesión caída.
     // 403 NO se trata acá (es "sin permisos", la sesión puede ser válida).
-    if (status === 401) {
-      handleUnauthorized();
+    if (status !== 401) {
+      return Promise.reject(error);
     }
+
+    // ── Reintento único tras refresh ──────────────────────────────────────
+    // Un 401 puede ser (a) el token expiró justo antes de la request, o
+    // (b) un token viejo que estaba en vuelo. En vez de cerrar la sesión de
+    // inmediato (lo que provocaba logouts "de la nada"), forzamos UN refresh
+    // y reintentamos la request. Sólo si eso vuelve a dar 401 cerramos sesión.
+    const original = error.config || {};
+    if (onRefreshToken && !original._authRetried) {
+      original._authRetried = true;
+      let token = null;
+      try {
+        token = await onRefreshToken();
+      } catch {
+        token = null;
+      }
+      if (token) {
+        original.headers = {
+          ...(original.headers || {}),
+          Authorization: `Bearer ${token}`,
+        };
+        try {
+          return await axios(original);
+        } catch (retryErr) {
+          // Si el reintento NO es 401, propagamos ese error tal cual.
+          if (retryErr?.response?.status !== 401) {
+            return Promise.reject(retryErr);
+          }
+        }
+      }
+    }
+
+    // Refresh imposible o el reintento volvió a dar 401 → sesión realmente caída.
+    handleUnauthorized();
     return Promise.reject(error);
   },
 );

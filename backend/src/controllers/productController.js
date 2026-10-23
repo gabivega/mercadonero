@@ -1,7 +1,7 @@
 import Product from "../models/Product.js";
 import User from "../models/User.js";
 import mongoose from "mongoose";
-import { buildProductSlug } from "../utils/slugify.js";
+import { buildProductSlug, accentInsensitivePattern } from "../utils/slugify.js";
 import { resolveProductReferral } from "../services/referralService.js";
 
 // Acepta un id (ObjectId) o un slug SEO. Devuelve el filtro de búsqueda
@@ -382,18 +382,76 @@ export const getMyProducts = async (req, res) => {
     // privyDid). Es el identificador estable que guardamos en Product.seller.
     const userId = req.user._id;
 
-    const products = await Product.find({
+    // ── PAGINACIÓN + BÚSQUEDA SERVER-SIDE ──────────────────────────────
+    // Un vendedor puede tener miles de publicaciones (ej. import masivo de
+    // un proveedor). Traerlas todas de una cuelga la request (payload
+    // gigante + serialización). Por eso paginamos en el server:
+    //   ?page=1&limit=100&search=term
+    // Si `limit` no viene, mantenemos compatibilidad devolviendo TODO
+    // (pero limitamos a un tope de seguridad para no colgar la API).
+    const { page, limit, search } = req.query;
+
+    const hasPagination = limit !== undefined && limit !== null && limit !== "";
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    // Tope duro: evita que un limit absurdo (o la ausencia de limit) vuelva a
+    // traer 9k documentos de una. 100 por defecto, 200 como máximo.
+    const perPage = hasPagination
+      ? Math.min(200, Math.max(1, parseInt(limit, 10) || 100))
+      : 200;
+
+        // Filtro base: productos del vendedor no eliminados.
+    // Usamos $in de los estados VÁLIDOS en vez de $ne:"deleted": es mucho más
+    // selectivo para el índice { seller, status, createdAt } y evita que Mongo
+    // recorra claves "abiertas" (el $ne es un rango sin borde).
+    const VALID_STATUSES = ["active", "paused", "out_of_stock"];
+    const query = {
       seller: userId,
-      status: { $ne: "deleted" },
-    })
-      .populate("seller", "username name shop isVerified")
-      .sort({
-        createdAt: -1,
-      });
+      status: { $in: VALID_STATUSES },
+    };
+
+            // Búsqueda por nombre / categoría / marca / SKU (case-insensitive).
+    // Escapamos el término para que un regex malicioso no rompa la query.
+    const term = String(search || "").trim();
+    if (term) {
+      const safe = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const rx = new RegExp(safe, "i");
+      query.$or = [
+        { name: rx },
+        { category: rx },
+        { subCategory: rx },
+        { brand: rx },
+        { sku: rx },
+      ];
+    }
+
+        // Proyección LIGERA: el listado del panel NO necesita description ni
+    // specs (son los campos más pesados). Traerlos multiplica el payload x N.
+    // Excluimos description y specifications para que pese mucho menos.
+    const projection = "-description -specifications";
+
+    // NOTA: NO hacemos populate del seller. El panel muestra solo datos del
+    // propio producto (el dueño es el usuario logueado). El populate costaba
+    // ~800ms para 100 filas — innecesario acá. Si algún día se necesita, se
+    // puede agregar un populate PUNTUAL sin afectar el listing.
+    const [products, total] = await Promise.all([
+      Product.find(query, projection)
+        .sort({ createdAt: -1 })
+        .skip((pageNum - 1) * perPage)
+        .limit(perPage)
+        .lean(),
+      Product.countDocuments(query),
+    ]);
+
+    const totalPages = Math.ceil(total / perPage) || 1;
 
     res.status(200).json({
       success: true,
-      count: products.length,
+      count: products.length, // cuántos vienen en ESTA página
+      total, // cuántos hay en total (con el filtro aplicado)
+      page: pageNum,
+      limit: perPage,
+      totalPages,
+      hasMore: pageNum < totalPages,
       products,
     });
   } catch (error) {
@@ -533,22 +591,29 @@ export const getProducts = async (req, res) => {
       }
     }
 
-    // --- 1. Construcción de la Query de Búsqueda de Texto ---
-    if (search) {
-      const term = search.trim().toLowerCase();
+            // --- 1. Construcción de la Query de Búsqueda de Texto ---
+            // Búsqueda ACCENT-INSENSITIVE: el patrón de cada término tolera acentos,
+            // así "bujia" matchea "Bujía", "BUJIA", "Bujia", etc. Funciona directo
+            // sobre los campos crudos, sin campos extra ni migraciones.
+            if (search) {
+              const term = search.trim().toLowerCase();
 
-      query.$or = [
-        { subCategory: { $regex: `^${term}$`, $options: 'i' } },
-        { name: { $regex: term, $options: 'i' } },
-        { brand: { $regex: term, $options: 'i' } },
-        { category: { $regex: term, $options: 'i' } }
-      ];
+              if (term) {
+                const rx = accentInsensitivePattern(term);
 
-      if (term.length > 5) {
-        const root = term.substring(0, term.length - 2);
-        query.$or.push({ name: { $regex: root, $options: 'i' } });
-      }
-    }
+                query.$or = [
+                  { subCategory: { $regex: `^${rx}$`, $options: 'i' } },
+                  { name: { $regex: rx, $options: 'i' } },
+                  { brand: { $regex: rx, $options: 'i' } },
+                  { category: { $regex: rx, $options: 'i' } }
+                ];
+
+                if (term.length > 5) {
+                  const root = accentInsensitivePattern(term.substring(0, term.length - 2));
+                  query.$or.push({ name: { $regex: root, $options: 'i' } });
+                }
+              }
+            }
 
     // --- 2. Aplicar filtros de Categorías Comunes (Solo si NO es sección especial) ---
     if (category && !isSpecialSection) {
@@ -585,66 +650,117 @@ export const getProducts = async (req, res) => {
       if (sort === 'price_desc') sortOptions = { price: -1 };
     }
 
-   // --- 3. Ejecutar la Query con el orden dinámico ---
-    // Si sortOptions está vacío (caso ofertas), no le pasamos nada al sort para no gastar recursos
-        const productsQuery = Product.find(query);
-    if (Object.keys(sortOptions).length > 0) {
-      productsQuery.sort(sortOptions);
+      // --- 3. Ejecutar la Query con el orden dinámico ---
+    // ── PAGINACIÓN SERVER-SIDE ──────────────────────────────────────────
+    // ANTES traíamos TODOS los documentos que matcheaban + populate y recién
+    // al final recortábamos en memoria (`products.slice`). Con el catálogo
+    // actual (~9.700 productos) y la sección "recently-added", eso tardaba
+    // ~160s → la request quedaba colgada y el carrusel no cargaba nunca.
+    //
+    // AHORA paginamos EN LA BASE DE DATOS:
+    //   - Secciones NORMALES con `limit`  → skip/limit/sort en Mongo + count.
+    //   - Secciones ALEATORIAS (ofertas, social-selling) → no se puede paginar
+    //     por fecha; pedimos un POOL acotado y barajamos en memoria.
+    //   - Sin `limit` (carousels/categorías) → tope de seguridad para no colgar.
+        const hasLimit = limit !== undefined && limit !== null && limit !== '';
+    const perPage = hasLimit ? Math.max(1, parseInt(limit, 10) || 20) : 0;
+    const parsedPage = parseInt(page, 10);
+    const currentPage = Number.isNaN(parsedPage) || parsedPage < 1 ? 1 : parsedPage;
+    const startIndex = hasLimit ? (currentPage - 1) * perPage : 0;
+    // Tope de seguridad para NO colgar la API con catálogos gigantes:
+    //   - Con `limit`  → devolvemos solo la página pedida (perPage).
+    //   - Sin `limit`  → listados "completos" (CategoryResults, etc.). Estos
+    //     pueden superar 9k productos en una sola categoría, así que:
+    //       · si el total es chico (≤ 300) devolvemos TODO (comportamiento
+    //         legacy intacto para categorías normales).
+    //       · si es grande, devolvemos hasta 300 + `hasMore: true` para que el
+    //         front sepa que debe paginar (evita el timeout de 160s de antes).
+    const HARD_CAP_NO_LIMIT = 300;
+    const cap = hasLimit ? perPage : HARD_CAP_NO_LIMIT;
+    // Sin limit no necesitamos los campos pesados ni el populate cargado.
+    const lightProjection = hasLimit ? {} : { description: 0, specifications: 0 };
+
+        const buildBaseQuery = () => {
+      const q = Product.find(query, lightProjection);
+      if (Object.keys(sortOptions).length > 0) q.sort(sortOptions);
+      return q;
+    };
+
+    let products;
+    let total;
+
+    if (isRandom) {
+      // Aleatorio: no hay orden estable para paginar. Traemos un pool acotado
+      // (cap * 5, máx 200) para tener variedad al barajar, y paginamos sobre
+      // ese pool. No es paginación "Real" pero estas secciones son carousels
+      // cortos, no listados navegables.
+      const poolSize = Math.min(200, cap * 5);
+      const pool = await buildBaseQuery().limit(poolSize).lean();
+      // 🔥 Fisher-Yates sobre el pool.
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+      // Populate manual del seller solo de los elegidos (barato).
+      products = await Product.populate(pool, {
+        path: 'seller',
+        select: 'username name shop isVerified walletAddress',
+      });
+        } else {
+      // Orden estable: paginamos en Mongo. Traemos SOLO la página + total.
+      // Siempre calculamos el total (barato con índice) para saber si hay más
+      // allá del cap de seguridad, incluso cuando no vino `limit`.
+      const [pageDocs, count] = await Promise.all([
+        buildBaseQuery().skip(startIndex).limit(cap).lean(),
+        Product.countDocuments(query),
+      ]);
+      products = await Product.populate(pageDocs, {
+        path: 'seller',
+        select: 'username name shop isVerified walletAddress',
+      });
+      total = count;
     }
 
-        // Ejecutamos la query. Populate del vendedor para traer shop.name/username
-    // y poder mostrar el nombre de la tienda en las tarjetas de producto.
-        let products = await productsQuery
-          .populate("seller", "username name shop isVerified walletAddress")
-          .exec();
-
-        // 🔒 OCULTAR PRODUCTOS DE PAGO DE VENDEDORES SIN WALLET: el escrow/colateral
-    // necesita la wallet del vendedor para gestionar los pagos de forma segura.
-    // Si el vendedor no tiene wallet, su producto de pago no puede venderse.
-    // (El middleware requireSellerOnboarding ya impide publicar nuevos sin
-    // wallet; acá cubrimos los ya existentes). Los clasificados (listingType
-    // !== "product") no usan escrow y se mantienen visibles.
+    // 🔒 OCULTAR PRODUCTOS DE PAGO DE VENDEDORES SIN WALLET: el escrow/colateral
+    // necesita la wallet del vendedor. Los clasificados no usan escrow.
     products = products.filter(
       (p) => p.listingType !== "product" || (p.seller && p.seller.walletAddress),
     );
 
-                                // 🔥 BARAJAMOS cuando la sección es aleatoria (Ofertas / Compra en Grupo).
-    // Algoritmo Fisher-Yates: dejamos una selección distinta en cada carga.
-    if (isRandom && products.length > 0) {
-      for (let i = products.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [products[i], products[j]] = [products[j], products[i]];
-      }
+    // ── Facetas ──
+    // Sin `limit` (listados con filtros) calculamos las facetas reales con
+    // distinct (barato, no trae documentos). Con `limit` (carousels) las
+    // facetas no se usan; devolvemos las de la página para no escanear todo.
+    let availableFilters;
+    if (!hasLimit && !isRandom) {
+      const [cats, subs, brands] = await Promise.all([
+        Product.distinct('category', query),
+        Product.distinct('subCategory', query),
+        Product.distinct('brand', query),
+      ]);
+      availableFilters = {
+        categories: cats.filter(Boolean),
+        subCategories: subs.filter(Boolean),
+        brands: brands.filter(Boolean),
+      };
+    } else {
+      availableFilters = {
+        categories: [...new Set(products.map(p => p.category))].filter(Boolean),
+        subCategories: [...new Set(products.map(p => p.subCategory))].filter(Boolean),
+        brands: [...new Set(products.map(p => p.brand))].filter(Boolean),
+      };
     }
 
-        // ── PAGINACIÓN (opcional) ──
-        // El front puede pedir un "limit" (nº de resultados por vez) + "page".
-        // Si no se pasa, devolvemos todo como antes (carousels, categorías, etc.).
-        const total = products.length;
-        let pageResult = products;
-        let hasLimit = limit !== undefined && limit !== null && limit !== '';
-        let startIndex = 0;
-        if (hasLimit) {
-          const pageNum = parseInt(page, 10);
-          const currentPage = Number.isNaN(pageNum) || pageNum < 1 ? 1 : pageNum;
-          const perPage = Math.max(1, parseInt(limit, 10));
-          startIndex = (currentPage - 1) * perPage;
-          pageResult = products.slice(startIndex, startIndex + perPage);
-        }
+        // `total` real (count de la DB). `hasMore`: hay más por debajo del cap.
+    const totalForResponse = total != null ? total : products.length;
+    const hasMore = startIndex + products.length < totalForResponse;
 
-        // 4. EXTRAER FILTROS DISPONIBLES (Facetas) - Queda igual
-        const availableFilters = {
-          categories: [...new Set(products.map(p => p.category))].filter(Boolean),
-          subCategories: [...new Set(products.map(p => p.subCategory))].filter(Boolean),
-          brands: [...new Set(products.map(p => p.brand))].filter(Boolean)
-        };
-
-        res.json({
-          products: pageResult || [],
-          total,
-          hasMore: hasLimit ? startIndex + pageResult.length < total : false,
-          filters: availableFilters
-        });
+    res.json({
+      products: products || [],
+      total: totalForResponse,
+      hasMore,
+      filters: availableFilters,
+    });
 
   } catch (error) {
     res.status(500).json({ message: "Error", error: error.message || error });
@@ -741,10 +857,10 @@ export const updateProduct = async (req, res) => {
         //   - Nunca dejamos que el cliente setee/corrompa el slug (lo quitamos).
         //   - Si cambió el nombre, lo regeneramos (mantiene SEO alineado y la
         //     unicidad vía el sufijo derivado del _id).
-                delete updateData.slug;
-        if (typeof updateData.name === "string" && updateData.name.trim() !== product.name) {
-          updateData.slug = buildProductSlug(updateData.name.trim(), product._id);
-        }
+                                delete updateData.slug;
+                if (typeof updateData.name === "string" && updateData.name.trim() !== product.name) {
+                  updateData.slug = buildProductSlug(updateData.name.trim(), product._id);
+                }
 
         // ── REFERIDOS (reintegros por compartir) ──
         // Si viene `referral` en el body, lo validamos/normalizamos contra el

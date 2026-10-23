@@ -16,7 +16,7 @@ import axios from "axios";
 import LoadingSpinner from "./LoadingSpinner";
 import { useUserStore } from "../store/useUserStore";
 import { useSyncUser } from "../Utils/userSync";
-import { createUserWallet } from "../Utils/crossmintWallet";
+import { ensureUserWallet } from "../Utils/crossmintWallet";
 
 const ACCENT = "#F26722";
 
@@ -209,8 +209,10 @@ export default function WalletRequiredNotice({
     try {
       setIsCreating(true);
 
-      // 1. Crear la wallet EVM con Crossmint (polygon-amoy).
-      const { address } = await createUserWallet();
+      // 1. Obtener o crear la wallet EVM con Crossmint (idempotente: si una
+      //    creación previa quedó a medio persistir, la recupera en vez de
+      //    fallar con "The owner already holds a wallet...").
+      const { address } = await ensureUserWallet();
 
       // 2. Persistir la dirección en la BD.
       const token = await getAccessToken();

@@ -40,7 +40,7 @@ import {
   EVMWallet,
 } from "@crossmint/wallets-sdk";
 import { createPublicClient, http } from "viem";
-import { polygonAmoy } from "viem/chains";
+import { polygonAmoy, baseSepolia } from "viem/chains";
 import { onAuthRequired } from "./crossmintOtpBridge";
 
 /**
@@ -54,26 +54,40 @@ const CROSSMINT_CALLBACKS = { onAuthRequired };
 // Chain por defecto para las wallets EVM. En pruebas usamos polygon-amoy.
 export const CROSSMINT_CHAIN = "polygon-amoy";
 
-// ── LECTURAS ON-CHAIN (public client con RPC EXPLÍCITO) ─────────────────────
+// ── LECTURAS ON-CHAIN (public client con RPC EXPLÍCITO, POR RED) ────────────
 // ⚠️ NO usamos `evm.getViemClient()` del SDK para LEER: internamente construye
 // `http()` SIN url (RPC default de viem), que en Polygon Amoy es inestable o no
 // responde → provoca errores de lectura ("No se pudo leer el contrato").
 // Las lecturas no requieren firma, así que usamos un public client propio con
 // un RPC confiable. Las ESCRITURAS sí siguen yendo por la smart wallet (firma).
-const RPC_URL =
-  import.meta.env.VITE_POLYGON_AMOY_RPC ||
-  "https://polygon-amoy-bor-rpc.publicnode.com";
+//
+// ⚠️ MULTIRED: el cliente de lectura es POR chain. Antes se usaba un único
+// cliente de Amoy para todo, lo que hacía que leer el contrato de Base diera
+// datos de Amoy (o "sin código"). Ahora cada chain tiene su cliente + RPC.
+const READ_CONFIG = {
+  "polygon-amoy": {
+    chain: polygonAmoy,
+    rpc:
+      import.meta.env.VITE_POLYGON_AMOY_RPC ||
+      "https://polygon-amoy-bor-rpc.publicnode.com",
+  },
+  "base-sepolia": {
+    chain: baseSepolia,
+    rpc: import.meta.env.VITE_BASE_SEPOLIA_RPC || "https://sepolia.base.org",
+  },
+};
 
-let publicClientCache = null;
-/** Public client de viem para LECTURAS (con RPC explícito y confiable). */
-function getPublicClient() {
-  if (!publicClientCache) {
-    publicClientCache = createPublicClient({
-      chain: polygonAmoy,
-      transport: http(RPC_URL),
-    });
+const publicClientCache = new Map(); // chain → public client
+/** Public client de viem para LECTURAS (por red, con RPC explícito). */
+function getPublicClient(chain = CROSSMINT_CHAIN) {
+  const conf = READ_CONFIG[chain] || READ_CONFIG[CROSSMINT_CHAIN];
+  if (!publicClientCache.has(conf.chain.id)) {
+    publicClientCache.set(
+      conf.chain.id,
+      createPublicClient({ chain: conf.chain, transport: http(conf.rpc) }),
+    );
   }
-  return publicClientCache;
+  return publicClientCache.get(conf.chain.id);
 }
 
 // Singleton del key storage del device signer (lo usa el SDK internamente).
@@ -308,10 +322,151 @@ export async function getEvmWallet({ chain = CROSSMINT_CHAIN } = {}) {
   }
 }
 
+/**
+ * "Obtener o crear" la smart wallet del usuario — IDEMPOTENTE.
+ *
+ * ⚠️ Resuelve el bug de "wallet a medio crear": si `createUserWallet()` creó la
+ * wallet en Crossmint pero la persistencia en Mongo falló (o el usuario recargó
+ * antes de guardarla), un reintento de `createUserWallet()` da:
+ *   "The owner already holds a wallet ... which doesn't match the provided
+ *    config parameters."
+ * Entonces primero INTENTAMOS leer la wallet existente; solo si no existe la
+ * creamos. Devuelve `{ address, chain, created }`.
+ *
+ * @param {Object} [opts]
+ * @param {string} [opts.chain]
+ * @param {string} [opts.email]
+ * @returns {Promise<{ address: string, chain: string, created: boolean }>}
+ */
+export async function ensureUserWallet({ chain = CROSSMINT_CHAIN, email } = {}) {
+  // 1. ¿Ya existe una wallet para este usuario en esta red?
+  const existing = await findUserWallet({ chain });
+  if (existing?.address) {
+    return { address: existing.address, chain: existing.chain || chain, created: false };
+  }
+  // 2. No existe: la creamos.
+  try {
+    const created = await createUserWallet({ chain, email });
+    return { address: created.address, chain: created.chain, created: true };
+  } catch (err) {
+    // 3. Carrera/estado inconsistente: Crossmint dice que el owner YA tiene una
+    //    wallet (p. ej. la creación previa se completó pero no respondió). En
+    //    ese caso la recuperamos en lugar de propagar el error.
+    const msg = String(err?.message || "");
+    if (/already holds a wallet/i.test(msg) || /already.*wallet/i.test(msg)) {
+      const recovered = await findUserWallet({ chain });
+      if (recovered?.address) {
+        return { address: recovered.address, chain: recovered.chain || chain, created: false };
+      }
+    }
+    throw err;
+  }
+}
+
 /** Devuelve la address (0x...) de la wallet del usuario autenticado. */
 export async function getWalletAddress({ chain = CROSSMINT_CHAIN } = {}) {
   const wallet = await getSignableWallet({ chain });
   return wallet.address;
+}
+
+/**
+ * Redes EVM que la app usa y en las que queremos dejar el device signer
+ * registrado para firmar SIN OTP recurrente (colateral + pagos crypto).
+ * El nombre es el que usa Crossmint (chain param).
+ */
+export const APP_EVM_CHAINS = ["polygon-amoy", "base-sepolia"];
+
+// ── FLAG DE ACTIVACIÓN PERSISTENTE (localStorage) ─────────────────────────
+// `wallet.needsRecovery()` NO es confiable como señal de UI: puede devolver
+// true aunque la firma funcione (de ahí el "aviso fantasma" que no se iba).
+// Por eso, cuando el usuario COMPLETA el flujo de activación (se haya pedido
+// OTP o no —si no lo pidió es porque el device signer ya servía—) marcamos un
+// flag por `address:chain` en localStorage. Este dispositivo queda "activado"
+// y la UI se guía por el flag, no por needsRecovery().
+const ACTIVATED_PREFIX = "nero_device_activated:";
+
+function activationKey(address, chain) {
+  return `${ACTIVATED_PREFIX}${String(address || "").toLowerCase()}:${chain}`;
+}
+
+/** ¿Este dispositivo ya completó la activación para esta wallet+red? */
+export function isDeviceActivated({ address, chain = CROSSMINT_CHAIN } = {}) {
+  try {
+    if (!address) return false;
+    return localStorage.getItem(activationKey(address, chain)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Marca (o desmarca) este dispositivo como activado para esta wallet+red. */
+export function markDeviceActivated({ address, chain = CROSSMINT_CHAIN, value = true } = {}) {
+  try {
+    if (!address) return;
+    if (value) localStorage.setItem(activationKey(address, chain), "1");
+    else localStorage.removeItem(activationKey(address, chain));
+  } catch {
+    /* localStorage no disponible: no es crítico */
+  }
+}
+
+/** ¿Está activado en TODAS las redes de la app? */
+export function isDeviceActivatedForAll({ address, chains = APP_EVM_CHAINS } = {}) {
+  return chains.every((chain) => isDeviceActivated({ address, chain }));
+}
+
+/**
+ * "Desbloquea" el device signer para una red: si la wallet de esa red todavía
+ * no tiene registrado este device (needsRecovery → true), llama a `recover()`,
+ * que dispara el flujo de verificación por email (OTP) UNA sola vez y registra
+ * el device signer para ese dispositivo en esa red. En adelante, las firmas en
+ * esa red son silenciosas.
+ *
+ * ⚠️ El device signer es por DISPOSITIVO; la wallet es por RED. Por eso hay que
+ * hacer esto una vez por cada red que el usuario vaya a usar (aunque el OTP sea
+ * "el mismo tipo de verificación").
+ *
+ * Tras completar (haya pedido OTP o no), marca el flag persistente de activación
+ * para que la UI no vuelva a mostrar el aviso.
+ *
+ * @returns {Promise<{ chain: string, alreadyReady: boolean }>}
+ */
+export async function activateDeviceSigner({ chain = CROSSMINT_CHAIN } = {}) {
+  const wallet = await getSignableWallet({ chain });
+  const needs = typeof wallet.needsRecovery === "function"
+    ? Boolean(wallet.needsRecovery())
+    : false;
+  let alreadyReady = true;
+  if (needs) {
+    if (typeof wallet.recover === "function") {
+      // Dispara el OTP real (onAuthRequired → CrossmintOtpModal).
+      await wallet.recover();
+      alreadyReady = false;
+    }
+  }
+  // Si no hizo falta OTP, el device signer ya servía → también queda activado.
+  markDeviceActivated({ address: wallet.address, chain });
+  return { chain, alreadyReady };
+}
+
+/**
+ * Activa el device signer para varias redes (secuencial, para que el usuario
+ * vea un solo flujo de OTP a la vez). Devuelve un resumen por red.
+ *
+ * @param {string[]} [chains]
+ * @returns {Promise<Array<{ chain: string, ok: boolean, alreadyReady?: boolean, error?: string }>>}
+ */
+export async function activateForChains(chains = APP_EVM_CHAINS) {
+  const results = [];
+  for (const chain of chains) {
+    try {
+      const r = await activateDeviceSigner({ chain });
+      results.push({ chain, ok: true, alreadyReady: r.alreadyReady });
+    } catch (error) {
+      results.push({ chain, ok: false, error: error?.message || "Error" });
+    }
+  }
+  return results;
 }
 
 /**
@@ -356,8 +511,7 @@ export async function readContract({
   if (!address || !abi || !functionName) {
     throw new Error("Faltan datos para leer el contrato (address, abi, functionName).");
   }
-  void chain; // las lecturas usan el public client (RPC explícito)
-  const client = getPublicClient();
+  const client = getPublicClient(chain);
   return client.readContract({ address, abi, functionName, args });
 }
 
@@ -379,13 +533,22 @@ export async function writeContract({
     throw new Error("Faltan datos para escribir en el contrato (address, abi, functionName).");
   }
   const evm = await getEvmWallet({ chain });
-  return evm.sendTransaction({
+  const res = await evm.sendTransaction({
     to: address,
     abi,
     functionName,
     args,
     ...(value !== undefined ? { value } : {}),
   });
+  // Una firma exitosa implica que el device signer quedó usable en esta red:
+  // marcamos el flag para que la UI no vuelva a mostrar el aviso de activación.
+  try {
+    const addr = await getWalletAddress({ chain });
+    markDeviceActivated({ address: addr, chain });
+  } catch {
+    /* no bloqueante */
+  }
+  return res;
 }
 
 /**
@@ -438,8 +601,7 @@ export async function approveToken({
  */
 export async function getContractCode({ address, chain = CROSSMINT_CHAIN } = {}) {
   if (!address) throw new Error("Falta la dirección para leer el código.");
-  void chain;
-  const client = getPublicClient();
+  const client = getPublicClient(chain);
   return client.getCode({ address });
 }
 

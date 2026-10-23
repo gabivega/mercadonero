@@ -39,6 +39,11 @@ export default function PickupOption({
   onSelect,
   compact = false,
   defaultExpanded = false,
+  // En modo compacto (ProductDetail): muestra un separador "o envío a
+  // domicilio" al final, para aclarar que son DOS alternativas. Solo se
+  // renderiza si realmente hay puntos de retiro (el componente ya se
+  // auto-oculta si no hay), evitando separadores huérfanos.
+  showDivider = false,
 }) {
   const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -147,6 +152,16 @@ export default function PickupOption({
                 </li>
               ))}
             </ul>
+          )}
+
+          {showDivider && (
+            <div className="flex items-center gap-2 pt-3">
+              <span className="h-px flex-1 bg-gray-100 dark:bg-gray-800" />
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                o envío a domicilio
+              </span>
+              <span className="h-px flex-1 bg-gray-100 dark:bg-gray-800" />
+            </div>
           )}
         </div>
       </div>

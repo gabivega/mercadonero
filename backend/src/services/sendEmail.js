@@ -526,7 +526,8 @@ export const sendVendorCryptoPaid = async ({
       html: `
         <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
           <h2 style="color: #111;">¡Tenés una nueva venta pagada!</h2>
-          <p>El comprador <strong>${buyerName}</strong> ya abonó la orden <strong>#${shortOrderId}</strong> con cripto. El pago quedó <strong>retenido y protegido en el Smart Contract (Escrow)</strong>.</p>
+          <p>El comprador <strong>${buyerName}</strong> ya abonó la orden <strong>#${shortOrderId}</strong> con cripto. El pago quedó <strong>retenido y protegido en el Smart Contract</strong>. Se acreditará en tu billetera luego de
+          que el comprador reciba el producto en las condiciones correctas.</p>
 
           <div style="background-color: #f4f4f5; padding: 15px; border-radius: 6px; margin: 15px 0;">
             <p style="margin: 0 0 8px 0; font-weight: bold; color: #333;">Productos:</p>

@@ -51,6 +51,90 @@ export const BSC_TESTNET_CHAIN_ID = 97;
 export const BASE_SEPOLIA_CHAIN_ID = 84532;
 export const POLYGON_AMOY_CHAIN_ID = 80002;
 
+// ── ESCROW DE PAGOS CRYPTO (multichain) ──────────────────────────────────────
+// El escrow (NeroEscrow) está desplegado en varias redes. Cada red tiene su
+// propio contrato (admin = misma wallet backend) y su propio token de pago.
+//
+// ⚠️ Por qué importa el MODELO DE FONDEO por red:
+//   - "token": el comprador fondea con la stablecoin (fundOrder) y paga gas con
+//     la moneda nativa. Sirve en BSC Testnet (Privy/EOA: el usuario tiene tBNB).
+//   - "native": la smart wallet Crossmint es ERC-4337 con paymaster SPONSOR: el
+//     gas lo paga el sponsor, por lo que NO se puede pagar gas en el token de
+//     prueba. El comprador fondea con la MONEDA NATIVA (fundOrderNative) y el
+//     contrato retiene ese valor.
+//
+// El backend usa `getEscrowChainConfig()` para: (1) elegir el contrato/token
+// según la red; (2) verificar montos con los decimales correctos; (3) liberar o
+// reembolsar según el modelo de fondeo.
+const ESCROW_CHAINS = {
+  [BSC_TESTNET_CHAIN_ID]: {
+    key: "bscTestnet",
+    // Fallback legacy: el escrow se deployó en BSC con esta variable.
+    contractAddress:
+      process.env.ESCROW_CONTRACT_ADDRESS_BSC ||
+      process.env.ESCROW_CONTRACT_ADDRESS ||
+      "",
+    // Token FIJO de pago (USDT). Fallback a la var legacy usada en BSC.
+    tokenAddress:
+      process.env.ESCROW_TOKEN_BSC ||
+      process.env.USDT_TOKEN_ADDRESS ||
+      process.env.USDT_TESTNET_ADDRESS ||
+      "",
+    tokenSymbol: process.env.ESCROW_TOKEN_SYMBOL_BSC || "USDT",
+    tokenDecimals: num(process.env.ESCROW_TOKEN_DECIMALS_BSC, 18),
+    fundingMode: "token",
+    nativeSymbol: "tBNB",
+    nativeDecimals: 18,
+  },
+  [POLYGON_AMOY_CHAIN_ID]: {
+    key: "polygonAmoy",
+    contractAddress: process.env.ESCROW_CONTRACT_POLYGON || "",
+    // Default: la moneda NATIVA de la red (POL). La stable de prueba (USDXM) no
+    // puede pagar gas en la smart wallet Crossmint (paymaster sponsor).
+    tokenAddress: process.env.ESCROW_TOKEN_POLYGON || "",
+    tokenSymbol: process.env.ESCROW_TOKEN_SYMBOL_POLYGON || "POL",
+    tokenDecimals: num(process.env.ESCROW_TOKEN_DECIMALS_POLYGON, 18),
+    fundingMode: process.env.ESCROW_FUNDING_MODE_POLYGON || "native",
+    nativeSymbol: "POL",
+    nativeDecimals: 18,
+  },
+  [BASE_SEPOLIA_CHAIN_ID]: {
+    key: "baseSepolia",
+    contractAddress: process.env.ESCROW_CONTRACT_BASE || "",
+    tokenAddress: process.env.ESCROW_TOKEN_BASE || "",
+    tokenSymbol: process.env.ESCROW_TOKEN_SYMBOL_BASE || "ETH",
+    tokenDecimals: num(process.env.ESCROW_TOKEN_DECIMALS_BASE, 18),
+    fundingMode: process.env.ESCROW_FUNDING_MODE_BASE || "native",
+    nativeSymbol: "ETH",
+    nativeDecimals: 18,
+  },
+};
+
+/** Red por defecto del ESCROW de pagos crypto. */
+export const ESCROW_DEFAULT_CHAIN_ID = num(
+  process.env.ESCROW_DEFAULT_CHAIN_ID,
+  POLYGON_AMOY_CHAIN_ID,
+);
+
+/**
+ * Config del escrow para una red. Si la red no está configurada, cae a BSC.
+ * Devuelve además `chain` (config general de red: rpc / explorer).
+ */
+export function getEscrowChainConfig(chainId) {
+  const id = chainId == null ? ESCROW_DEFAULT_CHAIN_ID : Number(chainId);
+  const meta = ESCROW_CHAINS[id] || ESCROW_CHAINS[BSC_TESTNET_CHAIN_ID];
+  return {
+    chainId: id,
+    ...meta,
+    chain: CHAINS[id] || CHAINS[BSC_TESTNET_CHAIN_ID],
+  };
+}
+
+/** Redes con contrato de escrow realmente configurado. */
+export function getConfiguredEscrowChains() {
+  return Object.values(ESCROW_CHAINS).filter((c) => c.contractAddress);
+}
+
 /**
  * Construye el registro de redes. Se evalúa una vez al importar el módulo,
  * leyendo process.env (que ya está cargado por dotenv en index.js).
@@ -167,6 +251,43 @@ export function getConfiguredChains() {
   return SUPPORTED_CHAIN_IDS.map((id) => CHAINS[id]).filter(
     (c) => c.contractAddress && c.collateralToken?.address,
   );
+}
+
+/**
+ * Info "pública" de una red de ESCROW para exponer al frontend (sin secretos).
+ * Es lo que el Checkout consume para: detectar el saldo del comprador en cada
+ * (red, token) de pago y dejar que elija con cuál pagar.
+ *
+ * Devuelve null si esa red no tiene escrow configurado (no se debe ofrecer).
+ */
+export function serializeEscrowChain(chainId) {
+  const c = getEscrowChainConfig(chainId);
+  if (!c.contractAddress) return null;
+  // En modo nativo el "token" es la moneda nativa (sin address ERC-20).
+  const isNative = c.fundingMode === "native";
+  return {
+    chainId: c.chainId,
+    key: c.key,
+    fundingMode: c.fundingMode,
+    contractAddress: c.contractAddress,
+    // Para el comprador: qué token concreto debe tener y transferir.
+    tokenAddress: isNative ? null : c.tokenAddress,
+    tokenSymbol: isNative ? c.nativeSymbol : c.tokenSymbol,
+    tokenDecimals: isNative ? c.nativeDecimals : c.tokenDecimals,
+    nativeSymbol: c.nativeSymbol,
+    chain: c.chain ? serializeChain(c.chain) : null,
+  };
+}
+
+/**
+ * Lista TODAS las redes con escrow configurado, serializada para el frontend.
+ * El Checkout ofrece como medios de pago SOLO estas (red + token).
+ */
+export function getEscrowPaymentOptions() {
+  return Object.keys(ESCROW_CHAINS)
+    .map(Number)
+    .map((id) => serializeEscrowChain(id))
+    .filter(Boolean);
 }
 
 /** Info "pública" de una red para exponer al frontend (sin secretos). */

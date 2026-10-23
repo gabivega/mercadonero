@@ -11,6 +11,7 @@ import {
   X,
   Save,
   Store,
+  Loader2,
 } from "lucide-react";
 import { useUserStore } from "../../store/useUserStore";
 import PostalCodeInput from "../../components/PostalCodeInput";
@@ -339,7 +340,8 @@ export default function PickupLocations() {
               </h3>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+                disabled={saving}
+                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <X size={18} className="text-gray-500" />
               </button>
@@ -451,7 +453,8 @@ export default function PickupLocations() {
             <div className="flex items-center justify-end gap-3 p-6 pt-0">
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="px-5 py-3 rounded-2xl font-bold text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                disabled={saving}
+                className="px-5 py-3 rounded-2xl font-bold text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancelar
               </button>
@@ -460,7 +463,11 @@ export default function PickupLocations() {
                 disabled={saving}
                 className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-2xl font-bold text-sm"
               >
-                {saving ? "Guardando..." : (
+                {saving ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" /> Guardando...
+                  </>
+                ) : (
                   <>
                     <Save size={16} /> Guardar
                   </>

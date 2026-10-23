@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+﻿import { useState, useMemo, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useCartStore } from "../store/useCartStore";
 import {
@@ -29,6 +29,8 @@ import CheckoutShippingSelector from "../components/CheckoutShippingSelector";
 import { getAuthenticatedWallet } from "../Utils/walletSelector";
 import { productPath } from "../Utils/productUrl";
 import { getReferral, clearReferral } from "../Utils/referralTracker";
+import { usePaymentOptions } from "../Utils/usePaymentOptions";
+import { readAllPaymentBalances } from "../Utils/cryptoBalances";
 
 export default function Checkout() {
   const { sellerId } = useParams();
@@ -59,19 +61,55 @@ const [selectedAddress, setSelectedAddress] = useState(null);
     const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
   const [showCryptoModal, setShowCryptoModal] = useState(false);
   const [cryptoOrder, setCryptoOrder] = useState(null);
-  const [tokenChoice, setTokenChoice] = useState("USDT");
+    const [tokenChoice, setTokenChoice] = useState("USDT");
   const [showDepositModal, setShowDepositModal] = useState(false);
 
-  // ── TOKENS CRIPTO (BSC Testnet) ──
-  const CRYPTO_TOKENS = {
-    USDT: { address: "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd", decimals: 18 },
-    USDC: { address: "0x64544969ed7EBf5f083679233325356EbE738930", decimals: 18 },
-  };
+  // ── MEDIOS DE PAGO CRYPTO (MULTICHAIN) ──
+  // Las redes + tokens de pago REALES los define el backend (según qué escrow
+  // está desplegado en cada red). No hardcodeamos direcciones acá: el comprador
+  // puede pagar con USDT (BSC), USDC (Base) o USDXM (Polygon). `selectedPayment`
+  // es la opción (red + token) que eligió y con la que se creará la orden.
+  const { options: paymentOptions, loading: paymentOptionsLoading } =
+    usePaymentOptions();
+  const [selectedPayment, setSelectedPayment] = useState(null);
+
+  // Combo de token de pago elegido (red + token + decimals reales).
+  const activePayment = selectedPayment || paymentOptions[0] || null;
+
+  // Sincroniza `tokenChoice` (símbolo que se manda al backend) y fija la opción
+  // por defecto (la primera red configurada) cuando llegan las opciones.
+  useEffect(() => {
+    if (!selectedPayment && paymentOptions.length > 0) {
+      setSelectedPayment(paymentOptions[0]);
+      setTokenChoice(paymentOptions[0].tokenSymbol);
+    }
+  }, [paymentOptions, selectedPayment]);
+
+  useEffect(() => {
+    if (activePayment?.tokenSymbol) setTokenChoice(activePayment.tokenSymbol);
+  }, [activePayment?.tokenSymbol]);
+
   const CRYPTO_ERC20_ABI = [
     "function balanceOf(address account) external view returns (uint256)",
   ];
 
-  const activeWallet = getAuthenticatedWallet(wallets, user?.wallet?.address);
+    const activeWallet = getAuthenticatedWallet(wallets, user?.wallet?.address);
+
+  // Resuelve la dirección del token ERC-20 con el que se fondea el escrow.
+  // Prioridad:
+  //   1) lo que devuelve el backend dentro de la orden (payment.tokenAddress),
+  //   2) lo que trae la orden en root (order.tokenAddress),
+  //   3) las paymentOptions para ese chainId (FALLBACK defensivo).
+  // El paso 3 cubre docs viejos creados antes de persistir el token en el
+  // schema; así el modal del escrow igual obtiene el token y no corta con
+  // "La orden no tiene dirección de token".
+  const resolveTokenAddress = (order) => {
+    if (!order) return "";
+    const fromOrder = order?.payment?.tokenAddress || order?.tokenAddress;
+    if (fromOrder) return fromOrder;
+    const opt = paymentOptions.find((o) => o.chainId === order?.payment?.chainId);
+    return opt?.tokenAddress || "";
+  };
 
   // Convierte ARS → USDT usando una API pública de cotización del dólar cripto.
   // Devuelve { usdRate, usdtAmount } o null si falla.
@@ -89,15 +127,22 @@ const [selectedAddress, setSelectedAddress] = useState(null);
     }
   };
 
-  // Lee el balance USDT de la wallet activa. Devuelve el saldo (Number) o null.
-  const getUsdtBalance = async (wallet, tokenSymbol = "USDT") => {
+    // Lee el balance del token de pago de la opción elegida (red + token reales).
+  // Devuelve el saldo (Number) o 0 si falla / no hay opción.
+  const getUsdtBalance = async (wallet, paymentOption = activePayment) => {
     try {
-      const token = CRYPTO_TOKENS[tokenSymbol] || CRYPTO_TOKENS.USDT;
+      if (!wallet || !paymentOption?.tokenAddress) return 0;
       const ethereumProvider = await wallet.getEthereumProvider();
       const provider = new ethers.BrowserProvider(ethereumProvider);
-      const erc20 = new ethers.Contract(token.address, CRYPTO_ERC20_ABI, provider);
+      const erc20 = new ethers.Contract(
+        paymentOption.tokenAddress,
+        CRYPTO_ERC20_ABI,
+        provider,
+      );
       const bal = await erc20.balanceOf(wallet.address);
-      return parseFloat(ethers.formatUnits(bal, token.decimals));
+      return parseFloat(
+        ethers.formatUnits(bal, paymentOption.tokenDecimals ?? 18),
+      );
     } catch (error) {
       console.error("Error leyendo balance:", error);
       return 0;
@@ -512,12 +557,17 @@ const step1 = await Swal.fire({
                 if (paymentMethod === "crypto" && response.data.order?.payment?.method === "crypto") {
           // Vaciamos el carrito: la orden quedó creada.
           sellerProducts.forEach((p) => removeFromCart(p._id));
-          // Adjuntamos la wallet del vendedor para que el modal pueda fondear el
+                    // Adjuntamos la wallet del vendedor para que el modal pueda fondear el
           // escrow con la dirección de destino correcta.
           setCryptoOrder({
             ...response.data.order,
             sellerWallet: response.data.sellerWallet,
             escrowContract: response.data.escrowContract,
+            // Fallback defensivo del token (ver resolveTokenAddress).
+            payment: {
+              ...response.data.order?.payment,
+              tokenAddress: resolveTokenAddress(response.data.order),
+            },
           });
           setShowCryptoModal(true);
           return;
@@ -698,87 +748,252 @@ const step1 = await Swal.fire({
       });
     }
 
-    // ── 2ª VALIDACIÓN: cotización y saldo USDT ──
+    // ── 2ª VALIDACIÓN: cotización + saldo REAL por red (selector en el Swal) ──
+    // La cotización (ARS→USD) siempre se hace contra USDT-dólar (referencia de
+    // precio). El TOKEN/RED de pago lo elige el comprador DENTRO de este Swal,
+    // viendo el saldo real de su wallet en CADA red (leído por RPC público,
+    // igual que WalletPage). Solo se crea la orden si la red elegida alcanza.
     const quote = await getUsdtQuote(finalTotal);
-    const usdtNeeded = quote.usdtAmount || 0;
+    // Monto necesario. Para stablecoins (USDT/USDC/USDXM) ≈ 1:1 con USD.
+    const usdNeeded = quote.usdtAmount || 0;
 
-        // Leemos el balance actual USDT de la wallet activa.
-    const usdtBalance = await getUsdtBalance(wallet);
+    // Redes disponibles para pagar. Si por algún motivo no llegaron las
+    // paymentOptions, caemos al pago legacy con la opción activa.
+    const payOptions =
+      paymentOptions.length > 0
+        ? paymentOptions
+        : [activePayment || { tokenSymbol: "USDT", tokenDecimals: 18, chainId: 0 }];
 
-    const hasBalance = usdtBalance > 0 && usdtBalance >= usdtNeeded;
+    // Leemos el saldo de CADA red en paralelo con RPC público (no con la
+    // wallet, que solo conoce la red donde está conectada). Mapa { chainId: saldo }.
+    const balancesByChain = await readAllPaymentBalances(
+      payOptions,
+      wallet.address,
+    );
 
-    // ── SWAL DE CONFIRMACIÓN CRIPTO ──
-    // Mostramos el detalle en USDT y el estado del saldo de la wallet.
+        // ── FILTRO: solo redes/tokens que ALCANZAN para cubrir la orden ──
+    // Ocultamos las redes con saldo 0 o insuficiente. Si el comprador no tiene
+    // saldo suficiente en NINGUNA red, lo mandamos a "Mi Billetera" a recargar.
+    // Cada item: { opt, idx, balance } (idx = posición en payOptions original).
+    const fundedOptions = payOptions
+      .map((opt, idx) => ({ opt, idx, balance: balancesByChain[opt.chainId] }))
+      .filter(
+        ({ balance }) => balance != null && balance >= usdNeeded && balance > 0,
+      )
+      // Ordenamos por MAYOR saldo: la primera (default) es la que más tiene.
+      .sort((a, b) => b.balance - a.balance);
+
+    if (fundedOptions.length === 0) {
+      // Ninguna red cubre el total → no se crea la orden; invitamos a recargar.
+      return await Swal.fire({
+        html: `
+          <div style="text-align: left; font-size: 0.9rem; line-height: 1.5; color: ${isDark ? "#e4e4e7" : "#374151"};">
+            <p style="margin: 0 0 12px 0;">Para pagar esta compra necesitás al menos <b>${usdNeeded.toFixed(2)} USDT</b> (≈ $${formatMoney(finalTotal)} ARS) en alguna de las redes disponibles.</p>
+            <div style="background-color: ${isDark ? "#1e1b4b" : "#eff6ff"}; border: 1px solid ${isDark ? "#312e81" : "#bfdbfe"}; padding: 12px; border-radius: 8px;">
+              <p style="margin: 0; font-size: 0.85rem; color: ${isDark ? "#93c5fd" : "#1e40af"};">
+                No encontramos saldo suficiente en tu wallet. Depositá fondos desde <b>Mi Billetera</b> y volvé a este checkout para continuar.
+              </p>
+            </div>
+          </div>
+        `,
+        icon: "warning",
+        title: "Saldo insuficiente",
+        showCancelButton: true,
+        confirmButtonText: "Ir a Mi Billetera",
+        cancelButtonText: "Usar transferencia",
+        confirmButtonColor: "#F26722",
+        cancelButtonColor: isDark ? "#27272a" : "#6b7280",
+        background: isDark ? "#121212" : "#ffffff",
+        color: isDark ? "#f3f4f6" : "#1f2937",
+        reverseButtons: true,
+      }).then((result) => {
+        if (result.isConfirmed) {
+          navigate("/billetera");
+        } else if (result.dismiss === "cancel") {
+          setPaymentMethod("bank_transfer");
+          return handleFinalConfirm("bank_transfer");
+        }
+      });
+    }
+
+    // Opción por defecto: la que MÁS saldo tiene (fundedOptions ya está
+    // ordenado por saldo descendente). Mantenemos la selección previa del
+    // checkout si sigue teniendo saldo suficiente.
+    let selectedIdx = 0;
+    if (selectedPayment) {
+      const prevPos = fundedOptions.findIndex(
+        ({ opt }) => opt.chainId === selectedPayment.chainId,
+      );
+      if (prevPos >= 0) selectedIdx = prevPos;
+    }
+    // La opción real (red + token) elegida dentro del listado FILTRADO.
+    const selectedOptionInList = () => fundedOptions[selectedIdx]?.opt;
+
+    // Render de una tarjeta de red (solo las que alcanzan). `uiIdx` es el
+    // índice DENTRO de fundedOptions.
+    const renderOptionCard = (item, uiIdx) => {
+      const { opt, balance } = item;
+      const isSel = uiIdx === selectedIdx;
+      const netName = opt.chain?.name || opt.key || `Red ${opt.chainId}`;
+      return `
+        <button type="button" data-chain-idx="${uiIdx}"
+          class="crypto-chain-opt"
+          style="
+            display:flex; align-items:center; justify-content:space-between; gap:10px;
+            width:100%; text-align:left; padding:10px 12px; margin-bottom:8px;
+            border-radius:12px; cursor:pointer;
+            border:2px solid ${isSel ? "#F26722" : (isDark ? "#3f3f46" : "#e4e4e7")};
+            background:${isSel ? (isDark ? "rgba(242,103,34,0.12)" : "rgba(242,103,34,0.06)") : (isDark ? "#1c1c1f" : "#fafafa")};
+            color:${isDark ? "#f3f4f6" : "#1f2937"};">
+          <span style="min-width:0;">
+            <span style="display:block; font-weight:800; font-size:0.92rem;">
+              ${opt.tokenSymbol}
+              <span style="font-weight:500; font-size:0.75rem; opacity:.6;"> · ${netName}</span>
+            </span>
+            <span style="display:block; font-size:0.76rem; margin-top:2px; color:#10b981;">
+              Saldo: ${Number(balance).toFixed(2)} ${opt.tokenSymbol}
+            </span>
+          </span>
+          <span style="flex-shrink:0; width:16px; height:16px; border-radius:50%;
+            border:2px solid ${isSel ? "#F26722" : (isDark ? "#52525b" : "#d4d4d8")};
+            display:inline-flex; align-items:center; justify-content:center;">
+            ${isSel ? `<span style="width:8px;height:8px;border-radius:50%;background:#F26722;"></span>` : ""}
+          </span>
+        </button>`;
+    };
+
+    const buildSwalHtml = () => `
+      <div style="text-align: left; font-size: 0.9rem; line-height: 1.55; color: ${isDark ? "#e4e4e7" : "#374151"};">
+        <div style="background-color: ${isDark ? "#1c1917" : "#fff7ed"}; border: 1px solid ${isDark ? "#7c2d12" : "#fdba74"}; padding: 13px; border-radius: 12px; margin-bottom: 13px;">
+          <p style="margin: 0 0 4px 0; font-weight: 800; color: #F26722; font-size: 0.92rem;">Total a abonar</p>
+          <p style="margin: 0; font-size: 1.5rem; font-weight: 900; color: #F26722;" id="crypto-total-line">
+            ${usdNeeded.toFixed(2)} <span style="font-size: 0.95rem; font-weight: 700;" id="crypto-total-token">${selectedOptionInList()?.tokenSymbol || ""}</span>
+          </p>
+          <p style="margin: 5px 0 0 0; font-size: 0.76rem; color: ${isDark ? "#a8a29e" : "#78716c"};">
+            ≈ $${formatMoney(finalTotal)} ARS · 1 USDT ≈ $${(quote.usdRate || 0).toFixed(2)} ARS
+          </p>
+        </div>
+
+        <div style="background-color: ${isDark ? "#27272a" : "#f4f4f5"}; padding: 10px 12px; border-radius: 10px; margin-bottom: 12px;">
+          <p style="margin: 0 0 4px 0; font-weight: 700; font-size: 0.82rem;">Detalle</p>
+          <p style="margin: 2px 0; font-size: 0.78rem;">📦 Productos: $${formatMoney(total)} ARS</p>
+          <p style="margin: 2px 0; font-size: 0.78rem;">🚚 Envío: ${shippingTotal > 0 ? "$" + formatMoney(shippingTotal) + " ARS" : (deliveryMethod === "pickup" ? "Retiro en sucursal (GRATIS)" : "GRATIS")}</p>
+          <p style="margin: 2px 0; font-size: 0.78rem;">📍 ${deliveryMethod === "pickup" && selectedPickup ? `Retiro en: ${selectedPickup.name}` : `Envío a: ${selectedAddress.street} ${selectedAddress.streetNumber}, ${selectedAddress.city}`}</p>
+        </div>
+
+        <p style="margin: 0 0 8px 0; font-weight: 800; font-size: 0.82rem; text-transform: uppercase; letter-spacing: .04em; color:${isDark ? "#a1a1aa" : "#71717a"};">
+          Elegí con qué red pagar
+        </p>
+        <div id="crypto-chain-list">
+          ${fundedOptions.map((item, uiIdx) => renderOptionCard(item, uiIdx)).join("")}
+        </div>
+
+        <div id="crypto-balance-note" style="margin-top:4px;"></div>
+
+                <p style="font-size: 0.76rem; color: ${isDark ? "#a8a29e" : "#78716c"}; margin: 10px 0 0 0;">
+          🛡️ Tus fondos quedan protegidos en el contrato hasta que recibas el pedido. El gas lo cubre la plataforma.
+        </p>
+
+        <!-- TODO: sección "Pagar con QR" (pendiente de implementar). -->
+        <p id="crypto-pay-qr" style="margin: 14px 0 0 0; font-size: 0.82rem; font-weight: 700; color: ${isDark ? "#f3f4f6" : "#1f2937"};">
+          Pagar con QR
+        </p>
+      </div>
+    `;
+
+        // ¿La red elegida (dentro de las filtradas) tiene saldo suficiente?
+    const selectedOption = () => selectedOptionInList();
+    const selectedHasBalance = () => {
+      const opt = selectedOption();
+      if (!opt) return false;
+      const bal = balancesByChain[opt.chainId];
+      return bal != null && bal >= usdNeeded;
+    };
+
     const confirmSwal = await Swal.fire({
       title: '<span style="font-size: 1.15rem; font-weight: 800;">Confirmar pago en criptomonedas</span>',
-      html: `
-        <div style="text-align: left; font-size: 0.9rem; line-height: 1.6; color: ${isDark ? "#e4e4e7" : "#374151"};">
-          <div style="background-color: ${isDark ? "#1c1917" : "#fff7ed"}; border: 1px solid ${isDark ? "#7c2d12" : "#fdba74"}; padding: 15px; border-radius: 12px; margin-bottom: 15px;">
-            <p style="margin: 0 0 6px 0; font-weight: 800; color: #F26722; font-size: 0.95rem;">Monto a abonar en USDT</p>
-            <p style="margin: 0; font-size: 1.6rem; font-weight: 900; color: #F26722;">
-              ${usdtNeeded.toFixed(2)} <span style="font-size: 1rem; font-weight: 700;">USDT</span>
-            </p>
-            <p style="margin: 6px 0 0 0; font-size: 0.78rem; color: ${isDark ? "#a8a29e" : "#78716c"};">
-              ≈ $${formatMoney(finalTotal)} ARS · Cotización: 1 USDT ≈ $${(quote.usdRate || 0).toFixed(2)} ARS
-            </p>
-          </div>
-
-          <div style="background-color: ${isDark ? "#27272a" : "#f4f4f5"}; padding: 12px; border-radius: 10px; margin-bottom: 12px;">
-            <p style="margin: 0 0 6px 0; font-weight: 700;">Detalle de la compra</p>
-                        <p style="margin: 3px 0; font-size: 0.82rem;">📦 Productos: $${formatMoney(total)} ARS</p>
-                        <p style="margin: 3px 0; font-size: 0.82rem;">🚚 Envío: ${shippingTotal > 0 ? "$" + formatMoney(shippingTotal) + " ARS" : (deliveryMethod === "pickup" ? "Retiro en sucursal (GRATIS)" : "GRATIS")}${deliveryMethod === "shipping" && selectedShipping ? ` · ${selectedShipping.carrierName || "Logística"}${selectedShipping.serviceName ? ` (${selectedShipping.serviceName})` : ""}` : ""}</p>
-            <p style="margin: 6px 0 0 0; font-size: 0.82rem;">📍 Envío a: ${selectedAddress.street} ${selectedAddress.streetNumber}, ${selectedAddress.city}</p>
-            ${deliveryMethod === "shipping" && selectedShipping?.pickupPoint ? `<p style="margin: 3px 0 0 0; font-size: 0.82rem;">🏪 Punto de entrega: ${selectedShipping.pickupPoint.name} — ${[selectedShipping.pickupPoint.street, selectedShipping.pickupPoint.streetNumber].filter(Boolean).join(" ")}, ${selectedShipping.pickupPoint.city || ""}</p>` : ""}
-          </div>
-
-          <div style="padding: 10px; border-radius: 10px; margin-bottom: 10px; ${
-            hasBalance
-              ? `background-color: ${isDark ? "#052e16" : "#ecfdf5"}; border: 1px solid ${isDark ? "#15803d" : "#a7f3d0"};`
-              : `background-color: ${isDark ? "#450a0a" : "#fef2f2"}; border: 1px solid ${isDark ? "#b91c1c" : "#fecaca"};`
-          }">
-            <p style="margin: 0; font-weight: 700; font-size: 0.85rem; color: ${hasBalance ? "#10b981" : "#ef4444"};">
-              ${hasBalance
-                ? `✅ Saldo suficiente: ${usdtBalance.toFixed(2)} USDT disponibles`
-                : `⚠️ Saldo insuficiente: ${usdtBalance.toFixed(2)} USDT disponibles`}
-            </p>
-            ${
-              hasBalance
-                ? ""
-                : `<p style="margin: 6px 0 0 0; font-size: 0.78rem; color: ${isDark ? "#fca5a5" : "#b91c1c"};">
-                     Necesitás **${usdtNeeded.toFixed(2)} USDT** para completar esta compra.
-                   </p>`
-            }
-          </div>
-
-          ${
-            hasBalance
-              ? `<p style="font-size: 0.78rem; color: #10b981; display: flex; align-items: center; gap: 4px;">🛡️ Tus USDT quedarán protegidos en el contrato inteligente hasta que recibas el pedido.</p>`
-              : `<p style="font-size: 0.78rem; color: ${isDark ? "#a8a29e" : "#78716c"};">
-                   Depositá USDT en tu wallet para proceder con la compra. Usá el botón <b>"Depositar USDT"</b>.
-                 </p>`
-          }
-        </div>
-      `,
-      icon: hasBalance ? "question" : "warning",
+      html: buildSwalHtml(),
+      icon: "question",
       showCancelButton: true,
-      confirmButtonText: hasBalance ? "Confirmar compra" : "Depositar USDT",
+      confirmButtonText: "Confirmar compra",
       cancelButtonText: "Volver",
-      confirmButtonColor: hasBalance ? "#F26722" : "#F26722",
+      confirmButtonColor: "#F26722",
       cancelButtonColor: isDark ? "#27272a" : "#6b7280",
       background: isDark ? "#121212" : "#ffffff",
       color: isDark ? "#f3f4f6" : "#1f2937",
       reverseButtons: true,
       width: "560px",
+      didOpen: () => {
+        const swalEl = Swal.getHtmlContainer();
+        if (!swalEl) return;
+
+        // Refresca el estado visual (selección + botón confirmar) sin cerrar.
+        const sync = () => {
+          // Reescribimos la lista para reflejar la selección actual.
+                    const list = swalEl.querySelector("#crypto-chain-list");
+          if (list) {
+            list.innerHTML = fundedOptions
+              .map((item, uiIdx) => renderOptionCard(item, uiIdx))
+              .join("");
+          }
+          // Token en el monto.
+          const tokenEl = swalEl.querySelector("#crypto-total-token");
+          const opt = selectedOption();
+          if (tokenEl && opt) tokenEl.textContent = opt.tokenSymbol;
+          // Nota de saldo.
+          const note = swalEl.querySelector("#crypto-balance-note");
+          const bal = opt ? balancesByChain[opt.chainId] : null;
+          const sufficient = bal != null && bal >= usdNeeded;
+          if (note) {
+            if (sufficient) {
+              note.innerHTML = `<p style="margin:0;font-size:0.78rem;color:#10b981;font-weight:600;">✅ Saldo suficiente. Podés confirmar la compra.</p>`;
+            } else {
+              note.innerHTML = `<p style="margin:0;font-size:0.78rem;color:#ef4444;font-weight:600;">
+                ⚠️ Saldo insuficiente en ${opt?.tokenSymbol || ""}. Necesitás ${usdNeeded.toFixed(2)} ${opt?.tokenSymbol || ""} (tenés ${bal != null ? Number(bal).toFixed(2) : "0.00"}). Probá otra red.
+              </p>`;
+            }
+          }
+          // Habilitar/deshabilitar el botón confirmar.
+          const confirmBtn = Swal.getConfirmButton();
+          if (confirmBtn) {
+            confirmBtn.disabled = !sufficient;
+            confirmBtn.style.opacity = sufficient ? "1" : "0.5";
+            confirmBtn.style.cursor = sufficient ? "pointer" : "not-allowed";
+          }
+        };
+
+        // Delegación de clicks para elegir una red (la lista se re-renderiza).
+        swalEl.addEventListener("click", (e) => {
+          const card = e.target.closest("[data-chain-idx]");
+          if (!card) return;
+          const idx = Number(card.getAttribute("data-chain-idx"));
+          if (Number.isNaN(idx)) return;
+                    selectedIdx = idx;
+          // Mantenemos sincronizados los estados del checkout al elegir.
+          // `idx` es el índice DENTRO de fundedOptions (solo redes con saldo).
+          const chosen = fundedOptions[idx]?.opt;
+          if (chosen) {
+            setSelectedPayment(chosen);
+            setTokenChoice(chosen.tokenSymbol);
+          }
+          sync();
+        });
+
+        sync();
+      },
+      preConfirm: () => {
+        // Validación final: la red elegida debe tener saldo suficiente.
+        if (!selectedHasBalance()) {
+          Swal.showValidationMessage(
+            `Saldo insuficiente en ${selectedOption()?.tokenSymbol || "la red elegida"}. Elegí otra red o depositá fondos.`,
+          );
+          return false;
+        }
+        return true;
+      },
     });
 
-    // Si NO hay saldo suficiente, el botón "Depositar USDT" abre el modal de
-    // depósito (punto 4) para que vea su dirección y cómo comprar USDT.
-    if (confirmSwal.isConfirmed && !hasBalance) {
-      setShowDepositModal(true);
-      return;
-    }
-
-    // Si canceló, no se hace nada (sigue en el checkout).
+    // Si canceló o no hay saldo, no se crea la orden.
     if (!confirmSwal.isConfirmed) {
       return;
     }
@@ -796,9 +1011,14 @@ const step1 = await Swal.fire({
             productId: p._id,
             quantity: p.quantity,
           })),
-                                        shippingAddress: selectedAddress,
-          paymentMethod: "crypto",
-          token: tokenChoice,
+                                                                                shippingAddress: selectedAddress,
+                    paymentMethod: "crypto",
+          // Token/red elegidos en el Swal de confirmación (source of truth).
+          token: selectedOption()?.tokenSymbol || tokenChoice,
+          // Red del escrow elegida por el comprador (USDT en BSC / USDC en Base /
+          // USDXM en Polygon). El backend la persiste en la orden y todo el ciclo
+          // de vida (fondeo, verify, release) ocurre en ESA red.
+          chainId: selectedOption()?.chainId,
                     deliveryMethod,
           pickupLocation: deliveryMethod === "pickup" ? selectedPickup : undefined,
           // Envío elegido por el comprador (cotización Zipnova).
@@ -831,12 +1051,18 @@ const step1 = await Swal.fire({
       // Vaciamos el carrito: la orden quedó creada.
       sellerProducts.forEach((p) => removeFromCart(p._id));
 
-      // Adjuntamos la wallet del vendedor y abrimos el modal del escrow para
+
+            // Adjuntamos la wallet del vendedor y abrimos el modal del escrow para
       // que el comprador apruebe y fondeé los USDT en el contrato.
       setCryptoOrder({
         ...newOrder,
         sellerWallet: response.data.sellerWallet,
         escrowContract: response.data.escrowContract,
+        // Fallback defensivo del token (ver resolveTokenAddress).
+        payment: {
+          ...newOrder?.payment,
+          tokenAddress: resolveTokenAddress(newOrder),
+        },
       });
       setShowCryptoModal(true);
         } catch (error) {
@@ -1356,8 +1582,8 @@ if (!authenticated ||  !dbUser ) {
                     Pagar con Criptomonedas
                   </p>
                   <p className="text-xs text-gray-500">
-                    {acceptsCrypto
-                      ? "Pagarás con USDT desde tu wallet. Fondos 100% protegidos en el contrato."
+                                        {acceptsCrypto
+                      ? "Elegís la red y el token al confirmar la compra. Fondos 100% protegidos en el contrato."
                       : "No disponible: alguno de los productos de este pedido no acepta pago con criptomonedas."}
                   </p>
                 </div>
@@ -1370,10 +1596,66 @@ if (!authenticated ||  !dbUser ) {
                 <span className="text-[10px] bg-[#3483fa] text-white px-2 py-0.5 rounded font-bold mt-2">
                   SELECCIONADO
                 </span>
-              ) : (
+                            ) : (
                 <span className="px-2 py-0.5 rounded font-bold"></span>
               )}
             </div>
+
+
+                        {/* Selector de red/token DESACTIVADO: la red se elige en el Swal
+                de confirmación (handleCryptoConfirm) con el saldo real de cada
+                red. Se conserva la lógica detrás de `false &&` por si se
+                necesita reactivar. */}
+            {false && acceptsCrypto && paymentMethod === "crypto" && (
+              <div className="mt-4 p-4 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900/40">
+                <p className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-3">
+                  ¿Con qué moneda y red querés pagar?
+                </p>
+                {paymentOptionsLoading ? (
+                  <p className="text-sm text-zinc-500">Cargando medios de pago…</p>
+                ) : paymentOptions.length === 0 ? (
+                  <p className="text-sm text-red-500">
+                    No hay medios de pago crypto disponibles en este momento.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {paymentOptions.map((opt) => {
+                      const isSel = activePayment?.chainId === opt.chainId;
+                      return (
+                        <button
+                          type="button"
+                          key={opt.chainId}
+                          onClick={() => {
+                            setSelectedPayment(opt);
+                            setTokenChoice(opt.tokenSymbol);
+                          }}
+                          className={`text-left p-3 rounded-lg border transition-all ${
+                            isSel
+                              ? "border-[#F26722] bg-[#F26722]/5"
+                              : "border-zinc-200 dark:border-zinc-700 hover:border-zinc-300"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-sm dark:text-white">
+                              {opt.tokenSymbol}
+                            </span>
+                            {isSel && (
+                              <span className="text-[10px] bg-[#F26722] text-white px-1.5 py-0.5 rounded font-bold uppercase">
+                                Elegida
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-gray-500 mt-0.5">
+                            Red: {opt.chain?.name || opt.key}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* <div className="flex flex-col sm:flex-row items-center justify-between p-4 border mt-4 border-[#173768] bg-blue-50 dark:bg-blue-900/10 rounded-lg select-none">
               <div className="flex items-center gap-3">
                 <div className="w-4 h-4 rounded-full border-4 border-[#133669] hidden md:flex"></div>
@@ -1390,6 +1672,20 @@ if (!authenticated ||  !dbUser ) {
                 PROXIMAMENTE
               </span>
             </div> */}
+
+            {/* GANCHO — FLUJO FUTURO: "Pagar desde wallet externa (QR)".
+                No implementado aún. La idea es ofrecer un botón que muestre un
+                QR con la dirección de recepción + el monto exacto en USDT/USDC,
+                para que el usuario pague desde su wallet virtual (Binance, Belo,
+                etc.). El backend detectaría el funding on-chain en la wallet
+                receptora y procesaría la orden cuando el monto coincide.
+                Ver pendientes.txt → "FLUJO FUTURO: Pago desde wallet externa (QR)".
+                Al implementarlo, agregar acá el botón y su modal/QR. */}
+            {false && acceptsCrypto && (
+              <div className="mt-4 text-sm text-zinc-500">
+                Pagar desde wallet externa (QR) — próximamente.
+              </div>
+            )}
           </section>
 
           {/* RESUMEN DE PRODUCTOS */}
@@ -1718,8 +2014,12 @@ if (!authenticated ||  !dbUser ) {
       ────────────────────────────────────── */}
             {showCryptoModal && cryptoOrder && (
                 <CryptoPaymentModal
-          order={cryptoOrder}
+                    order={cryptoOrder}
           getAccessToken={getAccessToken}
+          // La red/token YA se eligió en el Swal de confirmación y la orden se
+          // creó con esa red. No pasamos paymentOptions para que el modal use
+          // la red FIJA de la orden (sin selector de cambio).
+          paymentOptions={[]}
           onClose={async () => {
             // El modal ya disparó el rollback de la orden provisional (nunca
             // fondeada). Avisamos al comprador y lo llevamos de vuelta al carrito

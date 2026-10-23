@@ -38,9 +38,24 @@ import { supabase } from "./supabaseClient";
 import { useUserStore } from "../store/useUserStore";
 import SupabaseLogin from "../components/SupabaseLogin";
 import { clearWalletCache } from "./crossmintWallet";
-import { setUnauthorizedHandler } from "./axiosAuth";
+import { setUnauthorizedHandler, setRefreshHandler } from "./axiosAuth";
 
 const AuthContext = createContext(null);
+
+/**
+ * Refresh "en vuelo" compartido a nivel de módulo.
+ *
+ * PROBLEMA que resuelve: si N requests paralelas llaman a `getAccessToken()`
+ * cuando el token ya venció, TODAS veían el token expirado y TODAS disparaban
+ * `refreshSession()` a la vez. Supabase rota el refresh_token en cada uso y
+ * tiene detección de reuso: la primera gana, las demás reciben `invalid_grant`
+ * → antes eso cerraba la sesión (`signOut`). De ahí que la sesión "se cayera
+ * sola" sin tocar nada.
+ *
+ * Solución: una única promesa de refresh compartida; todas las llamadas
+ * concurrentes esperan el MISMO resultado en vez de pedir refreshes distintos.
+ */
+let refreshInFlight = null;
 
 /**
  * Normaliza la sesión/usuario de Supabase a la forma "Privy" que espera la app.
@@ -120,8 +135,12 @@ export function AuthProvider({ children }) {
     // Estrategia:
     //   1. Si no hay sesión → null.
     //   2. Si el token expira en <= 30s (o ya expiró) → refreshSession().
-    //   3. Si el refresh falla (refresh token vencido/revocado) → cerramos
-    //      sesión para que la UI refleje el estado real (deslogueado).
+    //   3. El refresh se COMPARTE entre llamadas concurrentes (refreshInFlight)
+    //      para no disparar varios refreshSession() simultáneos (eso invalidaba
+    //      el refresh_token por detección de reuso y cerraba la sesión).
+    //   4. Si el refresh falla, NO cerramos sesión en el acto: puede ser un
+    //      fallo transitorio (red/backend). Devolvemos null y dejamos que el
+    //      interceptor 401 decida (reintenta refresh antes de desloguear).
     const { data } = await supabase.auth.getSession();
     const session = data?.session;
     if (!session) return null;
@@ -135,16 +154,29 @@ export function AuthProvider({ children }) {
       return session.access_token;
     }
 
-    // Token expirado o por vencer: forzamos el refresh.
-    const { data: refreshed, error } = await supabase.auth.refreshSession();
-    if (error || !refreshed?.session) {
-      // Refresh token inválido: la sesión ya no es recuperable.
-      console.warn("getAccessToken: no se pudo refrescar la sesión, cerrando sesión.");
-      await supabase.auth.signOut();
-      setSession(null);
+    // Token expirado o por vencer: forzamos UN único refresh compartido.
+    if (!refreshInFlight) {
+      refreshInFlight = supabase.auth
+        .refreshSession()
+        .then(({ data: refreshed, error }) => {
+          if (error || !refreshed?.session) return null;
+          return refreshed.session.access_token;
+        })
+        .catch(() => null)
+        .finally(() => {
+          refreshInFlight = null;
+        });
+    }
+
+    const token = await refreshInFlight;
+    if (!token) {
+      // No pudimos refrescar. NO hacemos signOut acá: puede ser transitorio.
+      // Si el refresh token realmente está vencido, el backend devolverá 401
+      // y el interceptor global (con reintento) terminará cerrando la sesión.
+      console.warn("getAccessToken: refresh no disponible (posible fallo transitorio).");
       return null;
     }
-    return refreshed.session.access_token;
+    return token;
   }, []);
 
   const logout = useCallback(async () => {
@@ -169,7 +201,12 @@ export function AuthProvider({ children }) {
   // con una sesión muerta y errores genéricos por todos lados.
   useEffect(() => {
     setUnauthorizedHandler(logout);
-  }, [logout]);
+    // El interceptor 401 usa getAccessToken para forzar un refresh y REINTENTAR
+    // la request antes de rendirse y cerrar sesión. Esto evita logouts por un
+    // 401 puntual (request que llega justo al expirar el token, blip de red,
+    // redeploy del backend, etc.).
+    setRefreshHandler(getAccessToken);
+  }, [logout, getAccessToken]);
 
   /**
    * `login()` mantiene la firma de Privy. Si se llama sin argumentos (como

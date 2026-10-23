@@ -5,8 +5,10 @@ import {
   getAllUsers,
   getUserById,
   getStats,
-  adminGetProducts,
+        adminGetProducts,
   adminModerateProduct,
+  adminModerateProductsBulk,
+  auditCollateralHandler,
 } from '../controllers/adminController.js';
 import {
   adminCompleteOrder,
@@ -50,6 +52,9 @@ router.get('/stats', verifyAuth, attachUser, isAdmin, getStats);
 router.get('/products', verifyAuth, attachUser, isAdmin, adminGetProducts);
 // Aprobar o rechazar una publicación. Body: { action: 'approve'|'reject', reason? }.
 router.patch('/products/:id/moderate', verifyAuth, attachUser, isAdmin, adminModerateProduct);
+// Aprobar o rechazar EN BLOQUE. Body: { ids: [...], action, reason? }
+// o { selectAll: true, moderation, search, action, reason? } para todo lo filtrado.
+router.post('/products/moderate-bulk', verifyAuth, attachUser, isAdmin, adminModerateProductsBulk);
 
 // Cancelación manual de la orden (solo admin). NO libera la garantía:
 // eso se resuelve aparte de forma manual con release-guarantee.
@@ -73,6 +78,12 @@ router.patch('/orders/:orderId/release-guarantee', verifyAuth, attachUser, isAdm
 // Verificar estado real del colateral on-chain (solo admin) — PRIMER paso ante
 // una orden cancelada con garantía presuntamente congelada.
 router.get('/orders/:orderId/collateral-status', verifyAuth, attachUser, isAdmin, adminGetCollateralStatus);
+
+// AUDITORÍA GLOBAL del colateral (solo admin, solo lectura). Contrasta la DB
+// con la blockchain y lista las órdenes que necesitan acción (liberar,
+// completar tras el buffer o reconciliar). Query: ?since=<días|ISO>&attention=true.
+// Va ANTES de las rutas con `:orderId` para no colisionar con ellas.
+router.get('/collateral/audit', verifyAuth, attachUser, isAdmin, auditCollateralHandler);
 
 // ── GESTIÓN DEL ESCROW DE PAGOS CRIPTO (solo admin) ──
 // Liberar el escrow manualmente (fondos al vendedor, se cobra el fee).

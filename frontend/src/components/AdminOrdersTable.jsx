@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Eye, RefreshCw, ExternalLink } from 'lucide-react';
+import { Eye, RefreshCw, ExternalLink, Undo2 } from 'lucide-react';
 import axios from 'axios';
 import { usePrivy } from "../Utils/authClient";
 import { formatMoney } from '../Utils/currencyFormatter';
@@ -160,6 +160,62 @@ const handleOpenModal = (order) => {
         await refreshOrders(token);
       } catch (err) {
         await errMsg(err?.response?.data?.message || 'No se pudo resolver la disputa de pago.');
+      }
+      return;
+    }
+
+    if (action === 'refund_buyer') {
+      // Reembolsar al COMPRADOR y cancelar la orden.
+      //  - Crypto con escrow fondeado  → cancel-escrow (devuelve el 100% de los
+      //    USDT on-chain al comprador).
+      //  - Cualquier otro caso         → cancel normal del admin (marca la orden
+      //    como cancelada; si hubiera garantía, se libera aparte).
+      const current = orders.find((o) => o._id === orderId) || selectedOrder;
+      const isCryptoFunded =
+        current?.payment?.method === 'crypto' && current?.payment?.status === 'funded';
+
+      const c = await askConfirm(
+        isCryptoFunded ? '¿Reembolsar el escrow al comprador?' : '¿Cancelar la orden y reembolsar al comprador?',
+        isCryptoFunded
+          ? 'Se devolverá el 100% de los USDT del escrow a la billetera del comprador, on-chain. La orden quedará CANCELADA. Esta acción no se puede deshacer.'
+          : 'Se marcará la orden como CANCELADA. Si el comprador ya abonó, asegurate de haberle devuelto el dinero: esta acción deja constancia del reembolso. No mueve fondos del escrow (la orden no tiene escrow crypto fondeado).',
+        isCryptoFunded ? 'SÍ, REEMBOLSAR ESCROW' : 'SÍ, CANCELAR Y REEMBOLSAR',
+      );
+      if (!c.isConfirmed) return;
+      try {
+        Swal.fire({
+          title: isCryptoFunded ? 'Reembolsando escrow...' : 'Cancelando orden...',
+          text: isCryptoFunded
+            ? 'Firmando cancelOrder() del contrato. Esto puede tardar unos segundos.'
+            : 'Actualizando el estado de la orden.',
+          allowOutsideClick: false,
+          didOpen: () => Swal.showLoading(),
+          ...swalTheme,
+        });
+        if (isCryptoFunded) {
+          await axios.patch(
+            `${import.meta.env.VITE_SERVER_URL}/api/admin/orders/${orderId}/cancel-escrow`,
+            {},
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+        } else {
+          await axios.patch(
+            `${import.meta.env.VITE_SERVER_URL}/api/admin/orders/${orderId}/cancel`,
+            {},
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+        }
+        await okMsg(
+          isCryptoFunded ? 'ESCROW REEMBOLSADO' : 'ORDEN CANCELADA',
+          isCryptoFunded
+            ? 'Los USDT fueron devueltos a la billetera del comprador y la orden quedó CANCELADA.'
+            : 'La orden quedó CANCELADA. Verificá que el reembolso al comprador ya se haya realizado.',
+        );
+        setSelectedOrder(null);
+        setIsModalOpen(false);
+        await refreshOrders(token);
+      } catch (err) {
+        await errMsg(err?.response?.data?.message || 'No se pudo reembolsar al comprador.');
       }
       return;
     }
@@ -342,11 +398,22 @@ const handleOpenModal = (order) => {
                   </td>
                   <td className="p-6">
                     <div className="flex items-center gap-2">
-                      <button
+                                            <button
                         onClick={() => handleOpenModal(order)}
                         className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-[#F26722] transition-colors">
                         <Eye size={18} />
                       </button>
+                      {/* Acción rápida: reembolsar al comprador (escrow crypto fondeado). */}
+                      {order.payment?.method === 'crypto' &&
+                        order.payment?.status === 'funded' &&
+                        !['completed', 'cancelled', 'expired'].includes(order.status) && (
+                          <button
+                            onClick={() => handleAdminAction(order._id, 'refund_buyer')}
+                            title="Reembolsar comprador (escrow)"
+                            className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-rose-500 transition-colors">
+                            <Undo2 size={18} />
+                          </button>
+                        )}
                                             <button
                         onClick={async () => {
                           try {

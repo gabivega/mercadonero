@@ -4,15 +4,19 @@ import {
   Package,
   Users,
   ShieldCheck,
-  Settings,
+    Settings,
   LogOut,
-  Menu,
+    Menu,
   X,
+  Wallet,
+  Store,
 } from "lucide-react";
 import AdminOrdersTable from "../components/AdminOrdersTable";
 import AdminUsersTable from "../components/AdminUsersTable";
 import AdminStats from "../components/AdminStats";
 import AdminProductsTable from "../components/AdminProductsTable";
+import AdminCollateralAudit from "../components/AdminCollateralAudit";
+import AdminStoreConnections from "../components/AdminStoreConnections";
 import { useAuth } from "../Utils/authClient";
 import { useUserStore } from "../store/useUserStore";
 
@@ -25,7 +29,9 @@ const AdminDashboard = () => {
         const menuItems = [
     { id: "stats", label: "Estadísticas", icon: LayoutDashboard },
     { id: "orders", label: "Gestión de Órdenes", icon: Package },
+    { id: "collateral", label: "Auditoría de Colateral", icon: Wallet },
     { id: "products", label: "Moderación de Publicaciones", icon: ShieldCheck },
+    { id: "stores", label: "Tiendas Tiendanube", icon: Store },
     { id: "users", label: "Usuarios", icon: Users },
     { id: "escrow", label: "Smart Contract", icon: ShieldCheck },
     { id: "settings", label: "Configuración", icon: Settings },
@@ -118,13 +124,17 @@ const AdminDashboard = () => {
 
                                 <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                     {activeTab === "stats" && <AdminStats />}
-          {activeTab === "orders" && <AdminOrdersTable />}
-          {activeTab === "products" && <AdminProductsTable />}
-          {activeTab === "users" && <AdminUsersTable />}
-          {activeTab !== "stats" &&
-            activeTab !== "orders" &&
-            activeTab !== "products" &&
-            activeTab !== "users" && (
+                    {activeTab === "orders" && <AdminOrdersTable />}
+                    {activeTab === "collateral" && <AdminCollateralAudit />}
+                                        {activeTab === "products" && <AdminProductsTable />}
+                    {activeTab === "stores" && <AdminStoreConnections />}
+                    {activeTab === "users" && <AdminUsersTable />}
+                    {activeTab !== "stats" &&
+                      activeTab !== "orders" &&
+                      activeTab !== "collateral" &&
+                      activeTab !== "products" &&
+                      activeTab !== "stores" &&
+                      activeTab !== "users" && (
             <div className="h-64 flex items-center justify-center border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-[2.5rem]">
               <p className="text-zinc-400 font-medium italic">
                 Sección en desarrollo...

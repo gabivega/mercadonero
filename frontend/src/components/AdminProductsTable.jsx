@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   Search,
   ChevronLeft,
@@ -43,7 +43,8 @@ const STATUS_BADGES = {
 const AdminProductsTable = () => {
   const [products, setProducts] = useState([]);
   const [counts, setCounts] = useState({ pending: 0, approved: 0, rejected: 0 });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // SOLO carga "grande"
+  const [refreshingCounts, setRefreshingCounts] = useState(false);
   const [error, setError] = useState("");
   const [tab, setTab] = useState("pending");
   const [search, setSearch] = useState("");
@@ -51,10 +52,13 @@ const AdminProductsTable = () => {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
-  const [busyId, setBusyId] = useState(null); // id de la publicación en proceso
+  const [busyIds, setBusyIds] = useState(() => new Set()); // filas en proceso
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [selected, setSelected] = useState(() => new Set()); // ids seleccionados
 
   const { getAccessToken } = usePrivy();
   const LIMIT = 25;
+  const lastQueryRef = useRef("");
 
   // Debounce de la búsqueda.
   useEffect(() => {
@@ -65,46 +69,98 @@ const AdminProductsTable = () => {
     return () => clearTimeout(t);
   }, [search]);
 
-  const fetchProducts = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const token = await getAccessToken();
-      const res = await axios.get(
-        `${import.meta.env.VITE_SERVER_URL}/api/admin/products`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-          params: {
-            moderation: tab,
-            search: debouncedSearch,
-            page,
-            limit: LIMIT,
+  // Clave de contexto: si cambia (tab/búsqueda/página) se considera "nueva carga"
+  // y mostramos el spinner grande. Un refresh tras moderar NO cambia la clave.
+  const queryKey = `${tab}|${debouncedSearch}|${page}`;
+
+  const fetchProducts = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!silent) setLoading(true);
+      setError("");
+      try {
+        const token = await getAccessToken();
+        const res = await axios.get(
+          `${import.meta.env.VITE_SERVER_URL}/api/admin/products`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            params: {
+              moderation: tab,
+              search: debouncedSearch,
+              page,
+              limit: LIMIT,
+            },
           },
-        },
-      );
-      const d = res.data;
-      setProducts(d?.products || []);
-      setCounts(d?.counts || { pending: 0, approved: 0, rejected: 0 });
-      setTotal(d?.pagination?.total || 0);
-      setTotalPages(d?.pagination?.totalPages || 1);
-    } catch (err) {
-      console.error(err);
-      setError("No se pudieron cargar las publicaciones.");
-    } finally {
-      setLoading(false);
-    }
-  }, [getAccessToken, tab, debouncedSearch, page]);
+        );
+        const d = res.data;
+        setProducts(d?.products || []);
+        setCounts(d?.counts || { pending: 0, approved: 0, rejected: 0 });
+        setTotal(d?.pagination?.total || 0);
+        setTotalPages(d?.pagination?.totalPages || 1);
+      } catch (err) {
+        console.error(err);
+        setError("No se pudieron cargar las publicaciones.");
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [getAccessToken, tab, debouncedSearch, page],
+  );
 
   useEffect(() => {
+    lastQueryRef.current = queryKey;
+    setSelected(new Set());
     fetchProducts();
-  }, [fetchProducts]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryKey]);
 
   const handleTabChange = (id) => {
     setTab(id);
     setPage(1);
   };
 
+  // Refresca SOLO los contadores (silencioso, no toca la tabla ni el spinner).
+  const refreshCountsSilently = useCallback(async () => {
+    setRefreshingCounts(true);
+    try {
+      const token = await getAccessToken();
+      const res = await axios.get(
+        `${import.meta.env.VITE_SERVER_URL}/api/admin/products`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          params: { moderation: tab, search: debouncedSearch, page, limit: LIMIT },
+        },
+      );
+      if (res.data?.counts) setCounts(res.data.counts);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setRefreshingCounts(false);
+    }
+  }, [getAccessToken, tab, debouncedSearch, page]);
+
+  // ── Selección ──
+  const toggleOne = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const allVisibleSelected =
+    products.length > 0 && products.every((p) => selected.has(p._id));
+
+  const toggleAllVisible = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) products.forEach((p) => next.delete(p._id));
+      else products.forEach((p) => next.add(p._id));
+      return next;
+    });
+  };
+
   // Aprobar / rechazar. Al rechazar, pedimos el motivo con un modal.
+  // OPTIMISTA: no recarga con spinner grande, actualiza la fila al instante.
   const handleModerate = async (product, action) => {
     let reason = "";
 
@@ -129,14 +185,46 @@ const AdminProductsTable = () => {
       reason = String(value).trim();
     }
 
-    setBusyId(product._id);
+    setBusyIds((prev) => new Set(prev).add(product._id));
     try {
       const token = await getAccessToken();
-      await axios.patch(
+      const res = await axios.patch(
         `${import.meta.env.VITE_SERVER_URL}/api/admin/products/${product._id}/moderate`,
         { action, reason },
         { headers: { Authorization: `Bearer ${token}` } },
       );
+
+      const newStatus = action === "approve" ? "approved" : "rejected";
+      const updated = res.data?.product;
+
+      if (tab === "pending") {
+        // Deja de pertenecer a este tab: la quitamos sin recargar todo.
+        setProducts((prev) => prev.filter((p) => p._id !== product._id));
+        setTotal((t) => Math.max(0, t - 1));
+      } else {
+        // Otros tabs: actualizamos la fila en memoria.
+        setProducts((prev) =>
+          prev.map((p) =>
+            p._id === product._id
+              ? {
+                  ...p,
+                  ...(updated || {}),
+                  moderation: updated?.moderation || {
+                    ...p.moderation,
+                    status: newStatus,
+                    reason,
+                  },
+                }
+              : p,
+          ),
+        );
+      }
+
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(product._id);
+        return next;
+      });
 
       Swal.fire({
         toast: true,
@@ -144,12 +232,12 @@ const AdminProductsTable = () => {
         title: action === "approve" ? "Publicación aprobada" : "Publicación rechazada",
         icon: "success",
         showConfirmButton: false,
-        timer: 1800,
+        timer: 1500,
         background: "#1A1A1A",
         color: "#fff",
       });
 
-      await fetchProducts();
+      refreshCountsSilently(); // contadores en segundo plano
     } catch (err) {
       console.error(err);
       Swal.fire({
@@ -159,8 +247,105 @@ const AdminProductsTable = () => {
         background: "#1A1A1A",
         color: "#fff",
       });
+      fetchProducts({ silent: true }); // resincroniza sin spinner grande
     } finally {
-      setBusyId(null);
+      setBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(product._id);
+        return next;
+      });
+    }
+  };
+
+  // ── Moderación masiva (una sola request al backend) ──
+  const handleBulkModerate = async (action) => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+
+    let reason = "";
+    if (action === "reject") {
+      const { value, isConfirmed } = await Swal.fire({
+        title: `Rechazar ${ids.length} publicación(es)`,
+        input: "textarea",
+        inputLabel: "Motivo del rechazo (lo verán los vendedores)",
+        inputPlaceholder: "Ej: imágenes no coinciden con la descripción...",
+        showCancelButton: true,
+        confirmButtonText: "Rechazar todas",
+        cancelButtonText: "Cancelar",
+        confirmButtonColor: "#e11d48",
+        cancelButtonColor: "#71717a",
+        background: "#1A1A1A",
+        color: "#fff",
+        inputValidator: (v) =>
+          !v || !v.trim() ? "Tenés que escribir un motivo." : undefined,
+      });
+      if (!isConfirmed) return;
+      reason = String(value).trim();
+    } else {
+      const { isConfirmed } = await Swal.fire({
+        title: `Aprobar ${ids.length} publicación(es)`,
+        text: "Se publicarán de inmediato en el catálogo.",
+        showCancelButton: true,
+        confirmButtonText: "Aprobar todas",
+        cancelButtonText: "Cancelar",
+        confirmButtonColor: "#16a34a",
+        cancelButtonColor: "#71717a",
+        background: "#1A1A1A",
+        color: "#fff",
+      });
+      if (!isConfirmed) return;
+    }
+
+    setBulkBusy(true);
+    try {
+      const token = await getAccessToken();
+      const res = await axios.post(
+        `${import.meta.env.VITE_SERVER_URL}/api/admin/products/moderate-bulk`,
+        { ids, action, reason },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      const idSet = new Set(ids);
+      const newStatus = action === "approve" ? "approved" : "rejected";
+      if (tab === "pending") {
+        setProducts((prev) => prev.filter((p) => !idSet.has(p._id)));
+        setTotal((t) => Math.max(0, t - (res.data?.modifiedCount ?? ids.length)));
+      } else {
+        setProducts((prev) =>
+          prev.map((p) =>
+            idSet.has(p._id)
+              ? { ...p, moderation: { ...p.moderation, status: newStatus, reason } }
+              : p,
+          ),
+        );
+      }
+      setSelected(new Set());
+      if (res.data?.counts) setCounts(res.data.counts);
+
+      Swal.fire({
+        toast: true,
+        position: "top-end",
+        title:
+          action === "approve"
+            ? `${res.data?.modifiedCount ?? ids.length} aprobada(s)`
+            : `${res.data?.modifiedCount ?? ids.length} rechazada(s)`,
+        icon: "success",
+        showConfirmButton: false,
+        timer: 1800,
+        background: "#1A1A1A",
+        color: "#fff",
+      });
+    } catch (err) {
+      console.error(err);
+      Swal.fire({
+        title: "Error",
+        text: err?.response?.data?.message || "No se pudo completar la acción masiva.",
+        icon: "error",
+        background: "#1A1A1A",
+        color: "#fff",
+      });
+    } finally {
+      setBulkBusy(false);
     }
   };
 
@@ -243,7 +428,46 @@ const AdminProductsTable = () => {
               </button>
             );
           })}
+          {refreshingCounts && (
+            <span className="flex items-center text-zinc-400" title="Actualizando...">
+              <Loader2 size={14} className="animate-spin" />
+            </span>
+          )}
         </div>
+
+        {/* Barra de acciones masivas (aparece al seleccionar) */}
+        {selected.size > 0 && (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl bg-[#F26722]/5 dark:bg-[#F26722]/10 border border-[#F26722]/20 px-4 py-3">
+            <span className="text-sm font-bold text-zinc-700 dark:text-zinc-200">
+              {selected.size} seleccionada(s)
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleBulkModerate("approve")}
+                disabled={bulkBusy}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white text-xs font-black uppercase tracking-widest transition-colors"
+              >
+                {bulkBusy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                Aprobar
+              </button>
+              <button
+                onClick={() => handleBulkModerate("reject")}
+                disabled={bulkBusy}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-xs font-black uppercase tracking-widest transition-colors"
+              >
+                {bulkBusy ? <Loader2 size={14} className="animate-spin" /> : <Ban size={14} />}
+                Rechazar
+              </button>
+              <button
+                onClick={() => setSelected(new Set())}
+                disabled={bulkBusy}
+                className="px-3 py-2 rounded-xl text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 text-xs font-black uppercase tracking-widest transition-colors"
+              >
+                Limpiar
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {error && <p className="p-6 text-sm text-rose-500">{error}</p>}
@@ -254,10 +478,19 @@ const AdminProductsTable = () => {
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <div className="min-w-[820px]">
+          <div className="min-w-[880px]">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/50">
+                  <th className="pl-6 pr-2 py-6 w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Seleccionar todas"
+                      checked={allVisibleSelected}
+                      onChange={toggleAllVisible}
+                      className="w-4 h-4 rounded border-zinc-300 dark:border-zinc-600 accent-[#F26722] cursor-pointer"
+                    />
+                  </th>
                   <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">
                     Publicación
                   </th>
@@ -278,18 +511,35 @@ const AdminProductsTable = () => {
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                 {products.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="p-10 text-center text-sm text-zinc-400">
+                    <td colSpan={6} className="p-10 text-center text-sm text-zinc-400">
                       No hay publicaciones en este estado.
                     </td>
                   </tr>
                 ) : (
                   products.map((p) => {
                     const mStatus = p?.moderation?.status || "pending";
+                    const isBusy = busyIds.has(p._id);
+                    const isSelected = selected.has(p._id);
                     return (
                       <tr
                         key={p._id}
-                        className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors align-top"
+                        className={`transition-colors align-top ${
+                          isSelected
+                            ? "bg-[#F26722]/5 dark:bg-[#F26722]/10"
+                            : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+                        }`}
                       >
+                        {/* Checkbox */}
+                        <td className="pl-6 pr-2 py-6 align-middle">
+                          <input
+                            type="checkbox"
+                            aria-label={`Seleccionar ${p.name}`}
+                            checked={isSelected}
+                            onChange={() => toggleOne(p._id)}
+                            className="w-4 h-4 rounded border-zinc-300 dark:border-zinc-600 accent-[#F26722] cursor-pointer"
+                          />
+                        </td>
+
                         {/* Publicación */}
                         <td className="p-6">
                           <div className="flex items-start gap-3">
@@ -360,7 +610,7 @@ const AdminProductsTable = () => {
                               <ExternalLink size={18} />
                             </button>
 
-                            {busyId === p._id ? (
+                            {isBusy ? (
                               <Loader2 size={18} className="animate-spin text-zinc-400" />
                             ) : (
                               <>

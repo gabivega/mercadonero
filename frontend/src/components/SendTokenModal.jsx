@@ -1,5 +1,6 @@
-import { ArrowUpRight, X, CheckCircle2, AlertCircle } from 'lucide-react';
+import { X, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { isAddress } from 'viem'; // Importamos el validador
+import TokenIcon from './TokenIcon';
 
 export default function SendTokenModal({ 
   isOpen, onClose, token, balance, formData, setFormData, onConfirm, isLoading, txStatus 
@@ -32,8 +33,8 @@ export default function SendTokenModal({
       <div className="bg-white dark:bg-[#1A1A1A] w-full max-w-md rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden">
         
         <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
-          <h3 className="text-xl font-bold flex items-center gap-2 dark:text-white">
-            <ArrowUpRight className="text-blue-500" size={20} /> Enviar {token.symbol}
+                    <h3 className="text-xl font-bold flex items-center gap-2 dark:text-white">
+            <TokenIcon symbol={token.symbol} size={24} /> Enviar {token.symbol}
           </h3>
           <button onClick={onClose} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
             <X size={20} className="text-gray-500" />
@@ -80,12 +81,19 @@ export default function SendTokenModal({
             </div>
           )}
 
-          <button 
+                    <button 
             disabled={isDisabled}
             onClick={onConfirm}
             className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 ${isDisabled ? 'bg-gray-200 dark:bg-gray-800 text-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/20'}`}
           >
-            {isLoading ? "Procesando firma..." : 'Confirmar Envío'}
+            {isLoading ? (
+              <>
+                <Loader2 size={18} className="animate-spin" />
+                Enviando...
+              </>
+            ) : (
+              'Confirmar Envío'
+            )}
           </button>
         </div>
       </div>

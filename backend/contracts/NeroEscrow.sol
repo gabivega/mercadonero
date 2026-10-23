@@ -24,6 +24,19 @@ interface IERC20 {
  * SOLO la wallet del ADMIN puede liberar (releaseOrder) o cancelar (cancelOrder).
  * El fee es GLOBAL (settable por el admin vía setFeeBps) para que el backend
  * controle el % de comisión y no dependa del frontend.
+ *
+ * ── GAS / NATIVO ─────────────────────────────────────────────────────────────
+ * Además del fondeo por token (fundOrder), se agregó fundOrderNative() para
+ * permitir pagar con la moneda NATIVA de la red (POL en Polygon Amoy, ETH en
+ * Base Sepolia, tBNB en BSC Testnet). Esto es OBLIGATORIO en redes donde la
+ * smart wallet de Crossmint (ERC-4337 / paymaster sponsor) NO puede pagar gas
+ * con la stablecoin de prueba: el comprador firma el fondeo pagando gas con la
+ * moneda nativa y el contrato retiene ese valor hasta liberarlo/reembolsarlo.
+ *
+ * El monto se guarda en una UNIDAD COMÚN (la de menor precisión entre el token
+ * y el nativo). El backend elige el token "espejo" para liberar/reembolsar:
+ *   - fondeo por token  → release/cancel usan la dirección del token.
+ *   - fondeo nativo     → release/cancel usan address(0) y envían el nativo.
  */
 contract NeroEscrow {
     address public admin;
@@ -33,7 +46,8 @@ contract NeroEscrow {
     struct Escrow {
         address buyer;
         address seller;
-        address token;      // 0x0 para native (BNB), dirección para ERC20.
+        // 0x0 = moneda nativa de la red; dirección = ERC20.
+        address token;
         uint256 amount;     // Monto total retenido (productos + envío).
         bool deposited;     // El comprador fondeó.
         bool released;      // Ya se cerró (liberado al vendedor O reembolsado).
@@ -126,6 +140,35 @@ contract NeroEscrow {
     }
 
     // ──────────────────────────────────────────────────────────────
+    // 1.b EL COMPRADOR FONDEA LA ORDEN CON LA MONEDA NATIVA (POL/ETH/tBNB)
+    //     El valor debe venir adjunto en la transacción.
+    // ──────────────────────────────────────────────────────────────
+    function fundOrderNative(
+        string memory _orderId,
+        address _buyer,
+        address _seller,
+        uint256 _amount
+    ) external payable {
+        Escrow storage e = escrows[_orderId];
+        require(!e.deposited, "Orden ya fondeada");
+        require(_amount > 0, "Monto invalido");
+        require(_seller != address(0) && _buyer != address(0), "Direccion invalida");
+        require(msg.value > 0, "Valor nativo requerido");
+
+        escrows[_orderId] = Escrow({
+            buyer: _buyer,
+            seller: _seller,
+            token: address(0), // nativo
+            amount: _amount,
+            deposited: true,
+            released: false,
+            createdAt: block.timestamp
+        });
+
+        emit OrderFunded(_orderId, _buyer, _seller, address(0), _amount);
+    }
+
+    // ──────────────────────────────────────────────────────────────
     // 2. EL ADMIN LIBERA LOS FONDOS AL VENDEDOR.
     //    Se cobra el fee global (feeBps) a la feeWallet y el resto al seller.
     // ──────────────────────────────────────────────────────────────
@@ -137,11 +180,32 @@ contract NeroEscrow {
         uint256 fee = (e.amount * feeBps) / 10000;
         uint256 sellerNet = e.amount - fee;
 
-        IERC20 token = IERC20(e.token);
-        if (fee > 0) {
-            require(token.transfer(feeWallet, fee), "Fallo envio fee");
+        // ⚠️ El equivalente NATIVO a transferir se calcula del balance real del
+        // contrato (no de `amount`): `amount` está en la unidad común (la de
+        // menor precisión), y pasar eso directamente al transfer nativo podría
+        // intentar enviar MÁS de lo que el contrato tiene, revirtiendo.
+        uint256 nativeTotal = address(this).balance;
+        uint256 nativeFee = e.amount > 0 ? (nativeTotal * fee) / e.amount : 0;
+        uint256 nativeSellerNet = e.amount > 0
+            ? (nativeTotal - nativeFee)
+            : nativeTotal;
+
+        if (e.token == address(0)) {
+            if (nativeFee > 0) {
+                (bool feeOk, ) = payable(feeWallet).call{value: nativeFee}("");
+                require(feeOk, "Fallo envio fee nativo");
+            }
+            if (nativeSellerNet > 0) {
+                (bool sellerOk, ) = payable(e.seller).call{value: nativeSellerNet}("");
+                require(sellerOk, "Fallo envio vendedor nativo");
+            }
+        } else {
+            IERC20 token = IERC20(e.token);
+            if (fee > 0) {
+                require(token.transfer(feeWallet, fee), "Fallo envio fee");
+            }
+            require(token.transfer(e.seller, sellerNet), "Fallo envio vendedor");
         }
-        require(token.transfer(e.seller, sellerNet), "Fallo envio vendedor");
 
         e.released = true;
         emit OrderReleased(_orderId, e.seller, sellerNet, fee);
@@ -155,8 +219,16 @@ contract NeroEscrow {
         require(e.deposited, "No hay fondos");
         require(!e.released, "Orden ya cerrada");
 
-        IERC20 token = IERC20(e.token);
-        require(token.transfer(e.buyer, e.amount), "Fallo reembolso");
+        if (e.token == address(0)) {
+            // On-chain, el 100% de lo depositado en nativo sigue en el contrato.
+            uint256 nativeTotal = address(this).balance;
+            require(nativeTotal > 0, "Sin fondos nativos");
+            (bool okBuyer, ) = payable(e.buyer).call{value: nativeTotal}("");
+            require(okBuyer, "Fallo reembolso nativo");
+        } else {
+            IERC20 token = IERC20(e.token);
+            require(token.transfer(e.buyer, e.amount), "Fallo reembolso");
+        }
 
         e.released = true; // Se marca cerrada para evitar doble cancelación.
         emit OrderCancelled(_orderId, e.buyer, e.amount);

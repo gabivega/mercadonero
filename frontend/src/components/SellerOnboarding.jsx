@@ -93,11 +93,26 @@ export default function SellerOnboarding({
     if (currentStep === 2) {
       return form.shopName.trim() && form.province && form.city.trim() && form.zipCode.trim();
     }
+    if (currentStep === 3) {
+      // El alias es OBLIGATORIO en el modelo (bankAccounts.alias required:true).
+      // Si se deja vacío, Mongoose falla al guardar (runValidators) y el
+      // endpoint devuelve 500 "Error al completar el onboarding". Lo validamos
+      // acá para mostrar un mensaje claro en vez de un ¡Ups! genérico.
+      return (
+        form.cbuCvu.trim() &&
+        form.bankName.trim() &&
+        form.holderName.trim() &&
+        form.cuitCuil.trim() &&
+        form.alias.trim()
+      );
+    }
     return true;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    // Validación final del último paso (incluye el alias obligatorio del paso 3).
+    if (!validateStep(step)) return;
     setIsSaving(true);
 
     // En modo edición NO enviamos datos bancarios: el endpoint /api/user/shop
@@ -197,7 +212,13 @@ export default function SellerOnboarding({
     } catch (error) {
       const err = error.response?.data;
       const field = err?.field;
-      const msg = err?.message || "No se pudieron guardar tus datos. Intentá de nuevo.";
+      // Mostramos el mensaje real del backend cuando existe. Si es un 500 sin
+      // mensaje útil (p. ej. un error de validación de Mongoose), lo indicamos.
+      const msg =
+        err?.message ||
+        (error.response?.status === 500
+          ? "Hubo un problema al guardar en el servidor. Revisá que todos los datos estén completos (incluido el alias) e intentá de nuevo."
+          : "No se pudieron guardar tus datos. Intentá de nuevo.");
 
       // Resaltamos el campo con error
       if (field) {
@@ -440,8 +461,8 @@ export default function SellerOnboarding({
                   <input id="field-cuitCuil" className={inputCls} placeholder="11 dígitos" value={form.cuitCuil} onChange={set("cuitCuil")} inputMode="numeric" required />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className={labelCls}>Alias (opcional)</label>
-                  <input className={inputCls} placeholder="Ej: mis.ventas.alias" value={form.alias} onChange={set("alias")} />
+                  <label className={labelCls}>Alias / CBU alias *</label>
+                  <input id="field-alias" className={inputCls} placeholder="Ej: mis.ventas.alias" value={form.alias} onChange={set("alias")} required />
                 </div>
               </div>
           </section>

@@ -7,6 +7,7 @@ import { cancelVendorCollateral } from "./blockchainServices.js"; // 👈 Import
 import { expireCollateralHold } from "./collateralHoldService.js"; // 👈 Expiración de holds de colateral
 import { verifyOrderFunded } from "./escrowServices.js"; // 👈 Verificamos fondeo on-chain de escrow crypto
 import { DEFAULT_CHAIN_ID } from "../config/chains.js"; // 👈 Red por defecto (fallback multichain)
+import { ESCROW_DEFAULT_CHAIN_ID } from "../config/chains.js"; // 👈 Red por defecto del ESCROW
 
 /**
  * Ejecuta UNA pasada de la limpieza de órdenes.
@@ -64,15 +65,22 @@ export const runOrderCleanupOnce = async () => {
             for (const order of expiredOrders) {
         try {
           // ═══════════════════════════════════════════════════════
-          // GUARDIA PARA PAGO CRIPTO:
+                    // GUARDIA PARA PAGO CRIPTO:
           // Si la orden es de pago en criptomonedas, primero verificamos
           // on-chain si el comprador YA fondeó el escrow (aunque no haya
           // reportado el txHash al backend). En ese caso la orden NO debe
           // expirar: los USDT están retenidos en el contrato y esperan la
           // confirmación del comprador.
-          // ═══════════════════════════════════════════════════════
           if (order.payment?.method === "crypto") {
-            const fundedCheck = await verifyOrderFunded(order._id.toString());
+            // Con la red del escrow persistida en la orden (multichain): si la
+            // orden se creó en otra red, verificar en el default daría falso
+            // "no fondeado" y el cron la expiraría perdiendo la tx y el gas.
+            // No comparamos el monto acá: solo nos importa si está fondeado.
+            const fundedCheck = await verifyOrderFunded(
+              order._id.toString(),
+              undefined,
+              order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
+            );
             if (fundedCheck.success && fundedCheck.funded) {
               console.log(
                 `[Cron] Orden crypto ${order._id} YA está fondeada on-chain (aunque no reportada). No se expira; queda al flujo de confirmación del comprador.`,
