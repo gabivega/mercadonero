@@ -33,6 +33,7 @@
  *     VITE_CROSSMINT_API_KEY=<apiKey pública de Crossmint>
  */
 import { supabase } from "./supabaseClient";
+import { getFreshAccessToken } from "./freshToken";
 import {
   createCrossmint,
   CrossmintWallets,
@@ -41,7 +42,12 @@ import {
 } from "@crossmint/wallets-sdk";
 import { createPublicClient, http } from "viem";
 import { polygonAmoy, baseSepolia } from "viem/chains";
-import { onAuthRequired } from "./crossmintOtpBridge";
+import {
+  onAuthRequired,
+  setRecoveryPreference,
+  setRecoveryPhone,
+  getRecoveryPhone,
+} from "./crossmintOtpBridge";
 
 /**
  * Callbacks que le pasamos al SDK en las `options` de createWallet/getWallet.
@@ -53,6 +59,38 @@ const CROSSMINT_CALLBACKS = { onAuthRequired };
 
 // Chain por defecto para las wallets EVM. En pruebas usamos polygon-amoy.
 export const CROSSMINT_CHAIN = "polygon-amoy";
+
+// ── TELÉFONO (validación E.164) ────────────────────────────────────────────
+// Crossmint valida el número recién cuando lo usa (envía un OTP al firmar), NO
+// al crear la wallet. Para evitar que un typo deje al usuario sin recovery,
+// validamos el FORMATO acá antes de mandarlo a Crossmint.
+
+/**
+ * Normaliza y valida un teléfono a E.164 (ej. "+5491123456789"). Acepta
+ * números con espacios/guiones/paréntesis. Exige prefijo "+" con código país.
+ *
+ * @param {string} input
+ * @returns {{ ok: boolean, value?: string, error?: string }}
+ */
+export function normalizePhone(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return { ok: false, error: "Ingresá tu número de teléfono." };
+  // Quitamos espacios, guiones, paréntesis y puntos.
+  const cleaned = raw.replace(/[\s().-]/g, "");
+  if (!/^\+[1-9]\d{6,14}$/.test(cleaned)) {
+    return {
+      ok: false,
+      error:
+        "Ingresá el número con código de país y prefijo +. Ej: +5491123456789.",
+    };
+  }
+  return { ok: true, value: cleaned };
+}
+
+/** ¿El teléfono es un E.164 válido? */
+export function isValidPhone(input) {
+  return normalizePhone(input).ok;
+}
 
 // ── LECTURAS ON-CHAIN (public client con RPC EXPLÍCITO, POR RED) ────────────
 // ⚠️ NO usamos `evm.getViemClient()` del SDK para LEER: internamente construye
@@ -115,13 +153,20 @@ export function getKeyStorage() {
 
 /**
  * Construye un cliente Crossmint con el JWT FRESCO de la sesión de Supabase.
+ *
+ * ⚠️ IMPORTANTE: antes usábamos `supabase.auth.getSession()`, que devuelve el
+ * token guardado AUNQUE YA ESTÉ EXPIRADO. Crossmint valida ese JWT y, si venció,
+ * responde `ERROR_JWT_EXPIRED` — rompía pagos crypto, retiros y envíos de
+ * tokens aunque la UI siguiera "logueada". Ahora pedimos un token FRESCO (con
+ * refresh automático) vía `getFreshAccessToken()`.
  */
 async function buildClient() {
   const apiKey = getApiKey();
-  const { data } = await supabase.auth.getSession();
-  const jwt = data.session?.access_token;
+  const jwt = await getFreshAccessToken();
   if (!jwt) {
-    throw new Error("No hay sesión de Supabase. Iniciá sesión primero.");
+    throw new Error(
+      "Tu sesión expiró. Iniciá sesión de nuevo para continuar con la operación.",
+    );
   }
   return createCrossmint({ apiKey, jwt });
 }
@@ -150,27 +195,125 @@ export function clearWalletCache() {
 }
 
 /**
+ * ¿El error es por un JWT de Crossmint vencido/ inválido?
+ *
+ * El SDK tira mensajes como "Invalid JWT provided" o "ERROR_JWT_EXPIRED" cuando
+ * el token con el que se construyó el cliente YA expiró. Supabase refresca su
+ * sesión sola, pero el objeto `crossmint` (y la wallet derivada) que quedó en
+ * cache sigue atado al JWT viejo. Ante este error tenemos que reconstruir el
+ * cliente con un token FRESCO: invalidamos la caché y reintentamos una vez.
+ */
+function isJwtError(err) {
+  const msg = String(err?.message || err?.reason || err || "").toLowerCase();
+  return (
+    msg.includes("invalid jwt") ||
+    msg.includes("jwt expired") ||
+    msg.includes("jwt_expired") ||
+    msg.includes("error_jwt_expired") ||
+    msg.includes("invalid token")
+  );
+}
+
+/**
+ * Ejecuta una operación que depende de la wallet autenticada y, si falla por
+ * JWT vencido, limpia la caché y reintenta UNA vez con un cliente fresco.
+ *
+ * @template T
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+async function withFreshWalletRetry(fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    if (!isJwtError(err)) throw err;
+    // El JWT con el que se construyó la wallet cacheada venció. Tiramos la
+    // caché para forzar buildClient() con un getFreshAccessToken() nuevo.
+    console.warn(
+      "[crossmintWallet] JWT vencido al firmar; refrescando cliente y reintentando...",
+    );
+    clearWalletCache();
+    return fn();
+  }
+}
+
+/**
  * Crea la smart wallet Crossmint para el usuario autenticado.
  *
  * ⚠️ NO pasamos `signers`: el SDK agrega el device signer automáticamente.
  *
+ * ── MÉTODO DE RECOVERY (email vs phone) ─────────────────────────────────────
+ * En EVM el SDK admite UN método de recovery. Como el teléfono NO se verifica
+ * al crear (Crossmint lo valida con un OTP recién al primer uso), crear con un
+ * número mal cargado podría dejar al usuario sin recovery (lockout). Por eso:
+ *   - Por defecto creamos con recovery por EMAIL (seguro, validado por la sesión).
+ *   - `recoveryMethod: "phone"` arma con el teléfono SOLO si `verifyFirst` es
+ *     true (el caller ya confirmó el número con un OTP). Si no, se crea con
+ *     EMAIL y el número queda guardado como preferencia para verificar luego.
+ *
  * @param {Object} [opts]
  * @param {string} [opts.chain]
  * @param {string} [opts.email] - Email para recovery (default: el de la sesión).
+ * @param {"email"|"phone"} [opts.recoveryMethod="email"]
+ * @param {string} [opts.phone] - Teléfono (E.164) si recoveryMethod="phone".
+ * @param {"sms"|"whatsapp"} [opts.channel="sms"]
+ * @param {boolean} [opts.verifyFirst=false] - El teléfono YA fue verificado.
  * @returns {Promise<{ address: string, chain: string }>}
  */
-export async function createUserWallet({ chain = CROSSMINT_CHAIN, email } = {}) {
+export async function createUserWallet({
+  chain = CROSSMINT_CHAIN,
+  email,
+  recoveryMethod = "email",
+  phone,
+  channel = "sms",
+  verifyFirst = false,
+} = {}) {
+  // Resolvemos el email de la sesión si no se pasó (lo usamos como recovery
+  // seguro y como fallback).
   let recoveryEmail = email;
   if (!recoveryEmail) {
     const { data } = await supabase.auth.getSession();
     recoveryEmail = data.session?.user?.email;
   }
-  if (!recoveryEmail) {
-    throw new Error("La sesión no tiene email; no se puede crear la wallet.");
+
+  // Si el usuario eligió phone, validamos el FORMATO del número:
+  //  - phone válido + verifyFirst=true  → creamos con recovery por teléfono.
+  //  - phone válido + verifyFirst=false → creamos con EMAIL (seguro) y dejamos
+  //    el número como preferencia de UI; el caller deberá verificarlo luego.
+  //  - phone inválido                    → error (no seguimos con un typo).
+  let normalizedPhone = null;
+  let usePhone = false;
+  if (recoveryMethod === "phone") {
+    const v = normalizePhone(phone);
+    if (!v.ok) throw new Error(v.error);
+    normalizedPhone = v.value;
+    usePhone = Boolean(verifyFirst);
   }
 
   const crossmint = await buildClient();
   const wallets = CrossmintWallets.from(crossmint);
+
+  // ── Recovery por TELÉFONO (solo si el número ya fue verificado) ──────────
+  if (usePhone) {
+    const wallet = await wallets.createWallet({
+      chain,
+      recoveryMethods: [{ type: "phone", phone: normalizedPhone, channel }],
+      options: {
+        deviceSignerKeyStorage: getKeyStorage(),
+        callbacks: CROSSMINT_CALLBACKS,
+      },
+    });
+    await wallet.waitForInit();
+    // Persistimos la preferencia para el copy del modal.
+    setRecoveryPreference("phone");
+    setRecoveryPhone(normalizedPhone, channel);
+    return { address: wallet.address, chain: wallet.chain };
+  }
+
+  // ── Recovery por EMAIL (default, seguro) ─────────────────────────────────
+  if (!recoveryEmail) {
+    throw new Error("La sesión no tiene email; no se puede crear la wallet.");
+  }
 
   const wallet = await wallets.createWallet({
     chain,
@@ -183,6 +326,16 @@ export async function createUserWallet({ chain = CROSSMINT_CHAIN, email } = {}) 
   });
 
   await wallet.waitForInit();
+
+  if (normalizedPhone) {
+    // El usuario eligió phone pero no estaba verificado: lo guardamos como
+    // PREFERENCIA (para el copy del modal y para verificar después).
+    setRecoveryPreference("phone");
+    setRecoveryPhone(normalizedPhone, channel);
+  } else {
+    setRecoveryPreference("email");
+  }
+
   return { address: wallet.address, chain: wallet.chain };
 }
 
@@ -258,8 +411,10 @@ async function buildSignableWallet({ chain = CROSSMINT_CHAIN } = {}) {
  * @returns {Promise<{ address: string, chain: string }>}
  */
 export async function getUserWallet({ chain = CROSSMINT_CHAIN } = {}) {
-  const wallet = await getSignableWallet({ chain });
-  return { address: wallet.address, chain: wallet.chain };
+  return withFreshWalletRetry(async () => {
+    const wallet = await getSignableWallet({ chain });
+    return { address: wallet.address, chain: wallet.chain };
+  });
 }
 
 /**
@@ -287,8 +442,10 @@ export async function sendToken({
   if (!to || !token || amount === undefined || amount === null) {
     throw new Error("Faltan datos para enviar (to, token, amount).");
   }
-  const wallet = await getSignableWallet({ chain });
-  return wallet.send(to, token, String(amount));
+  return withFreshWalletRetry(async () => {
+    const wallet = await getSignableWallet({ chain });
+    return wallet.send(to, token, String(amount));
+  });
 }
 
 /**
@@ -336,9 +493,20 @@ export async function getEvmWallet({ chain = CROSSMINT_CHAIN } = {}) {
  * @param {Object} [opts]
  * @param {string} [opts.chain]
  * @param {string} [opts.email]
+ * @param {"email"|"phone"} [opts.recoveryMethod]
+ * @param {string} [opts.phone]
+ * @param {"sms"|"whatsapp"} [opts.channel]
+ * @param {boolean} [opts.verifyFirst]
  * @returns {Promise<{ address: string, chain: string, created: boolean }>}
  */
-export async function ensureUserWallet({ chain = CROSSMINT_CHAIN, email } = {}) {
+export async function ensureUserWallet({
+  chain = CROSSMINT_CHAIN,
+  email,
+  recoveryMethod = "email",
+  phone,
+  channel = "sms",
+  verifyFirst = false,
+} = {}) {
   // 1. ¿Ya existe una wallet para este usuario en esta red?
   const existing = await findUserWallet({ chain });
   if (existing?.address) {
@@ -346,7 +514,14 @@ export async function ensureUserWallet({ chain = CROSSMINT_CHAIN, email } = {}) 
   }
   // 2. No existe: la creamos.
   try {
-    const created = await createUserWallet({ chain, email });
+    const created = await createUserWallet({
+      chain,
+      email,
+      recoveryMethod,
+      phone,
+      channel,
+      verifyFirst,
+    });
     return { address: created.address, chain: created.chain, created: true };
   } catch (err) {
     // 3. Carrera/estado inconsistente: Crossmint dice que el owner YA tiene una
@@ -365,8 +540,10 @@ export async function ensureUserWallet({ chain = CROSSMINT_CHAIN, email } = {}) 
 
 /** Devuelve la address (0x...) de la wallet del usuario autenticado. */
 export async function getWalletAddress({ chain = CROSSMINT_CHAIN } = {}) {
-  const wallet = await getSignableWallet({ chain });
-  return wallet.address;
+  return withFreshWalletRetry(async () => {
+    const wallet = await getSignableWallet({ chain });
+    return wallet.address;
+  });
 }
 
 /**
@@ -532,23 +709,25 @@ export async function writeContract({
   if (!address || !abi || !functionName) {
     throw new Error("Faltan datos para escribir en el contrato (address, abi, functionName).");
   }
-  const evm = await getEvmWallet({ chain });
-  const res = await evm.sendTransaction({
-    to: address,
-    abi,
-    functionName,
-    args,
-    ...(value !== undefined ? { value } : {}),
+  return withFreshWalletRetry(async () => {
+    const evm = await getEvmWallet({ chain });
+    const res = await evm.sendTransaction({
+      to: address,
+      abi,
+      functionName,
+      args,
+      ...(value !== undefined ? { value } : {}),
+    });
+    // Una firma exitosa implica que el device signer quedó usable en esta red:
+    // marcamos el flag para que la UI no vuelva a mostrar el aviso de activación.
+    try {
+      const addr = await getWalletAddress({ chain });
+      markDeviceActivated({ address: addr, chain });
+    } catch {
+      /* no bloqueante */
+    }
+    return res;
   });
-  // Una firma exitosa implica que el device signer quedó usable en esta red:
-  // marcamos el flag para que la UI no vuelva a mostrar el aviso de activación.
-  try {
-    const addr = await getWalletAddress({ chain });
-    markDeviceActivated({ address: addr, chain });
-  } catch {
-    /* no bloqueante */
-  }
-  return res;
 }
 
 /**
@@ -609,4 +788,58 @@ export async function getContractCode({ address, chain = CROSSMINT_CHAIN } = {})
 export async function hasContractCode({ address, chain = CROSSMINT_CHAIN } = {}) {
   const code = await getContractCode({ address, chain });
   return Boolean(code) && code !== "0x" && code.length > 2;
+}
+
+// ── RECOVERY POR TELÉFONO: preferencia + verificación ──────────────────────
+
+/**
+ * Valida el FORMATO del teléfono y lo guarda como preferencia de recovery.
+ * No verifica el número (eso lo hace Crossmint por OTP). Útil para el paso de
+ * onboarding donde el usuario elige "SMS" pero todavía no se le envía código.
+ *
+ * @param {Object} opts
+ * @param {string} opts.phone - Teléfono (E.164 o con formato tolerado).
+ * @param {"sms"|"whatsapp"} [opts.channel="sms"]
+ * @returns {{ ok: boolean, value?: string, channel?: string, error?: string }}
+ */
+export function preparePhoneRecovery({ phone, channel = "sms" } = {}) {
+  const v = normalizePhone(phone);
+  if (!v.ok) return { ok: false, error: v.error };
+  setRecoveryPreference("phone");
+  setRecoveryPhone(v.value, channel);
+  return { ok: true, value: v.value, channel };
+}
+
+/** Devuelve el teléfono/canal de recovery guardados como preferencia. */
+export function getSavedRecoveryPhone() {
+  return getRecoveryPhone();
+}
+
+/**
+ * Verifica el teléfono de recovery disparando un OTP a ese número (vía
+ * Crossmint). Bloquea hasta que el usuario ingrese el código correcto en el
+ * `CrossmintOtpModal` (mismo flujo `onAuthRequired`).
+ *
+ * ⚠️ Es un paso deliberado para confirmar que el usuario controla el número,
+ * ANTES de depender de él como recovery (evita lockout por typo).
+ *
+ * Nota: hoy la wallet se crea con recovery por EMAIL; este helper sirve para
+ * dejar el número como método adicional (al migrar a mainnet con
+ * `addRecoveryMethod`) o como verificación previa en el onboarding.
+ *
+ * @param {Object} [opts]
+ * @param {string} [opts.chain]
+ * @returns {Promise<boolean>} true si quedó verificado.
+ */
+export async function verifyPhoneRecovery({ chain = CROSSMINT_CHAIN } = {}) {
+  return withFreshWalletRetry(async () => {
+    const wallet = await getSignableWallet({ chain });
+    if (typeof wallet.recover !== "function") {
+      throw new Error("Este SDK no soporta recover() para verificar el teléfono.");
+    }
+    // Dispara el OTP real vía onAuthRequired → CrossmintOtpModal.
+    await wallet.recover();
+    markDeviceActivated({ address: wallet.address, chain });
+    return true;
+  });
 }

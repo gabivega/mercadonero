@@ -16,6 +16,7 @@ import {
   writeContract,
   approveToken,
 } from "../Utils/crossmintWallet";
+import { isJwtExpiredError, handleUnauthorized } from "../Utils/axiosAuth";
 
 // ─────────────────────────────────────────────────────────────────────────
 // ⚠️ FIRMA CON CROSSMINT (NO Privy)
@@ -424,6 +425,16 @@ export default function CryptoPaymentModal({
       }
     } catch (error) {
       console.error("Error fondeando escrow:", error);
+      // ⚠️ Un JWT vencido YA NO es fatal: `writeContract`/`approveToken` en
+      // crossmintWallet.js reintentan automáticamente con un token fresco
+      // (withFreshWalletRetry). Si el error llega HASTA acá, significa que el
+      // refresh de sesión falló de verdad (p. ej. el refresh_token expiró) y no
+      // se puede recuperar sin volver a loguearse. En ese caso, y solo ahí,
+      // cerramos la sesión y redirigimos.
+      if (isJwtExpiredError(error)) {
+        handleUnauthorized();
+        return;
+      }
       const msg =
         error?.shortMessage ||
         error?.reason ||
@@ -482,8 +493,8 @@ export default function CryptoPaymentModal({
                 Pagar con Criptomonedas
               </h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Fondéa el escrow con {tokenSymbol} en {viemChain.name}. Tus fondos
-                quedan protegidos.
+                Fondéa el contrato inteligente con {tokenSymbol} en {viemChain.name}. Tus fondos
+                quedan protegidos hasta que recibas el producto correctamente.
               </p>
             </div>
           </div>

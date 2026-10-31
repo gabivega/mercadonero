@@ -92,6 +92,13 @@ const ESCROW_CHAINS = {
     // Default: la moneda NATIVA de la red (POL). La stable de prueba (USDXM) no
     // puede pagar gas en la smart wallet Crossmint (paymaster sponsor).
     tokenAddress: process.env.ESCROW_TOKEN_POLYGON || "",
+    // ⚠️ `payment.token` del modelo Order es un enum que YA incluye "USDXM":
+    //   USDT | USDC | USDXM | DAI | BNB | POL | ETH
+    // Por eso el símbolo que definamos acá (vía ESCROW_TOKEN_SYMBOL_POLYGON)
+    // debe ser uno de esos valores. Si se usa el stable de prueba, definir
+    // ESCROW_TOKEN_SYMBOL_POLYGON=USDXM y el controller lo persiste tal cual.
+    // (El whitelist de orderController —ALLOWED_PAYMENT_TOKENS— debe mantenerse
+    // SIEMPRE alineado con este enum.)
     tokenSymbol: process.env.ESCROW_TOKEN_SYMBOL_POLYGON || "POL",
     tokenDecimals: num(process.env.ESCROW_TOKEN_DECIMALS_POLYGON, 18),
     fundingMode: process.env.ESCROW_FUNDING_MODE_POLYGON || "native",

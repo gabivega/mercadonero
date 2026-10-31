@@ -40,7 +40,17 @@ const poolMemberSchema = new Schema(
     units: { type: Number, default: 1, min: 1 },
     // Wallet que fondea el grupo on-chain (la del comprador).
     wallet: { type: String, default: "", trim: true },
+    // ── ESCROW VÍA ORDEN INDIVIDUAL (NeroEscrow) ────────────────────
+    // Cada member posee SU PROPIA orden crypto (con su propio orderId)
+    // fondeada en el NeroEscrow común (no hay contrato de grupo). Este campo
+    // enlaza el member con su orden de escrow.
+    orderId: {
+      type: Schema.Types.ObjectId,
+      ref: "Order",
+      default: null,
+    },
     // Monto congelado on-chain (wei como string) al momento de fondear.
+    // Espejo de order.payment.amountUsdRetained para auditoría rápida.
     locked: { type: String, default: "0" },
     // Precio final unitario aplicado a este member al liberar (USDT).
     finalUnitPriceUsd: { type: Number, default: 0 },

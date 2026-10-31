@@ -126,6 +126,21 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
+  const logout = useCallback(async () => {
+    // Limpiamos la caché de la wallet Crossmint autenticada para que el próximo
+    // usuario NO herede el signer (ni la sesión de OTP) del anterior.
+    clearWalletCache();
+    await supabase.auth.signOut();
+    setSession(null);
+    // Limpiamos el usuario de negocio en el store para no dejar datos "colgados"
+    // de una sesión ya cerrada (perfil, wallet, direcciones, etc.).
+    try {
+      useUserStore.getState().clearUser?.();
+    } catch (err) {
+      console.warn("logout: no se pudo limpiar el store de usuario:", err);
+    }
+  }, []);
+
   const getAccessToken = useCallback(async () => {
     // ── TOKEN FRESCO (con refresh automático) ────────────────────────────
     // Privy refrescaba el token de forma transparente; Supabase NO lo hace
@@ -138,9 +153,10 @@ export function AuthProvider({ children }) {
     //   3. El refresh se COMPARTE entre llamadas concurrentes (refreshInFlight)
     //      para no disparar varios refreshSession() simultáneos (eso invalidaba
     //      el refresh_token por detección de reuso y cerraba la sesión).
-    //   4. Si el refresh falla, NO cerramos sesión en el acto: puede ser un
-    //      fallo transitorio (red/backend). Devolvemos null y dejamos que el
-    //      interceptor 401 decida (reintenta refresh antes de desloguear).
+    //   4. Si el refresh falla DE VERDAD, cerramos la sesión (logout): el
+    //      refresh_token está vencido/revocado y no tiene sentido seguir
+    //      navegando con un token muerto (el backend/Crossmint lo rechazan).
+    //      Si era un blip transitorio, el interceptor 401 ya reintenta antes.
     const { data } = await supabase.auth.getSession();
     const session = data?.session;
     if (!session) return null;
@@ -170,29 +186,15 @@ export function AuthProvider({ children }) {
 
     const token = await refreshInFlight;
     if (!token) {
-      // No pudimos refrescar. NO hacemos signOut acá: puede ser transitorio.
-      // Si el refresh token realmente está vencido, el backend devolverá 401
-      // y el interceptor global (con reintento) terminará cerrando la sesión.
-      console.warn("getAccessToken: refresh no disponible (posible fallo transitorio).");
+      // El refresh falló DE VERDAD: el refresh_token está vencido/revocado.
+      // Cerramos la sesión para no quedar navegando con un token muerto que el
+      // backend/Crossmint rechazan (ERROR_JWT_EXPIRED, 401, etc.).
+      console.warn("getAccessToken: refresh falló; cerrando sesión.");
+      await logout();
       return null;
     }
     return token;
-  }, []);
-
-  const logout = useCallback(async () => {
-    // Limpiamos la caché de la wallet Crossmint autenticada para que el próximo
-    // usuario NO herede el signer (ni la sesión de OTP) del anterior.
-    clearWalletCache();
-    await supabase.auth.signOut();
-    setSession(null);
-    // Limpiamos el usuario de negocio en el store para no dejar datos "colgados"
-    // de una sesión ya cerrada (perfil, wallet, direcciones, etc.).
-    try {
-      useUserStore.getState().clearUser?.();
-    } catch (err) {
-      console.warn("logout: no se pudo limpiar el store de usuario:", err);
-    }
-  }, []);
+  }, [logout]);
 
   // ── Reacción GLOBAL ante 401 ──────────────────────────────────────────
   // Conectamos el interceptor de axios con NUESTRO logout. Así, cuando el

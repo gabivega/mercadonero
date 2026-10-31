@@ -114,17 +114,21 @@ export const getConversationMessages = async (req, res) => {
 /**
  * POST /api/message/conversation
  * Inicia un chat de orden con otro usuario (verifica orden abierta).
- * Body: { userId }
+ * Body: { userId, orderId? }
+ * - `orderId` es opcional: si se pasa, el chat queda atado a esa compra/venta
+ *   concreta (evita mezclar conversaciones de distintas órdenes entre los
+ *   mismos usuarios).
  */
 export const startOrderConversation = async (req, res) => {
   try {
-    const { userId } = req.body;
+    const { userId, orderId } = req.body;
     if (!userId) {
       return res.status(400).json({ success: false, message: "Falta el usuario destino" });
     }
     const conversation = await getOrCreateOrderConversation({
       userA: req.user._id,
       userB: userId,
+      orderId,
     });
     res.status(200).json({ success: true, conversation });
   } catch (error) {

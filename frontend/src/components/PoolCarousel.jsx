@@ -6,6 +6,7 @@ import "swiper/css/navigation";
 import PoolCard from "./PoolCard";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { SOCIAL_SELLING_ENABLED } from "../Utils/featureFlags";
 
 export default function PoolCarousel({
   title = "Compras Grupales",
@@ -14,6 +15,7 @@ export default function PoolCarousel({
 }) {
   const navigate = useNavigate();
 
+  if (!SOCIAL_SELLING_ENABLED) return null;
   if (!pools || pools.length === 0) return null;
 
   return (

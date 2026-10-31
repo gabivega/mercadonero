@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import ProductCard from '../components/ProductCard';
 import FilterSidebar from '../components/FilterSidebar'; // Importamos tu componente unificado
 import { SlidersHorizontal } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { useUserStore } from '../store/useUserStore';
 
 // Tamaño de página estándar de la industria para grids de resultados
 // (~48 = 4 columnas x 12 filas, similar al default de los principales marketplaces).
@@ -12,6 +13,14 @@ const PAGE_SIZE = 48;
 
 const SearchResults = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  // Vista por categoría (/c/:categorySlug). Si estamos en /search, es undefined.
+  // Reutilizamos este mismo componente para categorías para tener exactamente
+  // la misma lógica (anti-autocompra, paginación, facetas, empty state).
+  const { categorySlug } = useParams();
+  // Usuario logueado: lo usamos para NO mostrarle sus propias publicaciones
+  // (anti-autocompra), igual que hace el Home con ProductCarousel.
+  const { dbUser } = useUserStore();
+  const currentUserId = dbUser?._id || null;
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [products, setProducts] = useState([]);
@@ -41,6 +50,14 @@ const SearchResults = () => {
   // "Publicaciones de @..." en vez de una búsqueda genérica.
   const isSellerView = Boolean(sellerId);
 
+  // Vista por categoría: derivamos un nombre legible desde el slug.
+  const isCategoryView = Boolean(categorySlug);
+  const formatSlug = (slug) =>
+    (slug || "")
+      .replace(/-/g, " ")
+      .replace(/\b\w/g, (l) => l.toUpperCase());
+  const categoryLabel = isCategoryView ? formatSlug(categorySlug) : "";
+
   // Función de fetch con paginación (segmentada de a PAGE_SIZE resultados)
   const fetchPage = async (pageNumber, append = false) => {
     if (append) {
@@ -59,12 +76,37 @@ const SearchResults = () => {
       limit: PAGE_SIZE,
     };
 
+    // Vista por categoría: el slug de la ruta manda el filtro de categoría.
+    // (En /search no hay categorySlug, así que no se agrega.)
+    if (categorySlug) {
+      backendParams.category = categorySlug;
+    }
+
+    // Anti-autocompra: pedimos al backend que excluya nuestras publicaciones.
+    // Se filtra en la DB para que `total`, paginación y facetas sean correctos.
+    // EXCEPCIÓN: en la vista del perfil de un vendedor (isSellerView) NO
+    // excluimos, porque si entro a MI propio perfil debo ver mis publicaciones.
+    if (currentUserId && !isSellerView) {
+      backendParams.excludeSellerId = currentUserId;
+    }
+
     try {
       const response = await axios.get(`${import.meta.env.VITE_SERVER_URL}/api/product/products`, {
         params: backendParams
       });
 
-      const newProducts = response.data.products || [];
+      // Refuerzo en el front: si por cualquier motivo (backend desactualizado o
+      // respuesta cacheada) viniera alguno de nuestros productos, lo quitamos.
+      // El seller puede venir como ObjectId plano o como objeto poblado (_id).
+      // No aplicamos el filtro en la vista del perfil de un vendedor.
+      const isOwnProduct = (p) =>
+        currentUserId &&
+        !isSellerView &&
+        String(p?.seller?._id || p?.seller) === String(currentUserId);
+
+      const newProducts = (response.data.products || []).filter(
+        (p) => !isOwnProduct(p),
+      );
       setProducts(append ? (prev) => [...prev, ...newProducts] : newProducts);
       setTotal(response.data.total ?? newProducts.length);
       setHasMore(Boolean(response.data.hasMore));
@@ -86,12 +128,14 @@ const SearchResults = () => {
     }
   };
 
-  // Carga inicial / cambio de filtros o URL: reiniciamos a la página 1
+  // Carga inicial / cambio de filtros, URL o usuario logueado: reiniciamos a
+  // la página 1. Incluimos `currentUserId` porque el store puede hidratarse
+  // después del primer render; al conocerse el usuario re-fetcheamos para
+  // aplicar bien el filtro anti-autocompra.
   useEffect(() => {
     fetchPage(1, false);
-    // ESLint: queremos correr solo cuando cambian los params de la URL
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, currentUserId, categorySlug]);
 
   // "Cargar más": trae la siguiente "página" de resultados y la acumula
   const handleLoadMore = () => {
@@ -132,9 +176,11 @@ const SearchResults = () => {
           categoryName={
             isSellerView
               ? `Publicaciones de @${sellerName || "vendedor"}`
-              : query
-                ? `Búsqueda: ${query}`
-                : "Resultados"
+              : isCategoryView
+                ? categoryLabel
+                : query
+                  ? `Búsqueda: ${query}`
+                  : "Resultados"
           }
         />
       </div>
@@ -145,9 +191,11 @@ const SearchResults = () => {
           <h1 className="text-2xl font-black dark:text-white uppercase tracking-tighter">
             {isSellerView
               ? `Publicaciones de @${sellerName || "vendedor"}`
-              : query
-                ? `"${query}"`
-                : "Explorar productos"}
+              : isCategoryView
+                ? categoryLabel
+                : query
+                  ? `"${query}"`
+                  : "Explorar productos"}
           </h1>
           <p className="text-gray-500 dark:text-zinc-500 text-sm font-medium">
             {total} artículos encontrados
@@ -193,25 +241,41 @@ const SearchResults = () => {
                 <div className="mb-4 flex justify-center">
                   <SlidersHorizontal className="w-12 h-12 text-zinc-700" />
                 </div>
-                <h3 className="text-xl font-black dark:text-white uppercase">Sin resultados</h3>
+                <h3 className="text-xl font-black dark:text-white uppercase">
+                  {isCategoryView ? "Todavía no hay productos" : "Sin resultados"}
+                </h3>
                 <p className="text-gray-500 dark:text-zinc-500 max-w-xs mx-auto mt-2 text-sm">
-                  No hay coincidencias. Probá ajustando los filtros o cambiando la búsqueda.
+                  {isCategoryView
+                    ? `Aún no hay publicaciones en ${categoryLabel}. Podés ser el primero en publicar.`
+                    : "No hay coincidencias. Probá ajustando los filtros o cambiando la búsqueda."}
                 </p>
-                <button 
-                  onClick={() => {
-                    if (isSellerView) {
-                      setSearchParams({
-                        sellerId,
-                        sellerName: sellerName || "",
-                      });
-                    } else {
-                      setSearchParams(query ? { q: query } : {});
-                    }
-                  }} 
-                  className="mt-6 px-6 py-2 bg-zinc-900 dark:bg-white dark:text-black text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:scale-105 transition-transform"
-                >
-                  Limpiar filtros
-                </button>
+                <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    onClick={() => {
+                      if (isSellerView) {
+                        setSearchParams({
+                          sellerId,
+                          sellerName: sellerName || "",
+                        });
+                      } else if (isCategoryView) {
+                        // Dejamos solo la categoría (sin filtros) para mostrar
+                        // todos los productos disponibles de esa categoría.
+                        setSearchParams({});
+                      } else {
+                        setSearchParams(query ? { q: query } : {});
+                      }
+                    }}
+                    className="px-6 py-2 bg-zinc-900 dark:bg-white dark:text-black text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:scale-105 transition-transform"
+                  >
+                    {isCategoryView ? "Quitar filtros" : "Limpiar filtros"}
+                  </button>
+                  <Link
+                    to="/vender"
+                    className="px-6 py-2 bg-[#F26722] text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:scale-105 transition-transform"
+                  >
+                    Publicar
+                  </Link>
+                </div>
               </div>
             )}
           </>

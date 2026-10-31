@@ -1,3 +1,4 @@
+import { SOCIAL_SELLING_ENABLED } from "../Utils/featureFlags";
 import React, { useState, useEffect } from "react";
 import {
   ShoppingCart,
@@ -6,22 +7,14 @@ import {
   Wallet,
   Heart,
   Bell,
-  Moon,
-  Sun,
   User,
   Plus,
-  Clock,
   List,
-  MessageSquare,
   LogOut,
   ShoppingBag,
-  FileText,
   LayoutDashboard,
-  Users,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useSelector, useDispatch } from "react-redux";
-import { toggleTheme } from "../store/themeSlice";
 import SearchSuggestions from "./SearchSuggestions";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../Utils/authClient";
@@ -104,8 +97,6 @@ const IconButton = ({ icon: Icon, onClick, badge = 0, mobile = false }) => (
 
 export default function Header() {
   const { dbUser, setDbUser, isAdmin } = useUserStore();
-  const theme = useSelector((s) => s.theme.mode);
-  const dispatch = useDispatch();
   const navigate = useNavigate();
   const totalItems = useCartStore((state) => state.getTotalItems());
     const { logout, ready, authenticated, user } = useAuth();
@@ -146,10 +137,6 @@ export default function Header() {
   }, [ready, authenticated, loadFavorites]);
 
 
-  const handleToggleTheme = () => {
-    dispatch(toggleTheme());
-  };
-
     const handleLogin = () => {
     setIsLoginOpen(true);
   };
@@ -176,6 +163,20 @@ export default function Header() {
   };
 
     const menuItems = ["Categorias", "Ofertas", "Vender", "Ayuda", "Referidos" ];
+
+  // Accesos del dashboard compartidos por desktop (dropdown) y mobile (grid).
+  // Una sola fuente de verdad para que ambas versiones muestren lo mismo.
+  const dashboardLinks = [
+    { label: "Mi perfil", path: "/perfil", icon: User },
+    { label: "Billetera", path: "/billetera", icon: Wallet },
+    { label: "Notificaciones", path: "/notificaciones", icon: Bell },
+    { label: "Favoritos", path: "/favoritos", icon: Heart },
+    { label: "Compras", path: "/compras", icon: ShoppingBag },
+    { label: "Mis órdenes", path: "/mis-ordenes", icon: List },
+    { label: "Vender", path: "/vender", icon: Plus },
+    { label: "Mis publicaciones", path: "/publicaciones", icon: LayoutDashboard },
+    { label: "Admin", path: "/admin", icon: LayoutDashboard, adminOnly: true },
+  ];
 
   return (
     <>
@@ -230,9 +231,9 @@ export default function Header() {
             {/* Navigation Links */}
             <nav className="hidden lg:flex items-center gap-8 mt-3 w-full justify-center">
               <div className="relative group">
-                <p className="cursor-pointer" href="#categorias">
+                <button type="button" className="cursor-pointer">
                   Categorias
-                </p>
+                </button>
                 <div className="absolute left-0 top-full w-56 bg-white dark:bg-zinc-900 rounded-lg shadow-lg border border-gray-100 dark:border-zinc-800 opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-all z-50">
                   <ul className="py-2">
                     {categories.map((cat) => (
@@ -304,85 +305,25 @@ export default function Header() {
                           className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-zinc-900 rounded-lg shadow-lg border border-gray-100 dark:border-zinc-800 overflow-hidden"
                         >
                           <div className="py-2">
-                            <button
-                              onClick={() => handleMenuClick("/perfil")}
-                              className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
-                            >
-                              <User className="w-4 h-4" />
-                              Mi perfil
-                            </button>
-                            <button
-                              onClick={() => handleMenuClick("/billetera")}
-                              className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
-                            >
-                              <Wallet className="w-4 h-4" />
-                              Billetera
-                            </button>
-                            <button
-                              onClick={() => handleMenuClick("/notificaciones")}
-                              className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
-                            >
-                              <Bell className="w-4 h-4" />
-                              Notificaciones
-                            </button>
-                                                        <button
-                              onClick={() => handleMenuClick("/compras")}
-                              className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
-                            >
-                              <ShoppingCart className="w-4 h-4" />
-                              Compras
-                            </button>
-                            <button
-                              onClick={() => handleMenuClick("/favoritos")}
-                              className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
-                            >
-                              <Heart className="w-4 h-4" />
-                              Favoritos
-                            </button>
-                            {isAdmin && (
-                              <button
-                                onClick={() => handleMenuClick("/admin")}
-                                className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
-                              >
-                                <LayoutDashboard className="w-4 h-4" />
-                                Admin
-                              </button>
+                            {dashboardLinks.map((item) =>
+                              item.adminOnly && !isAdmin ? null : (
+                                <button
+                                  key={item.path}
+                                  onClick={() => handleMenuClick(item.path)}
+                                  className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3 ${item.danger ? "text-red-600 dark:text-red-400" : "text-gray-900 dark:text-gray-100"}`}
+                                >
+                                  <item.icon className="w-4 h-4" />
+                                  {item.label}
+                                </button>
+                              ),
                             )}
-                            <button
-                              onClick={() => handleMenuClick("/vender")}
-                              className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
-                            >
-                              <Plus className="w-4 h-4" />
-                              Vender
-                            </button>
-                            <button
-                              onClick={() => handleMenuClick("/posts")}
-                              className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
-                            >
-                              <MessageSquare className="w-4 h-4" />
-                              Posts
-                            </button>
-                            <button
-                              onClick={() => handleMenuClick("/publicaciones")}
-                              className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
-                            >
-                              <List className="w-4 h-4" />
-                              Publicaciones
-                            </button>
-                            {/* <button
-                              onClick={() => handleMenuClick("/referidos")}
-                              className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
-                            >
-                              <Users className="w-4 h-4" />
-                              Referidos
-                            </button> */}
-                            {/* <hr className="my-2 border-gray-100 dark:border-zinc-800" /> */}
+                            <hr className="my-2 border-gray-100 dark:border-zinc-800" />
                             <button
                               onClick={handleLogout}
                               className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-3"
                             >
                               <LogOut className="w-4 h-4" />
-                              Salir
+                              Cerrar sesión
                             </button>
                           </div>
                         </motion.div>
@@ -415,12 +356,7 @@ export default function Header() {
                   </button>
                 </>
               )}
-              {mounted && (
-                <IconButton
-                  icon={theme === "dark" ? Sun : Moon}
-                  onClick={handleToggleTheme}
-                />
-              )}
+              {/* Toggle de tema oculto: solo existe dark por ahora. */}
             </div>
 
                         {/* Mobile Actions: Notifications (si logueado) + Cart + Hamburger */}
@@ -494,9 +430,11 @@ export default function Header() {
                 {/* Mobile Nav Links */}
                 <nav className="flex flex-col">
                   <div className="relative group">
-                    <NavLink href="#categorias" mobile>
+                    <span
+                      className="block w-full py-3 text-lg font-medium border-b border-gray-100 dark:border-zinc-800 text-gray-900 dark:text-white"
+                    >
                       Categorias
-                    </NavLink>
+                    </span>
                     <div className="mt-1 ml-2 bg-white dark:bg-zinc-900 rounded-lg shadow-lg border border-gray-100 dark:border-zinc-800">
                       <ul className="py-2">
                         {/* First 6 categories always visible */}
@@ -571,12 +509,13 @@ export default function Header() {
                     .map((item) => (
                       <NavLink
                         key={item}
-                        href={`#${item.toLowerCase()}`}
+                        href={`/${item.toLowerCase()}`}
                         mobile
                       >
                         {item}
                       </NavLink>
                     ))}
+                  {SOCIAL_SELLING_ENABLED && (
                   <Link
                     to="/compras-grupales"
                     onClick={() => setIsMobileMenuOpen(false)}
@@ -585,170 +524,51 @@ export default function Header() {
                     {/* <Users size={20} /> */}
                     Compras Grupales
                   </Link>
+                  )}
                 </nav>
 
                 {/* Mobile Quick Actions */}
                 <div className="grid grid-cols-3 gap-4 py-4 border-t border-gray-100 dark:border-zinc-800">
                   {ready && authenticated ? (
                     <>
-                      <div
-                        className="flex flex-col items-center gap-2 cursor-pointer"
-                        onClick={() => handleMenuClick("/perfil")}
-                      >
-                        <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-blue-600">
-                          <User className="w-6 h-6" />
-                        </div>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          Perfil
-                        </span>
-                      </div>
-                                            <div
-                        className="flex flex-col items-center gap-2 cursor-pointer"
-                        onClick={() => handleMenuClick("/billetera")}
-                      >
-                        <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-[#FB6002]">
-                          <Wallet className="w-6 h-6" />
-                        </div>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          Billetera
-                        </span>
-                      </div>
-                      <div
-                        className="flex flex-col items-center gap-2 cursor-pointer"
-                        onClick={() => handleMenuClick("/favoritos")}
-                      >
-                        <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-red-500">
-                          <Heart className="w-6 h-6" />
-                        </div>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          Favoritos
-                        </span>
-                      </div>
-                                            <div
-                        className="flex flex-col items-center gap-2 cursor-pointer"
-                        onClick={() => handleMenuClick("/notificaciones")}
-                      >
-                        <div className="relative p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-[#FB6002]">
-                          <Bell className="w-6 h-6" />
-                          {unreadNotifications > 0 && (
-                            <span className="absolute top-0 right-0 inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold text-white bg-[#FB6002] rounded-full">
-                              {unreadNotifications}
+                      {dashboardLinks.map((item) =>
+                        item.adminOnly && !isAdmin ? null : (
+                          <div
+                            key={item.path}
+                            className="flex flex-col items-center gap-2 cursor-pointer"
+                            onClick={() => handleMenuClick(item.path)}
+                          >
+                            <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-[#FB6002]">
+                              <item.icon className="w-6 h-6" />
+                            </div>
+                            <span className="text-xs text-gray-500 dark:text-gray-400 text-center">
+                              {item.label}
                             </span>
-                          )}
-                        </div>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          Notif.
-                        </span>
-                      </div>
-                      <div
-                        className="flex flex-col items-center gap-2 cursor-pointer"
-                        onClick={() => handleMenuClick("/vender")}
-                      >
-                        <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-green-600">
-                          <Plus className="w-6 h-6" />
-                        </div>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          Vender
-                        </span>
-                      </div>
-                      <div
-                        className="flex flex-col items-center gap-2 cursor-pointer"
-                        onClick={() => handleMenuClick("/compras")}
-                      >
-                        <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-[#FB6002]">
-                          <ShoppingBag className="w-6 h-6" />
-                        </div>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          Compras
-                        </span>
-                      </div>
-                      {isAdmin && (
-                        <div
-                          className="flex flex-col items-center gap-2 cursor-pointer"
-                          onClick={() => handleMenuClick("/admin")}
-                        >
-                          <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-full text-red-600">
-                            <LayoutDashboard className="w-6 h-6" />
                           </div>
-                          <span className="text-xs text-gray-500 dark:text-gray-400">
-                            Admin
-                          </span>
-                        </div>
+                        ),
                       )}
                       <div
                         className="flex flex-col items-center gap-2 cursor-pointer"
-                        onClick={() => handleMenuClick("/historial")}
+                        onClick={handleLogout}
                       >
-                        <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-[#FB6002]">
-                          <Clock className="w-6 h-6" />
+                        <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-full text-red-600">
+                          <LogOut className="w-6 h-6" />
                         </div>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          Historial
+                        <span className="text-xs text-gray-500 dark:text-gray-400 text-center">
+                          Cerrar sesión
                         </span>
                       </div>
-                      <div
-                        className="flex flex-col items-center gap-2 cursor-pointer"
-                        onClick={() => handleMenuClick("/posts")}
-                      >
-                        <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-[#FB6002]">
-                          <FileText className="w-6 h-6" />
-                        </div>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          Posts
-                        </span>
-                      </div>
-                      <div
-                        className="flex flex-col items-center gap-2 cursor-pointer"
-                        onClick={() => handleMenuClick("/publicaciones")}
-                      >
-                        <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-green-600">
-                          <List className="w-6 h-6" />
-                        </div>
-                        {/* <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-[#FB6002]">
-                          <LayoutDashboard className="w-6 h-6" />
-                          </div> */}
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          Publicaciones
-                        </span>
-                      </div>
-                          <div
-                            className="flex flex-col items-center gap-2 cursor-pointer"
-                            onClick={handleLogout}
-                          >
-                            <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-green-600">
-                              <LogOut className="w-6 h-6" />
-                            </div>
-                            <span className="text-xs text-gray-500 dark:text-gray-400">
-                              Cerrar Sesion
-                            </span>
-                          </div>
                     </>
                   ) : (
                     <div className="col-span-4 flex justify-center">
                                             <button
                         onClick={handleLogin}
-                        className="px-6 py-3 text-sm font-medium  bg-nero-500 dark:text-white hover:bg-nero-500 rounded-lg transition-colors w-full max-w-xs"
+                        className="px-6 py-3 text-sm font-medium text-white bg-[#FB6002] hover:brightness-110 rounded-lg transition-colors w-full max-w-xs"
                       >
                         Ingresar
                       </button>
                     </div>
                   )}
-                  <div
-                    className="flex flex-col items-center gap-2 cursor-pointer"
-                    onClick={handleToggleTheme}
-                  >
-                    <div className="p-3 bg-gray-50 dark:bg-zinc-800 rounded-full text-[#FB6002]">
-                      {mounted &&
-                        (theme === "dark" ? (
-                          <Sun className="w-6 h-6" />
-                        ) : (
-                          <Moon className="w-6 h-6" />
-                        ))}
-                    </div>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                      Tema
-                    </span>
-                  </div>
                 </div>
 
                 {/* User Profile Section */}

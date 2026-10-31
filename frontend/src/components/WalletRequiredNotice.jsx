@@ -16,7 +16,11 @@ import axios from "axios";
 import LoadingSpinner from "./LoadingSpinner";
 import { useUserStore } from "../store/useUserStore";
 import { useSyncUser } from "../Utils/userSync";
-import { ensureUserWallet } from "../Utils/crossmintWallet";
+import {
+  ensureUserWallet,
+  normalizePhone,
+  preparePhoneRecovery,
+} from "../Utils/crossmintWallet";
 
 const ACCENT = "#F26722";
 
@@ -205,14 +209,94 @@ export default function WalletRequiredNotice({
   // flujo (el usuario puede recargar sin irse a la página de billetera).
   const [justCreated, setJustCreated] = useState(false);
 
+  /**
+   * Pregunta cómo quiere recuperar la billetera (email o SMS) y, si elige SMS,
+   * pide y valida el número (E.164). Devuelve { recoveryMethod, phone } o null
+   * si el usuario cancela. NO crea nada: solo recoge la preferencia.
+   */
+  const askRecoveryMethod = async () => {
+    const isDark = document.documentElement.classList.contains("dark");
+    const base = {
+      background: isDark ? "#1f2937" : "#ffffff",
+      color: isDark ? "#f3f4f6" : "#1f2937",
+      confirmButtonColor: ACCENT,
+    };
+
+    // Paso 1: elegir canal.
+    const choice = await Swal.fire({
+      ...base,
+      title: "¿Cómo querés recuperar tu billetera?",
+      html: "Si cambiás de dispositivo, vas a necesitar confirmar tu identidad.<br/>Elegí cómo preferís que te enviemos el código.",
+      input: "radio",
+      inputOptions: {
+        email: "✉️ Por email (recomendado)",
+        phone: "📱 Por SMS",
+      },
+      inputValue: "email",
+      showCancelButton: true,
+      confirmButtonText: "Continuar",
+      cancelButtonText: "Cancelar",
+    });
+    if (!choice.isConfirmed) return null;
+
+    const method = choice.value === "phone" ? "phone" : "email";
+    if (method === "email") {
+      return { recoveryMethod: "email", phone: null, channel: "sms" };
+    }
+
+    // Paso 2 (solo SMS): pedir y validar el número.
+    const phoneRes = await Swal.fire({
+      ...base,
+      title: "Tu número de teléfono",
+      html: "Ingresalo con código de país y prefijo +.<br/><b>Ej: +5491123456789</b>",
+      input: "tel",
+      inputPlaceholder: "+5491123456789",
+      showCancelButton: true,
+      confirmButtonText: "Continuar",
+      cancelButtonText: "Cancelar",
+      inputValidator: (value) => {
+        const v = normalizePhone(value);
+        return v.ok ? undefined : v.error;
+      },
+    });
+    if (!phoneRes.isConfirmed) return null;
+
+    const v = normalizePhone(phoneRes.value);
+    if (!v.ok) return null;
+    return { recoveryMethod: "phone", phone: v.value, channel: "sms" };
+  };
+
   const handleCreate = async () => {
     try {
+      // 0. ¿Cómo quiere recuperar? (email por defecto; SMS opcional). No se
+      //    crea nada hasta tener la preferencia validada.
+      const recovery = await askRecoveryMethod();
+      if (!recovery) return; // el usuario canceló
+
       setIsCreating(true);
+
+      // Si eligió SMS, guardamos ya la preferencia (número validado) para el
+      // copy del modal. La wallet se crea con recovery por EMAIL (seguro); el
+      // número queda como preferencia y se verifica luego. Esto evita lockout
+      // por un número mal cargado.
+      if (recovery.recoveryMethod === "phone") {
+        preparePhoneRecovery({
+          phone: recovery.phone,
+          channel: recovery.channel,
+        });
+      }
 
       // 1. Obtener o crear la wallet EVM con Crossmint (idempotente: si una
       //    creación previa quedó a medio persistir, la recupera en vez de
       //    fallar con "The owner already holds a wallet...").
-      const { address } = await ensureUserWallet();
+      const { address } = await ensureUserWallet({
+        recoveryMethod: recovery.recoveryMethod,
+        phone: recovery.phone,
+        channel: recovery.channel,
+        // No verificamos el número antes de crear (paso explícito posterior),
+        // así que usamos EMAIL como recovery real para no arriesgar lockout.
+        verifyFirst: false,
+      });
 
       // 2. Persistir la dirección en la BD.
       const token = await getAccessToken();
@@ -382,6 +466,9 @@ export default function WalletRequiredNotice({
 export function InsufficientBalanceNotice({
   required = 0,
   balance = 0,
+  tokenSymbol = "USDT",
+  chainName = CHAIN_NAME,
+  reason = "comprar en grupo",
   onRefresh,
 }) {
   const shortfall = Math.max(0, Number(required) - Number(balance));
@@ -393,22 +480,22 @@ export function InsufficientBalanceNotice({
         </div>
         <div className="flex-1">
           <h3 className="font-black text-sm text-amber-800 dark:text-amber-200">
-            Te falta saldo en USDT
+            Te falta saldo en {tokenSymbol}
           </h3>
           <p className="text-sm text-amber-800/90 dark:text-amber-200/80 mt-1">
-            Para comprar en grupo necesitás reservar{" "}
-            <b>{Number(required).toFixed(2)} USDT</b>. Tenés{" "}
-            <b>{Number(balance).toFixed(2)} USDT</b> disponibles.
+            Para {reason} necesitás reservar{" "}
+            <b>{Number(required).toFixed(2)} {tokenSymbol}</b>. Tenés{" "}
+            <b>{Number(balance).toFixed(2)} {tokenSymbol}</b> disponibles.
           </p>
           <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
-            Te faltan <b>{shortfall.toFixed(2)} USDT</b>. Recargá tu billetera
-            para continuar.
+            Te faltan <b>{shortfall.toFixed(2)} {tokenSymbol}</b>. Recargá tu
+            billetera para continuar.
           </p>
         </div>
       </div>
 
       {/* Depósito in-situ: dirección copiable + guía, sin salir del flujo. */}
-      <DepositAddressCard />
+      <DepositAddressCard tokenSymbol={tokenSymbol} chainName={chainName} />
 
       <div className="flex flex-col sm:flex-row gap-2">
         {typeof onRefresh === "function" && (
@@ -417,7 +504,7 @@ export function InsufficientBalanceNotice({
             className="flex-1 flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-black text-white transition-all hover:brightness-95"
             style={{ backgroundColor: ACCENT }}
           >
-            <RefreshCcw size={15} /> Verificar
+            <RefreshCcw size={15} /> Ya deposité, verificar
           </button>
         )}
         <a

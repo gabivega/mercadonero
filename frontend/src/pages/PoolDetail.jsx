@@ -20,11 +20,14 @@ import { useUserStore } from "../store/useUserStore";
 import { useSyncUser } from "../Utils/userSync";
 import UserAvatar from "../components/UserAvatar";
 import AuthOnboarding from "../components/AuthOnboarding";
-import WalletRequiredNotice, {
-  InsufficientBalanceNotice,
-} from "../components/WalletRequiredNotice";
-import { fundPoolMember } from "../Utils/poolEscrowClient";
+import WalletRequiredNotice from "../components/WalletRequiredNotice";
+import CryptoPaymentModal from "../components/CryptoPaymentModal";
+import { polygonAmoy } from "viem/chains";
+import { SOCIAL_SELLING_ENABLED } from "../Utils/featureFlags";
 import { productPath } from "../Utils/productUrl";
+
+// Red firmable con la smart wallet Crossmint (BSC aún no soportada).
+const SIGNING_CHAIN_ID = polygonAmoy.id;
 
 const ACCENT = "#F26722";
 
@@ -37,22 +40,17 @@ const ACCENT = "#F26722";
  * Datos reales vía `usePools` (backend `/api/pool/:id`).
  */
 export default function PoolDetail() {
+  if (!SOCIAL_SELLING_ENABLED) return <Navigate to="/" replace />;
   const { id } = useParams();
   const navigate = useNavigate();
   const dbUser = useUserStore((s) => s.dbUser);
   const setDbUser = useUserStore((s) => s.setDbUser);
   const currentUserId = dbUser?._id;
   const { syncUser } = useSyncUser(setDbUser);
-  const { login, authenticated } = usePrivy();
+  const { login, authenticated, getAccessToken } = usePrivy();
   const { wallets } = useWallets();
 
-  const {
-    fetchPoolById,
-    joinPool,
-    leavePool,
-    preparePoolFunding,
-    confirmPoolFunding,
-  } = usePools();
+  const { fetchPoolById, createGroupOrder } = usePools();
 
   const [pool, setPool] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -61,8 +59,8 @@ export default function PoolDetail() {
   const [copied, setCopied] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [walletNoticeOpen, setWalletNoticeOpen] = useState(false);
-  const [balanceNotice, setBalanceNotice] = useState(null); // { required, balance }
-  const [fundingStatus, setFundingStatus] = useState("");
+  // Orden crypto PROVISIONAL del member, que se fondea con CryptoPaymentModal.
+  const [pendingOrder, setPendingOrder] = useState(null);
 
   // ¿Ya completó los datos básicos obligatorios?
   const hasProfileData = Boolean(
@@ -138,88 +136,63 @@ export default function PoolDetail() {
   };
 
   const doJoin = async () => {
-    const prevPrice = pool?.currentUnitPrice;
     setIsJoining(true);
-    // Marca para revertir mi membresía si no completo el fondeo.
-    let joinedOk = false;
     try {
-      // 1. Sumarme en el backend (aún sin fondear).
-      const joined = await joinPool(pool._id);
-      joinedOk = true;
+      // 1. Crear SOLO mi orden crypto de grupo (me sumo recién al fondear).
+      const { order } = await createGroupOrder({
+        joinPoolId: pool._id,
+        units: 1,
+        sellerId: pool.seller?._id || pool.seller,
+        chainId: SIGNING_CHAIN_ID,
+        shippingAddress: {},
+      });
 
-      // 2. Fondear on-chain mi porción.
-      const wallet = wallets?.[0];
-      if (!wallet) {
-        throw new Error(
-          "No encontramos una wallet. Iniciá sesión con tu billetera para fondear el grupo.",
-        );
+      // 2. Fondear mi orden con el modal multichain (Crossmint + NeroEscrow).
+      if (!order?._id) {
+        throw new Error("No se generó la orden de pago del grupo.");
       }
-      let prep;
-      try {
-        prep = await preparePoolFunding(pool._id);
-      } catch (err) {
-        // Saldo USDT insuficiente → aviso de recarga (no es error).
-        if (err?.insufficientUsdt) {
-          await leavePool(pool._id).catch(() => {});
-          joinedOk = false;
-          setFundingStatus("");
-          setBalanceNotice({
-            required: err.required ?? 0,
-            balance: err.balance ?? 0,
+      const prevPrice = pool?.currentUnitPrice;
+      setPendingOrder({
+        order,
+        onFunded: async () => {
+          // Refrescamos el pool con el estado actualizado del backend.
+          const res = await fetchPoolById(id, { silent: true });
+          if (res?.pool) setPool({ ...res.pool, productData: res.productData });
+
+          const joined = res?.pool;
+          const newPrice = joined?.currentUnitPrice ?? pool?.currentUnitPrice;
+          const lower = prevPrice && newPrice && newPrice < prevPrice;
+          const link = window.location.href;
+          const copied = await poolSuccessSwal({
+            title: "¡Felicitaciones!",
+            html: `
+              <p>Te uniste al grupo y <b>tu pago quedó en garantía</b>.</p>
+              ${
+                lower
+                  ? `<p style="margin-top:8px">
+                       Bajaste el precio de <b>${formatMoney(prevPrice)}</b> a
+                       <b style="color:${ACCENT}">${formatMoney(newPrice)}</b>.
+                     </p>`
+                  : newPrice
+                    ? `<p style="margin-top:8px">
+                         El precio actual del grupo es
+                         <b style="color:${ACCENT}">${formatMoney(newPrice)}</b>.
+                       </p>`
+                    : ""
+              }
+              <p style="margin-top:12px">
+                <b>Comparte con tus amigos</b> para bajar aún más el precio.
+              </p>
+            `,
+            confirmText: "Copiar enlace",
+            linkToCopy: link,
           });
-          return;
-        }
-        throw err;
-      }
-      if (!prep?.success || !prep?.funding) {
-        throw new Error("No se pudo preparar el fondeo del grupo.");
-      }
-      const { pool: funded } = await fundPoolMember({
-        wallet,
-        funding: prep.funding,
-        onStatus: setFundingStatus,
-        confirmOnChain: (hash) => confirmPoolFunding(pool._id, hash),
+          if (copied) showCopiedToast("Enlace del grupo copiado");
+        },
       });
-      joinedOk = false; // fondeo OK → nada que revertir
-
-      // Refrescamos el pool con el estado actualizado del backend.
-      const res = await fetchPoolById(id, { silent: true });
-      if (res?.pool) setPool({ ...res.pool, productData: res.productData });
-
-      const newPrice = funded?.currentUnitPrice ?? joined?.currentUnitPrice;
-      const lower = prevPrice && newPrice && newPrice < prevPrice;
-      const link = window.location.href;
-
-      const copied = await poolSuccessSwal({
-        title: "¡Felicitaciones!",
-        html: `
-          <p>Te uniste al grupo y <b>tu pago quedó en garantía</b>.</p>
-          ${
-            lower
-              ? `<p style="margin-top:8px">
-                   Bajaste el precio de <b>${formatMoney(prevPrice)}</b> a
-                   <b style="color:${ACCENT}">${formatMoney(newPrice)}</b>.
-                 </p>`
-              : newPrice
-                ? `<p style="margin-top:8px">
-                     El precio actual del grupo es
-                     <b style="color:${ACCENT}">${formatMoney(newPrice)}</b>.
-                   </p>`
-                : ""
-          }
-          <p style="margin-top:12px">
-            <b>Comparte con tus amigos</b> para bajar aún más el precio.
-          </p>
-        `,
-        confirmText: "Copiar enlace",
-        linkToCopy: link,
-      });
-      if (copied) showCopiedToast("Enlace del grupo copiado");
     } catch (e) {
-      // Si me uní pero no completé el fondeo → me salgo del grupo.
-      if (joinedOk) {
-        await leavePool(pool._id).catch(() => {});
-      }
+      // No hay join que revertir: el member se agrega recién al fondear, y si
+      // se cierra el modal sin pagar, el CryptoPaymentModal revierte la orden.
       if (e?.needsWallet) {
         setWalletNoticeOpen(true);
       } else {
@@ -229,9 +202,20 @@ export default function PoolDetail() {
         });
       }
     } finally {
-      setFundingStatus("");
       setIsJoining(false);
     }
+  };
+
+  // Cerrado SIN fondear: el CryptoPaymentModal ya revierte la orden provisional.
+  // Como el member se agrega recién al fondear, el Pool no cambió: no hay nada
+  // que limpiar acá.
+  const closeFundingModal = () => {
+    setPendingOrder(null);
+  };
+  const handleFundingSuccess = async () => {
+    const cb = pendingOrder?.onFunded;
+    setPendingOrder(null);
+    if (cb) await cb();
   };
 
   const handleOnboardingComplete = async () => {
@@ -599,44 +583,15 @@ export default function PoolDetail() {
         </div>
       )}
 
-      {/* Aviso: saldo USDT insuficiente (ya tiene wallet) */}
-      {balanceNotice && (
-        <div className="fixed inset-0 z-[65] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#161616] rounded-3xl p-5 max-w-md w-full shadow-2xl">
-            <InsufficientBalanceNotice
-              required={balanceNotice.required}
-              balance={balanceNotice.balance}
-              onRefresh={() => {
-                setBalanceNotice(null);
-                doJoin();
-              }}
-            />
-            <button
-              onClick={() => setBalanceNotice(null)}
-              className="mt-3 w-full text-center text-xs font-bold text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Overlay de fondeo on-chain (firma + confirmación) */}
-      {fundingStatus && (
-        <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#161616] rounded-3xl p-6 max-w-sm w-full text-center shadow-2xl">
-            <div
-              className="mx-auto mb-4 w-12 h-12 rounded-full border-4 border-t-transparent animate-spin"
-              style={{ borderColor: `${ACCENT}`, borderTopColor: "transparent" }}
-            />
-            <p className="font-bold dark:text-white">Fondeando tu grupo</p>
-            <p className="text-sm text-gray-500 mt-1">{fundingStatus}</p>
-            <p className="text-[11px] text-gray-400 mt-3">
-              No cierres esta ventana. Tu saldo queda en garantía hasta que el
-              grupo cierre.
-            </p>
-          </div>
-        </div>
+      {/* Modal de pago multichain (Crossmint + NeroEscrow) del member */}
+      {pendingOrder && (
+        <CryptoPaymentModal
+          order={pendingOrder.order}
+          getAccessToken={getAccessToken}
+          onClose={closeFundingModal}
+          onSuccess={handleFundingSuccess}
+          autoRollbackOnClose
+        />
       )}
     </div>
   );

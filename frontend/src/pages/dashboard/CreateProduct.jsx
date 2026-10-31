@@ -145,7 +145,7 @@ export default function CreateProduct() {
       if (data.success) {
         Swal.fire({
           title: "¡Publicación Exitosa!",
-          text: "Tu artículo ya está disponible en Mercado Nero.",
+          text: "Tu artículo estará disponible tras la aprobación de los administradores.",
           icon: "success",
           background: "#1A1A1A",
           color: "#ffffff",

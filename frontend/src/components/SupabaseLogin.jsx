@@ -5,6 +5,47 @@ import { supabase } from "../Utils/supabaseClient";
 import LoadingSpinner from "./LoadingSpinner";
 
 /**
+ * Traduce los errores comunes de Supabase Auth al español.
+ *
+ * Supabase devuelve mensajes en inglés. El más frecuente es el rate-limit del
+ * magic link:
+ *   "For security purposes, you can only request this after 23 seconds."
+ * Lo convertimos a un mensaje claro en español con los segundos restantes.
+ *
+ * @param {Error|{message?:string, status?:number}} error
+ * @returns {string} mensaje legible en español
+ */
+function translateAuthError(error) {
+  const raw = String(error?.message || "").trim();
+
+  // Rate limit del envío de magic link / OTP.
+  // "For security purposes, you can only request this after 23 seconds."
+  const rateMatch = raw.match(/after (\d+)\s*seconds?/i);
+  if (rateMatch) {
+    const secs = Number(rateMatch[1]);
+    const tiempo =
+      secs >= 60
+        ? `${Math.ceil(secs / 60)} minuto${Math.ceil(secs / 60) > 1 ? "s" : ""}`
+        : `${secs} segundo${secs === 1 ? "" : "s"}`;
+    return `Por seguridad, esperá ${tiempo} antes de volver a pedir el enlace.`;
+  }
+
+  // Otros errores puntuales traducidos.
+  if (/rate limit|too many requests/i.test(raw)) {
+    return "Hiciste demasiados intentos. Esperá un momento antes de reintentar.";
+  }
+  if (/invalid email/i.test(raw)) {
+    return "El email no es válido. Verificá e intentá de nuevo.";
+  }
+  if (/signups not allowed|user not found/i.test(raw)) {
+    return "No pudimos enviarte el enlace a ese email.";
+  }
+
+  // Fallback: mensaje original, o uno genérico en español.
+  return raw || "No pudimos enviar el enlace. Verificá el email e intentá de nuevo.";
+}
+
+/**
  * SupabaseLogin
  * -------------
  * Modal de autenticación con Supabase (reemplaza a NeroLogin de Privy).
@@ -51,10 +92,8 @@ export default function SupabaseLogin({
       setIsSent(true);
     } catch (error) {
       Swal.fire({
-        title: "Error",
-        text:
-          error?.message ||
-          "No pudimos enviar el enlace. Verificá el email e intentá de nuevo.",
+        title: "No se pudo enviar el enlace",
+        text: translateAuthError(error),
         icon: "error",
         background: "#1A1A1A",
         color: "#fff",
@@ -78,8 +117,8 @@ export default function SupabaseLogin({
     } catch (error) {
       setIsGoogleLoading(false);
       Swal.fire({
-        title: "Error",
-        text: error?.message || "No pudimos iniciar sesión con Google.",
+        title: "No se pudo iniciar sesión",
+        text: translateAuthError(error),
         icon: "error",
         background: "#1A1A1A",
         color: "#fff",
@@ -107,7 +146,7 @@ export default function SupabaseLogin({
               Revisá tu correo
             </h2>
             <p className="text-zinc-500 dark:text-zinc-400">
-              Te enviamos un enlace a <strong>{email}</strong>.<br/> Hacé clic
+              Te enviamos un enlace a <strong>{email}</strong>.<br /> Hacé clic
               en él para ingresar a Mercado Nero.
             </p>
             <button

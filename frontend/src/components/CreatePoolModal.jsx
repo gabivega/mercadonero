@@ -63,8 +63,18 @@ export default function CreatePoolModal({
             </h3>
             <p className="text-xs text-gray-400">
               Invitá compradores para bajar el precio entre todos.
+        {/* Aviso de escrow */}
             </p>
           </div>
+        </div>
+        <div className="flex items-start gap-3 p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 mb-5">
+          <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+            Al crear el grupo se <b>congela tu saldo en USDT o USDC </b> 
+           en un contrato inteligente. <b>No podés cancelar</b>:
+            si el grupo no se completa, se te cobra el precio del nivel
+            alcanzado y, si quedás solo, se liberan los fondos al expirar.
+          </p>
         </div>
 
         {/* Resumen */}
@@ -97,7 +107,7 @@ export default function CreatePoolModal({
         </div>
 
         {/* Aviso de escrow */}
-        <div className="flex items-start gap-3 p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 mb-5">
+        {/* <div className="flex items-start gap-3 p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 mb-5">
           <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5" />
           <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
             Al crear el grupo se <b>congela tu saldo en USDT</b> en un contrato
@@ -105,7 +115,7 @@ export default function CreatePoolModal({
             se te cobra el precio del nivel alcanzado y, si quedás solo, se
             liberan los fondos al expirar.
           </p>
-        </div>
+        </div> */}
 
         {/* Acciones */}
         <div className="flex gap-3">

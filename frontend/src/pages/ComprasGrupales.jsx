@@ -3,6 +3,8 @@ import { Users, SlidersHorizontal, ArrowUpDown } from "lucide-react";
 import PoolCard from "../components/PoolCard";
 import { usePools } from "../Utils/usePools";
 import { adaptPools } from "../Utils/poolAdapter";
+import { SOCIAL_SELLING_ENABLED } from "../Utils/featureFlags";
+import { Navigate } from "react-router-dom";
 
 // Helpers locales (antes venían de data/pools)
 const getPoolPercent = (pool) =>
@@ -36,6 +38,7 @@ const SORT_OPTIONS = [
 ];
 
 export default function ComprasGrupales() {
+  if (!SOCIAL_SELLING_ENABLED) return <Navigate to="/" replace />;
   const { fetchActivePools } = usePools();
   const [pools, setPools] = useState([]);
   const [loading, setLoading] = useState(true);

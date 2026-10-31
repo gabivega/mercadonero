@@ -34,15 +34,44 @@ export const findOpenOrderBetween = async (userA, userB) => {
 /**
  * Obtiene (o crea) una conversación de chat de orden entre dos usuarios.
  * Lanza un Error con `.status=403` si no hay orden abierta entre ellos.
+ *
+ * Importante: la conversación se identifica por la ORDEN (no solo por el par
+ * de usuarios). Así, si dos personas vuelven a operar por otro producto/orden,
+ * se abre un hilo nuevo en lugar de reutilizar el de la compra anterior.
+ *
+ * - `orderId` (opcional): si se pasa, se usa esa orden como contexto (validando
+ *   que el usuario participe en ella). Si no, se toma la última orden abierta
+ *   entre ambos usuarios.
  */
-export const getOrCreateOrderConversation = async ({ userA, userB }) => {
+export const getOrCreateOrderConversation = async ({ userA, userB, orderId }) => {
   if (String(userA) === String(userB)) {
     const err = new Error("No podés chatear con vos mismo.");
     err.status = 400;
     throw err;
   }
 
-  const order = await findOpenOrderBetween(userA, userB);
+  let order;
+  if (orderId) {
+    // Orden explícita: validamos que ambos usuarios participen de ella.
+    order = await Order.findOne({
+      _id: orderId,
+      $or: [
+        { buyer: userA, seller: userB },
+        { buyer: userB, seller: userA },
+      ],
+      status: { $in: OPEN_ORDER_STATUSES },
+    }).lean();
+    if (!order) {
+      const err = new Error(
+        "La orden indicada no está activa o no corresponde a este chat.",
+      );
+      err.status = 403;
+      throw err;
+    }
+  } else {
+    order = await findOpenOrderBetween(userA, userB);
+  }
+
   if (!order) {
     const err = new Error(
       "Solo podés iniciar un chat cuando tengas una compra/venta activa con este usuario.",
@@ -51,11 +80,12 @@ export const getOrCreateOrderConversation = async ({ userA, userB }) => {
     throw err;
   }
 
-  // Conversación de orden: garantizamos 1 por par de participantes globalmente
-  // (sin producto). Ordenamos participates para poder deduplicar.
+  // Conversación de orden: garantizamos 1 por ORDEN (contexto de la
+  // compra/venta). Ordenamos participants para poder deduplicar de forma estable.
   const sorted = [String(userA), String(userB)].sort();
   let conversation = await Conversation.findOne({
     kind: "order_chat",
+    order: order._id,
     participants: { $all: sorted },
     $expr: { $eq: [{ $size: "$participants" }, 2] },
   });

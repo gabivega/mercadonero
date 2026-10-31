@@ -1019,7 +1019,7 @@ export default function CollateralManager() {
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h3 className="text-sm font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wide flex items-center gap-2">
             <ReceiptText className="h-4 w-4 text-orange-500" />
-            Órdenes con garantía retenida
+            Órdenes con Saldo retenido
           </h3>
           <button
             onClick={refreshAll}

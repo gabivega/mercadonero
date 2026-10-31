@@ -44,6 +44,30 @@ export const setRefreshHandler = (handler) => {
 };
 
 /**
+ * ¿El error indica que el JWT/sesión venció?
+ *
+ * Cubre el error del backend (401 "Token inválido o expirado") y los errores de
+ * servicios externos que validan el JWT directamente — como Crossmint, que
+ * responde `{ code: "ERROR_JWT_EXPIRED", expiredAt }`. En esos casos la sesión
+ * ya no sirve y hay que cerrarla (no reintentar con el mismo token).
+ *
+ * @param {any} error  error de axios / Crossmint / fetch.
+ * @returns {boolean}
+ */
+export const isJwtExpiredError = (error) => {
+  if (!error) return false;
+  const code = error?.code || error?.response?.data?.code;
+  if (code === "ERROR_JWT_EXPIRED" || code === "ERROR_JWT_INVALID") return true;
+  const msg = String(
+    error?.message || error?.response?.data?.message || error?.response?.data?.error || "",
+  );
+  return /jwt\s*(provided\s*)?expired|jwt\s*invalid|token\s*(inv[aá]lido|expirado)|jwt\s*malformed/i.test(
+    msg,
+  );
+};
+
+
+/**
  * Ejecuta el logout + redirección una sola vez por "ráfaga" de 401.
  * Redirige a "/" (home) para que el usuario vuelva a un estado conocido y
  * pueda re-loguearse. No forzamos una recarga completa si ya estamos en "/".

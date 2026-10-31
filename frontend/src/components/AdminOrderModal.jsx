@@ -309,6 +309,24 @@ const AdminOrderModal = ({ order, isOpen, onClose, onAction }) => {
               </div>
             )}
 
+            {/* DISPUTA ABIERTA (general): muestra el motivo y a favor de quién se puede resolver */}
+            {order.dispute?.exists && order.dispute.status === "open" && (
+              <div className="rounded-2xl border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/30 px-4 py-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-rose-700 dark:text-rose-400 mb-1 flex items-center gap-1.5">
+                  <AlertCircle size={13} /> Orden en disputa
+                </p>
+                {order.dispute.description && (
+                  <p className="text-[11px] leading-relaxed text-rose-700/90 dark:text-rose-300/90 mb-1">
+                    <b>Motivo:</b> {order.dispute.description}
+                  </p>
+                )}
+                <p className="text-[11px] leading-relaxed text-rose-700/80 dark:text-rose-300/80">
+                  Resolvé la disputa con los botones de abajo (a favor del comprador o del vendedor).
+                  Cerrar la disputa NO mueve fondos: después usá "Reembolsar" o "Completar/Liberar".
+                </p>
+              </div>
+            )}
+
             {/* DISPUTA DE PAGO NO RECIBIDO */}
             {order.dispute?.exists &&
               order.dispute.status === "open" &&
@@ -328,9 +346,21 @@ const AdminOrderModal = ({ order, isOpen, onClose, onAction }) => {
             )}
 
             {/* ── ACCIONES PRINCIPALES (según estado) ─────────────────────
-                Grilla de 2 columnas en desktop, 1 en mobile. Todas las
-                acciones principales comparten tamaño y estilo vía ActionButton. */}
+              Grilla de 2 columnas en desktop, 1 en mobile. Todas las
+              acciones principales comparten tamaño y estilo vía ActionButton. */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+            {/* DISPUTA ABIERTA (cualquier origen): resolver a favor de una parte */}
+            {order.dispute?.exists && order.dispute.status === "open" && (
+              <>
+                <ActionButton full variant="indigo" onClick={() => onAction(order._id, 'close_dispute_buyer')}>
+                  Cerrar Disputa · a favor del COMPRADOR
+                </ActionButton>
+                <ActionButton full variant="emerald" onClick={() => onAction(order._id, 'close_dispute_seller')}>
+                  Cerrar Disputa · a favor del VENDEDOR
+                </ActionButton>
+              </>
+            )}
               {/* PENDING PAYMENT */}
               {order.status === 'pending_payment' && (
                 <ActionButton full variant="rose" onClick={() => onAction(order._id, 'force_expire')}>
@@ -435,6 +465,19 @@ const AdminOrderModal = ({ order, isOpen, onClose, onAction }) => {
                         onClick={() => onAction(order._id, 'release_guarantee')}
                       >
                         Liberar Garantía (Admin)
+                      </ActionButton>
+                    )}
+
+                                    {/* ABRIR DISPUTA (cataloga el caso como en disputa) */}
+                  {!['completed', 'cancelled', 'expired'].includes(order.status) &&
+                    !(order.dispute?.exists && order.dispute.status === 'open') && (
+                      <ActionButton
+                        size="sm"
+                        variant="outline-rose"
+                        className="!w-auto"
+                        onClick={() => onAction(order._id, 'open_dispute')}
+                      >
+                        Abrir Disputa
                       </ActionButton>
                     )}
 

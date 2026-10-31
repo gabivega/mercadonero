@@ -8,7 +8,6 @@ import PostDetail from "./pages/PostDetail";
 import ProductDetail from "./pages/ProductDetail";
 import SearchResults from "./pages/SearchResults";
 // import SocialMedia from "./pages/SocialMedia"; // Sección social deshabilitada (post-lanzamiento)
-import CategoryResults from "./pages/CategoryResults";
 import Cart from "./pages/Cart";
 import MyProducts from "./pages/dashboard/MyProducts";
 import WalletPage from "./pages/dashboard/WalletPage";
@@ -87,7 +86,7 @@ export default function App() {
             <Route path="/social" element={<SocialMedia />} />
             <Route path="/post/:id" element={<PostDetail />} />
             */}
-            <Route path="/c/:categorySlug" element={<CategoryResults />} />
+            <Route path="/c/:categorySlug" element={<SearchResults />} />
             <Route path="/cart" element={<Cart />} />
 
                         {/* <Route path="/shop/:username" element={<ShopPage />} /> */}

@@ -43,6 +43,61 @@ const listeners = new Set();
 // Solicitud de auth en curso.
 let pending = null;
 
+// ── PREFERENCIA DE MÉTODO DE RECOVERY (persistida) ─────────────────────────
+// El usuario elige, al crear la wallet o desde su perfil, si quiere recuperar
+// su firma por EMAIL o por TELÉFONO (SMS/WhatsApp). Guardamos esa preferencia
+// + el número/canal para armar el copy correcto del modal.
+// ⚠️ Esto NO altera la verificación: el número lo valida Crossmint enviando un
+// OTP (ver crossmintWallet.js). Solo controla qué texto/canal muestra la UI.
+const METHOD_KEY = "nero_recovery_method";
+const PHONE_KEY = "nero_recovery_phone";
+const CHANNEL_KEY = "nero_recovery_sms_channel";
+
+/** Guarda el método de recovery elegido ("email" | "phone"). */
+export function setRecoveryPreference(method) {
+  try {
+    if (method === "email" || method === "phone") {
+      localStorage.setItem(METHOD_KEY, method);
+    }
+  } catch {
+    /* noop */
+  }
+}
+
+/** Devuelve el método de recovery elegido ("email" por defecto). */
+export function getRecoveryPreference() {
+  try {
+    return localStorage.getItem(METHOD_KEY) === "phone" ? "phone" : "email";
+  } catch {
+    return "email";
+  }
+}
+
+/** Guarda el teléfono (E.164) y el canal elegido para el OTP. */
+export function setRecoveryPhone(phone, channel = "sms") {
+  try {
+    if (phone) localStorage.setItem(PHONE_KEY, String(phone));
+    if (channel === "sms" || channel === "whatsapp") {
+      localStorage.setItem(CHANNEL_KEY, channel);
+    }
+  } catch {
+    /* noop */
+  }
+}
+
+/** Devuelve { phone, channel } guardados como preferencia. */
+export function getRecoveryPhone() {
+  try {
+    return {
+      phone: localStorage.getItem(PHONE_KEY) || null,
+      channel:
+        localStorage.getItem(CHANNEL_KEY) === "whatsapp" ? "whatsapp" : "sms",
+    };
+  } catch {
+    return { phone: null, channel: "sms" };
+  }
+}
+
 /** Notifica a la UI del nuevo estado/solicitud. */
 function emit() {
   const snapshot = getSnapshot();
@@ -64,6 +119,7 @@ export function getSnapshot() {
       active: false,
       signerType: null,
       signerLocator: null,
+      channel: null,
       needsAuth: false,
       otpSent: false,
       verifying: false,
@@ -74,6 +130,7 @@ export function getSnapshot() {
     active: true,
     signerType: pending.signerType,
     signerLocator: pending.signerLocator,
+    channel: pending.channel,
     needsAuth: pending.needsAuth,
     otpSent: pending.otpSent,
     verifying: pending.verifying,
@@ -132,9 +189,12 @@ export function onAuthRequired(
       return;
     }
 
+    // Canal para el copy/UI (solo aplica a phone: "sms" | "whatsapp").
+    const { channel: savedChannel } = getRecoveryPhone();
     pending = {
       signerType,
       signerLocator,
+      channel: signerType === "phone" ? savedChannel : null,
       needsAuth,
       otpSent: false,
       verifying: false,
@@ -175,7 +235,10 @@ export async function submitOtp(code) {
   if (!pending) return false;
   const clean = String(code || "").trim();
   if (!clean) {
-    pending.error = "Ingresá el código que te llegó por email.";
+    pending.error =
+      pending.signerType === "phone"
+        ? "Ingresá el código que recibiste por mensaje de texto."
+        : "Ingresá el código que te llegó por email.";
     emit();
     return false;
   }
@@ -265,4 +328,8 @@ export default {
   submitOtp,
   cancelAuth,
   isAuthPending,
+  setRecoveryPreference,
+  getRecoveryPreference,
+  setRecoveryPhone,
+  getRecoveryPhone,
 };

@@ -52,6 +52,7 @@ const notificationSchema = new mongoose.Schema(
         // ── Disputas de pago no recibido (transferencia bancaria) ──
         "order_dispute_evidence", // El comprador adjuntó el comprobante ante un reporte de pago no recibido
         "order_dispute_resolved", // El admin resolvió una disputa de pago no recibido
+        "order_issue_reported", // Un usuario reportó un problema en una orden (aviso al admin)
       ],
       default: "general",
     },

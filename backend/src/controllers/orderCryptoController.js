@@ -1,0 +1,921 @@
+// backend/src/controllers/orderCryptoController.js
+//
+// CONTROLADOR DE ÓRDENES CON PAGO 100% CRIPTO (Escrow NeroEscrow, multichain).
+// Separado de orderController.js (FASE 1 - refactor). NO toca colateral bancario.
+//
+// Exporta: makeCreateCryptoOrder, resolveOrderPaymentToken, confirmEscrowFunding,
+// getEscrowStatus, cancelCryptoOrder, prepareEscrowFunding, rollbackCryptoOrder,
+// updateOrderPaymentChain, buyerRequestEscrowRelease, adminReleaseEscrow,
+// adminCancelEscrow, adminUpdateEscrowFee, adminGetEscrowConfig,
+// adminUpdateEscrowFeeWallet, adminUpdateEscrowConfig, adminListCryptoOrders,
+// adminNotifyBuyerEscrow.
+
+import Order from "../models/Order.js";
+import User from "../models/User.js";
+import Product from "../models/Product.js";
+import {
+  sendVendorCryptoPaid,
+  sendOrderCompletedToBuyer,
+  sendOrderCancelledToBuyer,
+  sendOrderCancelledToVendor,
+  sendAdminCancellationRequest,
+} from "../services/sendEmail.js";
+import { createNotification } from "../services/notificationService.js";
+import {
+  getEscrowChainConfig,
+  ESCROW_DEFAULT_CHAIN_ID,
+} from "../config/chains.js";
+import { isAdminUser, findAdminUser } from "../middleware/isAdmin.js";
+
+const ALLOWED_PAYMENT_TOKENS = [
+  "USDT",
+  "USDC",
+  "USDXM",
+  "DAI",
+  "BNB",
+  "POL",
+  "ETH",
+];
+
+/** Normaliza el símbolo de pago a un valor VÁLIDO para el enum del modelo. */
+export const resolveOrderPaymentToken = (token, escrowChain) => {
+  const normalize = (value) =>
+    ALLOWED_PAYMENT_TOKENS.includes(String(value || "").toUpperCase())
+      ? String(value).toUpperCase()
+      : null;
+  return (
+    normalize(token) ||
+    normalize(escrowChain?.tokenSymbol) ||
+    normalize(escrowChain?.nativeSymbol) ||
+    "USDT"
+  );
+};
+
+/** Helper interno: incrementa sold/stock de un producto. */
+async function incProductSoldStock(productId, qty) {
+  await Product.findByIdAndUpdate(productId, { $inc: { sold: qty, stock: -qty } });
+}
+
+/**
+ * FACTORY de la creación de orden crypto.
+ * createOrder (orderController.js) arma lo común en `ctx`; este handler hace
+ * SOLO la parte específica de crypto.
+ */
+export const makeCreateCryptoOrder = () => {
+  return async (req, res, ctx) => {
+    const {
+      buyer, seller, buyerId, sellerId, productIds, itemsSnapshot,
+      effectiveShippingAddress, isPickup, pickupLocation, shippingDetails,
+      calculatedTotal, maxShippingCost, financials, validReferrerId,
+      referralPercent, token,
+    } = ctx;
+
+    if (!buyer.walletAddress) {
+      return res.status(400).json({ success: false, message: "Para pagar con criptomonedas necesitás tener una wallet Web3 vinculada. Activá tu billetera desde 'Mi Billetera' antes de continuar." });
+    }
+    if (!seller.walletAddress) {
+      return res.status(400).json({ success: false, message: "El vendedor no tiene una wallet Web3 vinculada, por lo que no puede recibir pagos en criptomonedas." });
+    }
+
+    const escrowChain = getEscrowChainConfig(req.body.chainId ?? ESCROW_DEFAULT_CHAIN_ID);
+    const escrowTokenSymbol = resolveOrderPaymentToken(token, escrowChain);
+
+    const { getFeeBps } = await import("../services/escrowServices.js");
+    const feeRead = await getFeeBps(escrowChain.chainId);
+    const currentFeeBps = feeRead.success ? feeRead.feeBps : 300;
+
+    const baseFeeUsd = parseFloat((financials.totalUsd * (currentFeeBps / 10000)).toFixed(2));
+    const referralFeeUsd = parseFloat((financials.totalUsd * (referralPercent / 100)).toFixed(2));
+    financials.baseFeeUsd = baseFeeUsd;
+    financials.referralFeeUsd = referralFeeUsd;
+    financials.referralPercent = Number(referralPercent) || 0;
+    financials.platformFeeUsd = parseFloat((baseFeeUsd + referralFeeUsd).toFixed(2));
+    financials.sellerNetReleaseUsd = parseFloat((financials.totalUsd - financials.platformFeeUsd).toFixed(2));
+
+    const newOrderCrypto = new Order({
+      buyer: buyerId,
+      seller: sellerId,
+      products: productIds,
+      itemsSnapshot,
+      shippingAddress: effectiveShippingAddress,
+      deliveryMethod: isPickup ? "pickup" : "shipping",
+      pickupLocation: isPickup ? pickupLocation || undefined : undefined,
+      shippingDetails,
+      totalAmount: calculatedTotal + maxShippingCost,
+      productsAmount: calculatedTotal,
+      shippingAmount: maxShippingCost,
+      status: "pending_payment",
+      financials,
+      expiresAt: null,
+      referral: validReferrerId ? { referrer: validReferrerId, percent: referralPercent, creditAccrued: false } : undefined,
+      payment: {
+        method: "crypto",
+        token: escrowTokenSymbol,
+        status: "funding",
+        chainId: escrowChain.chainId,
+        fundingMode: escrowChain.fundingMode,
+        tokenAddress: escrowChain.tokenAddress || "",
+        amountUsdRetained: financials.totalUsd + financials.shippingCostUsd,
+        feeUsd: financials.platformFeeUsd,
+        feeBps: currentFeeBps,
+        sellerNetUsd: financials.sellerNetReleaseUsd,
+      },
+    });
+
+    const savedCryptoOrder = await newOrderCrypto.save();
+
+    return res.status(201).json({
+      success: true,
+      message: "Orden creada con pago en criptomonedas. Fondéa el escrow desde tu billetera para que el vendedor pueda despachar.",
+      order: savedCryptoOrder,
+      sellerWallet: seller.walletAddress,
+      buyerWallet: buyer.walletAddress,
+      escrowContract: escrowChain.contractAddress,
+      chainId: escrowChain.chainId,
+      fundingMode: escrowChain.fundingMode,
+      tokenSymbol: escrowTokenSymbol,
+    });
+  };
+};
+
+/** COMPRADOR CONFIRMA que fondeó el escrow on-chain (verifica on-chain). */
+export const confirmEscrowFunding = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { fundTxHash, tokenAddress, token, fundingMode } = req.body;
+    const userId = req.user._id.toString();
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    if (order.buyer.toString() !== userId) {
+      return res.status(403).json({ message: "Solo el comprador puede confirmar el fondeo del escrow" });
+    }
+    if (order.payment?.method !== "crypto") {
+      return res.status(400).json({ success: false, message: "Esta orden no usa pago en criptomonedas." });
+    }
+    if (order.payment?.status === "funded") {
+      return res.status(200).json({ success: true, alreadyFunded: true, message: "El escrow ya estaba marcado como fondeado.", order });
+    }
+    if (!["funding", "unpaid"].includes(order.payment?.status)) {
+      return res.status(400).json({ success: false, message: `No se puede confirmar el fondeo en este estado de pago: ${order.payment?.status}.` });
+    }
+    if (!fundTxHash) {
+      return res.status(400).json({ success: false, message: "Falta el hash de la transacción del fondeo." });
+    }
+
+    const escrowChainId = order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID;
+    const { verifyOrderFunded } = await import("../services/escrowServices.js");
+    const verification = await verifyOrderFunded(
+      order._id.toString(),
+      order.financials.totalUsd + order.financials.shippingCostUsd,
+      escrowChainId,
+    );
+
+    if (!verification.success || !verification.funded) {
+      return res.status(409).json({ success: false, message: "No pudimos verificar el fondeo on-chain. ¿Estás seguro de que hiciste la transacción al contrato correcto?", error: verification.error || "El escrow no está fondeado on-chain.", fundTxHash });
+    }
+    if (verification.amountMatches === false) {
+      return res.status(409).json({ success: false, message: "El monto retenido on-chain no coincide con el total de la orden. Verificá el importe fondeado.", escrow: verification.escrow });
+    }
+
+    const escrowInfo = verification.escrow || {};
+    const resolvedFundingMode = fundingMode || order.payment?.fundingMode || (escrowInfo.isNative ? "native" : "token");
+
+    order.payment.status = "funded";
+    order.payment.fundTxHash = fundTxHash;
+    order.payment.chainId = escrowChainId;
+    order.payment.fundingMode = resolvedFundingMode;
+    order.payment.escrowTokenAddress = escrowInfo.token || tokenAddress || order.payment.escrowTokenAddress || "";
+    order.payment.tokenAddress = resolvedFundingMode === "native" ? "" : tokenAddress || escrowInfo.token || order.payment.tokenAddress;
+    order.payment.token = resolveOrderPaymentToken(token || order.payment.token, getEscrowChainConfig(escrowChainId));
+    order.payment.amountUsdRetained = order.financials.totalUsd + order.financials.shippingCostUsd;
+    order.payment.fundedAt = new Date();
+    order.statusHistory.push({ status: "paid", changedAt: new Date(), comment: `El comprador abonó con cripto (${order.payment.token || "USDT"}). Fondos retenidos en el contrato de escrow.` });
+    order.status = "paid";
+    order.paymentVerifiedAt = new Date();
+
+    const seller = await User.findById(order.seller);
+    if (seller?.email) {
+      sendVendorCryptoPaid({
+        vendorEmail: seller.email,
+        orderId: order._id,
+        amount: order.totalAmount,
+        amountUsdt: order.financials?.sellerNetReleaseUsd ?? order.payment?.sellerNetUsd ?? order.payment?.amountUsdRetained,
+        products: order.itemsSnapshot || [],
+        buyerName: "el comprador",
+      }).catch((err) => console.error("Falló email venta crypto al vendedor:", err));
+    }
+    if (seller) {
+      createNotification({
+        recipient: seller._id,
+        type: "payment_confirmed",
+        title: "El comprador pagó la orden",
+        message: `El comprador depositó el dinero en el contrato para la orden #${order._id.toString().slice(-6).toUpperCase()}. Ya podés despachar.`,
+        data: { orderId: order._id, totalAmount: order.totalAmount },
+      }).catch((err) => console.error("Falló notif fondeo a vendedor:", err));
+    }
+
+    await order.save();
+
+    // ── COMPRA GRUPAL: materializar el Pool AHORA que hay pago on-chain ──
+    // El Pool NO existía antes de pagar (flujo "pago primero, grupo después").
+    // Acá, con la orden ya fondeada, se crea el grupo (si esta orden es del
+    // creador) o se suma al buyer como member (si es un join), y recién ahí se
+    // notifica al vendedor. Si algo falla NO se rompe el fondeo (ya on-chain).
+    if (order.isGroupBuy) {
+      try {
+        const { materializeGroupBuyOrder } = await import(
+          "./groupBuyOrderController.js"
+        );
+        await materializeGroupBuyOrder(order, fundTxHash);
+      } catch (poolErr) {
+        console.error(
+          "[GroupBuy] Falló materializar el grupo tras fondear:",
+          poolErr,
+        );
+      }
+    }
+
+    return res.status(200).json({ success: true, message: "Escrow verificado y orden activada. El vendedor puede despachar.", order });
+  } catch (error) {
+    console.error("Error al confirmar fondeo del escrow:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** Ver el estado on-chain del escrow de una orden (diagnóstico). */
+export const getEscrowStatus = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user._id.toString();
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    const isParticipant = order.buyer.toString() === userId || order.seller.toString() === userId;
+    const isAdmin = isAdminUser(req.user);
+    if (!isParticipant && !isAdmin) {
+      return res.status(403).json({ message: "No tenés permisos para ver esta orden" });
+    }
+
+    const escrowChainId = order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID;
+    const { getEscrow } = await import("../services/escrowServices.js");
+    const escrow = await getEscrow(order._id.toString(), escrowChainId);
+
+    return res.status(200).json({ success: true, order, escrow });
+  } catch (error) {
+    console.error("Error al obtener estado del escrow:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * CANCELACIÓN CON ESCROW (comprador / vendedor).
+ * Fondeado → registra solicitud al admin. No fondeado → cancela en DB.
+ */
+export const cancelCryptoOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user._id.toString();
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    const isBuyer = order.buyer.toString() === userId;
+    const isSeller = order.seller.toString() === userId;
+    if (!isBuyer && !isSeller) {
+      return res.status(403).json({ message: "No tenés permisos para cancelar esta orden" });
+    }
+    if (order.payment?.method !== "crypto") {
+      return res.status(400).json({ success: false, message: "Esta orden no usa pago en criptomonedas. Usá el flujo de cancelación bancaria." });
+    }
+    const cancellable = ["pending_payment", "verifying_payment", "paid", "funded"].includes(order.status);
+    if (!cancellable) {
+      return res.status(400).json({ success: false, message: `No se puede cancelar la orden en estado: ${order.status}` });
+    }
+
+    if (order.payment?.status === "funded") {
+      if (order.releaseRequest?.exists && order.releaseRequest.status === "pending") {
+        return res.status(400).json({ success: false, message: "Ya existe una solicitud de cancelación/reembolso en curso. Esperá la resolución del admin." });
+      }
+      order.releaseRequest = {
+        exists: true,
+        requestedBy: isBuyer ? order.buyer : order.seller,
+        reason: `El ${isBuyer ? "comprador" : "vendedor"} solicita cancelar la orden con escrow fondeado. El admin debe devolver los USDT al comprador (cancel-escrow).`,
+        status: "pending",
+        createdAt: new Date(),
+      };
+      order.statusHistory.push({ status: order.status, changedAt: new Date(), comment: `El ${isBuyer ? "comprador" : "vendedor"} solicitó cancelar la orden con escrow fondeado. Reembolso pendiente de aprobación del admin.` });
+      order.orderActions.push({ type: "cancel_request", initiator: isBuyer ? "buyer" : "seller", paidStatus: "paid", status: "pending", reason: "Solicitud de cancelación con escrow fondeado. Reembolso on-chain pendiente del admin.", createdBy: isBuyer ? order.buyer : order.seller });
+      await order.save();
+
+      const adminUser = await findAdminUser(User);
+      if (adminUser) {
+        createNotification({
+          recipient: adminUser._id,
+          type: "order_admin_release_request",
+          title: "Cancelación de escrow pendiente",
+          message: `El ${isBuyer ? "comprador" : "vendedor"} solicita cancelar la orden #${order._id.toString().slice(-6).toUpperCase()} con escrow fondeado. Revisá y ejecutá el reembolso (cancel-escrow).`,
+          data: { orderId: order._id },
+        }).catch(() => {});
+      }
+      const counterparty = isBuyer ? order.seller : order.buyer;
+      createNotification({
+        recipient: counterparty,
+        type: "order_cancelled",
+        title: "Solicitud de cancelación registrada",
+        message: `Se solicitó cancelar la orden #${order._id.toString().slice(-6).toUpperCase()}. Los USDT del escrow quedan retenidos hasta que el admin procese el reembolso.`,
+        data: { orderId: order._id },
+      }).catch(() => {});
+
+      return res.status(200).json({ success: true, message: "Solicitud de cancelación registrada. El admin procesará el reembolso del escrow (los fondos quedan retenidos hasta entonces).", order });
+    }
+
+    order.cancelledBy = isBuyer ? "buyer" : "seller";
+    order.status = "cancelled";
+    order.cancelledAt = new Date();
+    if (order.payment) order.payment.status = "cancelled_refunded";
+    order.statusHistory.push({ status: "cancelled", changedAt: new Date(), comment: `${isBuyer ? "El comprador" : "El vendedor"} canceló la orden antes de fondear el escrow.` });
+    order.orderActions.push({ type: "cancel_executed", initiator: isBuyer ? "buyer" : "seller", paidStatus: "not_paid", status: "completed", reason: "Cancelación de orden crypto antes de fondear el escrow.", createdBy: order.buyer });
+    await order.save();
+
+    await User.findByIdAndUpdate(order.buyer, { $inc: { "accounting.cancellationsAsBuyer": 1 } });
+
+    const buyer = await User.findById(order.buyer);
+    if (buyer?.email) {
+      sendOrderCancelledToBuyer({ buyerEmail: buyer.email, orderId: order._id, amount: order.totalAmount, withRefund: false }).catch(() => {});
+    }
+    const sellerUsr = await User.findById(order.seller);
+    if (sellerUsr?.email) {
+      sendOrderCancelledToVendor({ vendorEmail: sellerUsr.email, orderId: order._id, amount: order.totalAmount, withRefund: false }).catch(() => {});
+    }
+    createNotification({
+      recipient: order.seller,
+      type: "order_cancelled",
+      title: "Orden cancelada",
+      message: `La orden #${order._id.toString().slice(-6).toUpperCase()} fue cancelada antes del fondeo del escrow.`,
+      data: { orderId: order._id },
+    }).catch(() => {});
+
+    return res.status(200).json({ success: true, message: "Orden cancelada (escrow aún no fondeado).", order });
+  } catch (error) {
+    console.error("Error al cancelar orden crypto:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** COMPRADOR PREPARA el fondeo del escrow (start-here para el front + gas drip). */
+export const prepareEscrowFunding = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user._id.toString();
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    if (order.buyer.toString() !== userId) {
+      return res.status(403).json({ message: "Solo el comprador puede preparar el fondeo del escrow" });
+    }
+    if (order.payment?.method !== "crypto") {
+      return res.status(400).json({ success: false, message: "Esta orden no usa pago en criptomonedas (escrow)." });
+    }
+
+    const buyer = await User.findById(order.buyer);
+    const seller = await User.findById(order.seller);
+    const buyerWallet = buyer?.walletAddress;
+    if (!buyerWallet) {
+      return res.status(400).json({ success: false, needsWallet: true, message: "Necesitas tener una wallet Web3 vinculada para fondear el escrow. Activa tu billetera desde 'Mi Billetera'." });
+    }
+
+    const escrowChain = getEscrowChainConfig(order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID);
+    const isNativeFunding = escrowChain.fundingMode === "native";
+    const tokenAddress = isNativeFunding
+      ? ""
+      : order.payment?.tokenAddress || escrowChain.tokenAddress || process.env.USDT_TOKEN_ADDRESS || process.env.USDT_TESTNET_ADDRESS || "";
+    const tokenSymbol = order.payment?.token || escrowChain.tokenSymbol;
+    const requiredUsd = (order.financials?.totalUsd || 0) + (order.financials?.shippingCostUsd || 0);
+
+    const { prepareFunding } = await import("../services/gasDripService.js");
+    const gas = await prepareFunding({
+      userId,
+      walletAddress: buyerWallet,
+      usdtAddress: tokenAddress,
+      requiredUsd,
+      chainId: escrowChain.chainId,
+      reason: "approve",
+      refId: order._id,
+    });
+    if (!gas.success) {
+      return res.status(400).json({
+        success: false,
+        message: gas.error || "No se pudo preparar el gas/saldo para el fondeo.",
+        insufficientUsdt: !!gas.insufficientUsdt,
+        balance: gas.balanceUsd ?? 0,
+      });
+    }
+
+    const fundingPayload = {
+      orderId: order._id.toString(),
+      chainId: escrowChain.chainId,
+      contractAddress: escrowChain.contractAddress,
+      fundingMode: escrowChain.fundingMode,
+      isNativeFunding,
+      tokenAddress,
+      token: tokenSymbol,
+      sellerWallet: seller?.walletAddress || null,
+      buyerWallet,
+      requiredUsd,
+      feeBps: order.payment?.feeBps || undefined,
+    };
+
+    return res.status(200).json({
+      success: true,
+      ...fundingPayload,
+      gasDripped: !!gas?.drip?.delivered,
+      funding: fundingPayload,
+      gas,
+    });
+  } catch (error) {
+    console.error("Error al preparar fondeo del escrow:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** ROLLBACK de orden crypto PROVISIONAL (comprador cerro el modal sin fondear). */
+export const rollbackCryptoOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user._id.toString();
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    if (order.buyer.toString() !== userId) {
+      return res.status(403).json({ message: "Solo el comprador puede hacer rollback de esta orden" });
+    }
+    if (order.payment?.method !== "crypto") {
+      return res.status(400).json({ success: false, message: "El rollback solo aplica a ordenes con pago en criptomonedas." });
+    }
+    if (!["funding", "unpaid"].includes(order.payment?.status)) {
+      return res.status(400).json({ success: false, message: `No se puede eliminar la orden: el pago esta en estado "${order.payment?.status}".` });
+    }
+    if (!["pending_payment", "verifying_payment"].includes(order.status)) {
+      return res.status(400).json({ success: false, message: `No se puede eliminar la orden en estado "${order.status}".` });
+    }
+
+    await Order.findByIdAndDelete(orderId);
+
+    return res.status(200).json({ success: true, message: "Orden provisional eliminada correctamente.", orderId });
+  } catch (error) {
+    console.error("Error al hacer rollback de orden crypto:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** CAMBIAR LA RED DE PAGO de una orden crypto PROVISIONAL (comprador). */
+export const updateOrderPaymentChain = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { chainId } = req.body;
+    const userId = req.user._id.toString();
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    if (order.buyer.toString() !== userId) {
+      return res.status(403).json({ message: "Solo el comprador puede cambiar la red de pago." });
+    }
+    if (order.payment?.method !== "crypto") {
+      return res.status(400).json({ success: false, message: "Esta orden no usa pago en criptomonedas (escrow)." });
+    }
+    if (!["funding", "unpaid"].includes(order.payment?.status)) {
+      return res.status(400).json({ success: false, message: `No se puede cambiar la red: el pago esta en estado "${order.payment?.status}".` });
+    }
+    if (!["pending_payment", "verifying_payment"].includes(order.status)) {
+      return res.status(400).json({ success: false, message: `No se puede cambiar la red en estado "${order.status}".` });
+    }
+    if (chainId == null) {
+      return res.status(400).json({ success: false, message: "Falta el chainId destino." });
+    }
+
+    const escrowChain = getEscrowChainConfig(Number(chainId));
+    const seller = await User.findById(order.seller);
+
+    order.payment.chainId = escrowChain.chainId;
+    order.payment.fundingMode = escrowChain.fundingMode;
+    order.payment.tokenAddress = escrowChain.tokenAddress || "";
+    order.payment.token = resolveOrderPaymentToken(escrowChain.tokenSymbol, escrowChain);
+    order.statusHistory.push({ status: order.status, changedAt: new Date(), comment: `El comprador eligio pagar en ${escrowChain.key} (chain ${escrowChain.chainId}, ${escrowChain.tokenSymbol}).` });
+    await order.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Red de pago actualizada a ${escrowChain.tokenSymbol} (${escrowChain.key}).`,
+      order,
+      chainId: escrowChain.chainId,
+      contractAddress: escrowChain.contractAddress,
+      fundingMode: escrowChain.fundingMode,
+      isNativeFunding: escrowChain.fundingMode === "native",
+      tokenAddress: escrowChain.tokenAddress || "",
+      token: escrowChain.tokenSymbol,
+      sellerWallet: seller?.walletAddress || null,
+    });
+  } catch (error) {
+    console.error("Error al cambiar la red de pago:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** COMPRADOR SOLICITA al admin la liberacion del escrow (post inactividad). */
+export const buyerRequestEscrowRelease = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { reason } = req.body;
+    const userId = req.user._id.toString();
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    if (order.buyer.toString() !== userId) {
+      return res.status(403).json({ message: "Solo el comprador puede solicitar la liberacion del escrow" });
+    }
+    if (order.payment?.method !== "crypto") {
+      return res.status(400).json({ success: false, message: "Esta orden no usa pago en criptomonedas (escrow)." });
+    }
+    if (order.payment?.status !== "funded") {
+      return res.status(400).json({ success: false, message: `El escrow no esta fondeado (estado: ${order.payment?.status}). No hay nada que liberar.` });
+    }
+    if (["cancelled", "completed"].includes(order.status)) {
+      return res.status(400).json({ success: false, message: `La orden ya esta ${order.status}.` });
+    }
+    if (order.dispute?.exists) {
+      return res.status(409).json({ success: false, message: "Hay una disputa abierta en esta orden. El admin la resolvera y definira la liberacion." });
+    }
+    if (order.releaseRequest?.exists && order.releaseRequest.status === "pending") {
+      return res.status(400).json({ success: false, message: "Ya existe una solicitud de liberacion en curso. Espera la resolucion del admin." });
+    }
+
+    order.releaseRequest = {
+      exists: true,
+      requestedBy: order.buyer,
+      reason: reason || "Liberacion solicitada por el comprador (plazo de inactividad).",
+      status: "pending",
+      createdAt: new Date(),
+    };
+    order.orderActions.push({ type: "admin_intervention", initiator: "buyer", paidStatus: "paid", status: "pending", reason: "El comprador solicita la liberacion del escrow al admin tras el plazo de inactividad. " + (reason || ""), createdBy: order.buyer });
+    await order.save();
+
+    const adminUser = await findAdminUser(User);
+    if (adminUser) {
+      createNotification({
+        recipient: adminUser._id,
+        type: "order_admin_release_request",
+        title: "Solicitud de liberacion de escrow",
+        message: `El comprador solicita liberar el escrow de la orden #${order._id.toString().slice(-6).toUpperCase()}. Revisala en el panel de admin (adminReleaseEscrow).`,
+        data: { orderId: order._id },
+      }).catch(() => {});
+      if (adminUser.email) {
+        const [buyerInfo, sellerInfo] = await Promise.all([User.findById(order.buyer), User.findById(order.seller)]);
+        sendAdminCancellationRequest({
+          adminEmail: adminUser.email,
+          orderId: order._id,
+          amount: order.totalAmount,
+          sellerName: sellerInfo?.username || sellerInfo?.firstName || "El vendedor",
+          buyerName: buyerInfo?.firstName || buyerInfo?.username || "El comprador",
+          reason: reason || "Liberacion de escrow solicitada por el comprador.",
+        }).catch((err) => console.error("Fallo email de solicitud de liberacion de escrow:", err));
+      }
+    }
+
+    return res.status(200).json({ success: true, message: "Solicitud enviada al admin. El escrow se liberara manualmente luego de verificar la entrega.", order });
+  } catch (error) {
+    console.error("Error al solicitar liberacion de escrow:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** ADMIN: LIBERA el escrow manualmente (fondos al vendedor, cobra fee). */
+export const adminReleaseEscrow = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    if (order.payment?.method !== "crypto") {
+      return res.status(400).json({ success: false, message: "Esta orden no usa pago en criptomonedas (escrow)." });
+    }
+    if (order.payment?.status !== "funded") {
+      return res.status(400).json({ success: false, message: `El escrow no esta fondeado (estado: ${order.payment?.status}).` });
+    }
+
+    const { releaseOrderEscrow } = await import("../services/escrowServices.js");
+    const result = await releaseOrderEscrow(order._id.toString(), order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID);
+    if (!result.success) {
+      return res.status(500).json({ success: false, message: "No se pudo liberar el escrow on-chain.", error: result.error });
+    }
+
+    order.payment.status = "released";
+    order.payment.releaseTxHash = result.txHash;
+    order.payment.releasedAt = new Date();
+    order.status = "completed";
+    order.completedAt = new Date();
+    order.statusHistory.push({ status: "completed", changedAt: new Date(), comment: "Escrow liberado manualmente por el admin (fondos enviados al vendedor)." });
+    order.orderActions.push({ type: "admin_intervention", initiator: "admin", paidStatus: "paid", status: "completed", reason: "El admin libero el escrow manualmente.", releaseTxHash: result.txHash, createdBy: req.user?._id });
+    await order.save();
+
+    await User.findByIdAndUpdate(order.seller, { $inc: { "accounting.completedSales": 1, "shop.totalSalesCount": 1 } });
+    await User.findByIdAndUpdate(order.buyer, { $inc: { "accounting.completedPurchases": 1 } });
+    for (const item of order.itemsSnapshot) {
+      await incProductSoldStock(item.productId, item.quantity || 1);
+    }
+
+    const buyerThis = await User.findById(order.buyer);
+    if (buyerThis?.email) {
+      sendOrderCompletedToBuyer({ buyerEmail: buyerThis.email, orderId: order._id, amount: order.totalAmount }).catch(() => {});
+    }
+
+    return res.status(200).json({ success: true, message: "Escrow liberado y orden completada por el admin.", order, releaseTxHash: result.txHash });
+  } catch (error) {
+    console.error("Error al liberar escrow (admin):", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** ADMIN: CANCELA y reembolsa el escrow al comprador. */
+export const adminCancelEscrow = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    if (order.payment?.method !== "crypto") {
+      return res.status(400).json({ success: false, message: "Esta orden no usa pago en criptomonedas (escrow)." });
+    }
+    if (order.payment?.status !== "funded") {
+      return res.status(400).json({ success: false, message: `El escrow no esta fondeado (estado: ${order.payment?.status}).` });
+    }
+
+    const { cancelOrderEscrow } = await import("../services/escrowServices.js");
+    const result = await cancelOrderEscrow(order._id.toString(), order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID);
+    if (!result.success) {
+      return res.status(500).json({ success: false, message: "No se pudo cancelar/devolver el escrow on-chain.", error: result.error });
+    }
+
+    order.payment.status = "cancelled_refunded";
+    order.payment.cancelTxHash = result.txHash;
+    order.payment.cancelledRefundedAt = new Date();
+    order.payment.releasedAt = new Date();
+    order.status = "cancelled";
+    order.cancelledAt = new Date();
+    order.cancelledBy = "admin";
+    order.statusHistory.push({ status: "cancelled", changedAt: new Date(), comment: "Escrow cancelado y reembolsado al comprador por el admin." });
+    order.orderActions.push({ type: "admin_intervention", initiator: "admin", paidStatus: "paid", status: "completed", reason: "El admin cancelo el escrow y devolvio el 100% de los USDT al comprador.", releaseTxHash: result.txHash, createdBy: req.user?._id });
+    await order.save();
+
+    await User.findByIdAndUpdate(order.buyer, { $inc: { "accounting.cancellationsAsBuyer": 1 } });
+
+    const buyer = await User.findById(order.buyer);
+    const sellerUsr = await User.findById(order.seller);
+    if (buyer?.email) {
+      sendOrderCancelledToBuyer({ buyerEmail: buyer.email, orderId: order._id, amount: order.totalAmount, withRefund: true }).catch(() => {});
+    }
+    if (sellerUsr?.email) {
+      sendOrderCancelledToVendor({ vendorEmail: sellerUsr.email, orderId: order._id, amount: order.totalAmount, withRefund: false }).catch(() => {});
+    }
+    createNotification({
+      recipient: order.buyer,
+      type: "order_cancelled",
+      title: "Tu compra fue cancelada y tu dinero devuelto",
+      message: `El admin cancelo la orden #${order._id.toString().slice(-6).toUpperCase()} y los USDT del escrow fueron devueltos a tu billetera.`,
+      data: { orderId: order._id },
+    }).catch(() => {});
+    createNotification({
+      recipient: order.seller,
+      type: "order_cancelled",
+      title: "Tu venta fue cancelada (escrow reembolsado)",
+      message: `El admin cancelo la orden #${order._id.toString().slice(-6).toUpperCase()} y devolvio los USDT al comprador.`,
+      data: { orderId: order._id },
+    }).catch(() => {});
+
+    return res.status(200).json({ success: true, message: "Escrow cancelado y orden cancelada por el admin. Los USDT fueron devueltos al comprador.", order, cancelTxHash: result.txHash });
+  } catch (error) {
+    console.error("Error al cancelar escrow (admin):", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** ADMIN: SETTLE FLEXIBLE del escrow (poder absoluto, montos variables). */
+export const adminSettleEscrow = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    // Montos en USD (unidades humanas). Default 0 cada uno.
+    const sellerAmount = Number(req.body?.sellerAmount ?? 0);
+    const feeAmount = Number(req.body?.feeAmount ?? 0);
+    const refundAmount = Number(req.body?.refundAmount ?? 0);
+
+    if (![sellerAmount, feeAmount, refundAmount].every((n) => Number.isFinite(n) && n >= 0)) {
+      return res.status(400).json({ success: false, message: "Los montos (sellerAmount, feeAmount, refundAmount) deben ser numeros >= 0." });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    if (order.payment?.method !== "crypto") {
+      return res.status(400).json({ success: false, message: "Esta orden no usa pago en criptomonedas (escrow)." });
+    }
+    if (order.payment?.status !== "funded") {
+      return res.status(400).json({ success: false, message: "El escrow no esta fondeado (estado: " + order.payment?.status + ")." });
+    }
+
+    // La suma debe coincidir con el monto retenido on-chain.
+    const retained = Number(order.payment?.amountUsdRetained || 0);
+    const sum = Number((sellerAmount + feeAmount + refundAmount).toFixed(6));
+    if (Math.abs(sum - retained) > 0.011) {
+      return res.status(400).json({
+        success: false,
+        message: "La suma de montos (" + sum + ") no coincide con el monto retenido en el escrow (" + retained + ").",
+      });
+    }
+
+    const { settleOrderEscrow } = await import("../services/escrowServices.js");
+    const result = await settleOrderEscrow(
+      order._id.toString(),
+      { sellerAmount, feeAmount, refundAmount },
+      order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
+    );
+    if (!result.success) {
+      return res.status(500).json({ success: false, message: "No se pudo hacer el settle on-chain.", error: result.error });
+    }
+
+    // Reflejar el cierre en la orden segun el reparto.
+    const fullyRefunded = sellerAmount === 0 && feeAmount === 0 && refundAmount > 0;
+    order.payment.settleTxHash = result.txHash;
+    order.payment.settledAt = new Date();
+    order.payment.settleBreakdown = { sellerAmount, feeAmount, refundAmount };
+
+    if (fullyRefunded) {
+      order.payment.status = "cancelled_refunded";
+      order.payment.cancelledRefundedAt = new Date();
+      order.payment.releasedAt = new Date();
+      order.status = "cancelled";
+      order.cancelledAt = new Date();
+      order.cancelledBy = "admin";
+      order.statusHistory.push({ status: "cancelled", changedAt: new Date(), comment: "Escrow cancelado y reembolsado (settle) por el admin." });
+      order.orderActions.push({ type: "admin_intervention", initiator: "admin", paidStatus: "paid", status: "completed", reason: "Settle: reembolso total al comprador.", releaseTxHash: result.txHash, createdBy: req.user?._id });
+    } else {
+      order.payment.status = "released";
+      order.payment.releaseTxHash = result.txHash;
+      order.payment.releasedAt = new Date();
+      order.status = "completed";
+      order.completedAt = new Date();
+      order.statusHistory.push({ status: "completed", changedAt: new Date(), comment: "Escrow cerrado (settle) por el admin." });
+      order.orderActions.push({ type: "admin_intervention", initiator: "admin", paidStatus: "paid", status: "completed", reason: "Settle: seller=" + sellerAmount + " fee=" + feeAmount + " refund=" + refundAmount + ".", releaseTxHash: result.txHash, createdBy: req.user?._id });
+    }
+    await order.save();
+
+    createNotification({
+      recipient: order.seller,
+      type: "escrow_settled",
+      title: "Escrow cerrado por el admin",
+      message: "Se cerro el escrow de la orden #" + order._id.toString().slice(-6).toUpperCase() + " (settle). seller=" + sellerAmount + " fee=" + feeAmount + " refund=" + refundAmount + ".",
+      data: { orderId: order._id },
+    }).catch(() => {});
+
+    return res.status(200).json({ success: true, message: "Settle aplicado correctamente.", order, txHash: result.txHash, breakdown: { sellerAmount, feeAmount, refundAmount } });
+  } catch (error) {
+    console.error("Error al hacer settle del escrow (admin):", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** ADMIN: ACTUALIZA el fee global del escrow en el contrato (bps). */
+export const adminUpdateEscrowFee = async (req, res) => {
+  try {
+    const { feeBps } = req.body;
+
+    if (typeof feeBps !== "number" || isNaN(feeBps) || feeBps < 0 || feeBps > 5000) {
+      return res.status(400).json({ success: false, message: "El fee debe ser un numero entero de puntos base entre 0 y 5000 (5000 = 50%)." });
+    }
+
+    const { setEscrowFeeBps } = await import("../services/escrowServices.js");
+    const result = await setEscrowFeeBps(Math.round(feeBps), req.body.chainId ?? ESCROW_DEFAULT_CHAIN_ID);
+    if (!result.success) {
+      return res.status(500).json({ success: false, message: "No se pudo actualizar el fee del escrow on-chain.", error: result.error });
+    }
+
+    return res.status(200).json({ success: true, message: `Fee del escrow actualizado a ${result.feeBps} bps (${(result.feeBps / 100).toFixed(2)}%).`, feeBps: result.feeBps, txHash: result.txHash });
+  } catch (error) {
+    console.error("Error al actualizar fee del escrow (admin):", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** ADMIN: Lee la config on-chain del escrow (fee, feeWallet, admin). */
+export const adminGetEscrowConfig = async (req, res) => {
+  try {
+    const { getEscrowConfig } = await import("../services/escrowServices.js");
+    const result = await getEscrowConfig(req.query.chainId ?? ESCROW_DEFAULT_CHAIN_ID);
+    if (!result.success) {
+      return res.status(500).json({ success: false, message: "No se pudo leer la config del escrow on-chain.", error: result.error });
+    }
+    return res.status(200).json({ success: true, config: result });
+  } catch (error) {
+    console.error("Error al obtener config del escrow (admin):", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** ADMIN: Actualiza la feeWallet del contrato de escrow de una red. */
+export const adminUpdateEscrowFeeWallet = async (req, res) => {
+  try {
+    const { feeWallet } = req.body;
+    if (!feeWallet || !/^0x[a-fA-F0-9]{40}$/.test(feeWallet)) {
+      return res.status(400).json({ success: false, message: "Direccion de feeWallet invalida (debe ser 0x + 40 hex)." });
+    }
+
+    const { setEscrowFeeWallet } = await import("../services/escrowServices.js");
+    const result = await setEscrowFeeWallet(feeWallet, req.body.chainId ?? ESCROW_DEFAULT_CHAIN_ID);
+    if (!result.success) {
+      return res.status(500).json({ success: false, message: "No se pudo actualizar la feeWallet on-chain.", error: result.error });
+    }
+    return res.status(200).json({ success: true, message: "FeeWallet actualizada.", txHash: result.txHash });
+  } catch (error) {
+    console.error("Error al actualizar feeWallet (admin):", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** ADMIN: Actualiza parametros de plataforma del escrow (plazo de liberacion). */
+export const adminUpdateEscrowConfig = async (req, res) => {
+  try {
+    const { autoReleaseDays } = req.body;
+    if (autoReleaseDays != null && (typeof autoReleaseDays !== "number" || autoReleaseDays < 0)) {
+      return res.status(400).json({ success: false, message: "autoReleaseDays debe ser un numero >= 0." });
+    }
+
+    const { getEscrowConfig: getDbConfig, setEscrowPlatformConfig } = await import("../services/escrowConfigService.js");
+    if (typeof setEscrowPlatformConfig === "function") {
+      const saved = await setEscrowPlatformConfig({ autoReleaseDays });
+      return res.status(200).json({ success: true, message: "Config de escrow actualizada.", config: saved });
+    }
+    const current = await getDbConfig();
+    return res.status(200).json({ success: true, message: "Sin cambios aplicados (setEscrowPlatformConfig no disponible).", config: current });
+  } catch (error) {
+    console.error("Error al actualizar config de escrow (admin):", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** ADMIN: Lista ordenes con pago cripto (escrow) por estado. */
+export const adminListCryptoOrders = async (req, res) => {
+  try {
+    const { paymentStatus, status, limit = 100 } = req.query;
+    const query = { "payment.method": "crypto" };
+    if (paymentStatus) query["payment.status"] = paymentStatus;
+    if (status) query.status = status;
+
+    const orders = await Order.find(query)
+      .sort({ createdAt: -1 })
+      .limit(Math.min(Number(limit) || 100, 300))
+      .populate("buyer", "firstName username email walletAddress")
+      .populate("seller", "firstName username email walletAddress");
+
+    return res.status(200).json({ success: true, count: orders.length, orders });
+  } catch (error) {
+    console.error("Error al listar ordenes crypto (admin):", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** ADMIN: Recuerda al comprador que confirme la recepcion (escrow fondeado). */
+export const adminNotifyBuyerEscrow = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+    if (order.payment?.method !== "crypto" || order.payment?.status !== "funded") {
+      return res.status(400).json({ success: false, message: "La orden no tiene un escrow fondeado." });
+    }
+
+    const { sendEscrowConfirmReminderToBuyer } = await import("../services/sendEmail.js");
+    const buyer = await User.findById(order.buyer);
+    if (buyer?.email && typeof sendEscrowConfirmReminderToBuyer === "function") {
+      sendEscrowConfirmReminderToBuyer({ buyerEmail: buyer.email, orderId: order._id, amount: order.totalAmount }).catch(() => {});
+    }
+    createNotification({
+      recipient: order.buyer,
+      type: "escrow_confirm_reminder",
+      title: "Recordatorio: confirma la recepcion",
+      message: `Recorda confirmar la recepcion de la orden #${order._id.toString().slice(-6).toUpperCase()} para liberar el escrow al vendedor.`,
+      data: { orderId: order._id },
+    }).catch(() => {});
+
+    return res.status(200).json({ success: true, message: "Recordatorio enviado al comprador." });
+  } catch (error) {
+    console.error("Error al notificar al comprador (admin):", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

@@ -62,9 +62,39 @@ const attachUser = async (req, res, next) => {
       return res.status(404).json({ message: "Usuario no vinculado en la DB" });
     }
 
+    // ── BLOQUEO POR ESTADO DE CUENTA ──
+    // Si la cuenta fue suspendida/desactivada/eliminada, NO permitimos operar.
+    // Devolvemos 403 con un código claro para que el front muestre el mensaje
+    // correspondiente y cierre la sesión. Excepción: si es admin por email/rol
+    // dejamos pasar (evita que un admin se auto-bloquee por error).
+    const accountStatus = user.accountStatus || "active";
+    if (accountStatus !== "active") {
+      const isAdminAccount =
+        user.role === "admin" ||
+        (email &&
+          String(process.env.ADMIN_EMAILS || "")
+            .toLowerCase()
+            .split(/[,;]+/)
+            .map((e) => e.trim())
+            .includes(String(email).toLowerCase().trim()));
+      if (!isAdminAccount) {
+        const messages = {
+          suspended: "Tu cuenta está suspendida. Contactá a soporte.",
+          deactivated: "Tu cuenta está desactivada.",
+          deleted: "Esta cuenta fue eliminada.",
+        };
+        return res.status(403).json({
+          message: messages[accountStatus] || "Tu cuenta no está habilitada.",
+          code: "ACCOUNT_NOT_ACTIVE",
+          accountStatus,
+        });
+      }
+    }
+
     // Inyectamos el ID de MongoDB y otros datos útiles
     req.user._id = user._id;
     req.user.role = user.role; // "user" | "admin"
+    req.user.accountStatus = accountStatus;
     // Wallet Web3 (para flujos de escrow on-chain: pools, crypto, etc.).
     req.user.walletAddress = user.walletAddress || "";
 

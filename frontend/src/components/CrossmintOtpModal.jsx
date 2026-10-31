@@ -27,11 +27,31 @@ const INITIAL = {
   active: false,
   signerType: null,
   signerLocator: null,
+  channel: null,
   needsAuth: false,
   otpSent: false,
   verifying: false,
   error: null,
 };
+
+/** Devuelve los textos del modal según el canal (email / sms / whatsapp). */
+function getCopy(signerType, channel) {
+  if (signerType === "phone") {
+    const via =
+      channel === "whatsapp" ? "WhatsApp" : "mensaje de texto (SMS)";
+    return {
+      intro: `Para firmar esta operación de forma segura, vamos a confirmar tu identidad enviándote un código por ${via}. Es un código de verificación de nuestro proveedor de pagos Crossmint.`,
+      sendCta: `Enviar código por ${channel === "whatsapp" ? "WhatsApp" : "SMS"}`,
+      resent: `Reenvía el código e ingresalo en el campo de abajo.`,
+    };
+  }
+  return {
+    intro:
+      "Para firmar esta operación de forma segura, vamos a confirmar tu identidad enviándote un código por email. Es un código de verificación de nuestro proveedor de pagos Crossmint. Ingresalo en el campo de abajo para continuar.",
+    sendCta: "Enviar código por email",
+    resent: "Reenvía el código e ingresalo en el campo de abajo.",
+  };
+}
 
 export default function CrossmintOtpModal() {
   const [state, setState] = useState(INITIAL);
@@ -59,6 +79,8 @@ export default function CrossmintOtpModal() {
   }, [state.active]);
 
   if (!state.active) return null;
+
+  const copy = getCopy(state.signerType, state.channel);
 
   const handleSendOtp = async () => {
     setSending(true);
@@ -89,10 +111,7 @@ export default function CrossmintOtpModal() {
         <h2 className="text-lg font-black dark:text-white">
           Verificación de seguridad
         </h2>
-        <p className="text-sm text-gray-500 mt-1">
-          Para firmar esta operación con tu billetera de forma segura, necesitamos confirmar tu
-          identidad por email. Recibirás un código de verificacion de nuestro proveedor de pagos Crossmint. Ingresalo en el campo de abajo para continuar.
-        </p>
+        <p className="text-sm text-gray-500 mt-1">{copy.intro}</p>
 
         {!state.otpSent ? (
           <div className="mt-5">
@@ -101,8 +120,11 @@ export default function CrossmintOtpModal() {
               disabled={sending}
               className="w-full py-3 bg-[#F26722] hover:brightness-110 text-white rounded-xl font-bold disabled:opacity-50"
             >
-              {sending ? "Enviando código..." : "Enviar código por email"}
+              {sending ? "Enviando código..." : copy.sendCta}
             </button>
+            <p className="text-[11px] text-gray-400 mt-2 text-center">
+              ¿No ves el código? Revisá {state.signerType === "phone" ? "tus mensajes" : "tu correo y la carpeta de spam"}.
+            </p>
           </div>
         ) : (
           <form onSubmit={handleVerify} className="mt-5 space-y-3">

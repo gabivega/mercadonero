@@ -66,13 +66,17 @@ export default function CollateralHoldCard({ order, role = "buyer", onUpdate }) 
       });
       onUpdate?.();
     } catch (error) {
+      const status = error.response?.status;
       const msg = error.response?.data?.message || "No se pudo activar la orden.";
       Swal.fire({
         icon: "error",
-        title: "No se pudo activar",
+        title: status === 409 ? "Plazo vencido" : "No se pudo activar",
         text: msg,
         confirmButtonColor: "#3483fa",
       });
+      // En cualquier caso refrescamos la orden: si venció, el backend la expiró
+      // y queremos que el front refleje el estado real ("Expirado").
+      onUpdate?.();
     } finally {
       setLoading(false);
     }
@@ -148,7 +152,7 @@ export default function CollateralHoldCard({ order, role = "buyer", onUpdate }) 
         <div className="flex-1">
           <h3 className="font-black uppercase tracking-tight dark:text-white text-sm flex items-center gap-2">
             <ShieldCheck size={16} className="text-[#F26722]" />
-            {role === "seller" ? "Venta en espera por garantía" : "Esperando que el vendedor deposite su garantía"}
+            {role === "seller" ? "Venta en espera por garantía" : "Esperando que el vendedor deposite su garantía de protección de compra"}
           </h3>
 
           <p className="text-sm text-zinc-600 dark:text-zinc-300 mt-2">
@@ -172,7 +176,7 @@ export default function CollateralHoldCard({ order, role = "buyer", onUpdate }) 
               {display}
             </div>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">
-              {expired ? "Plazo vencido" : `para depositar la garantía de protección de compra.`}
+              {expired ? "Plazo vencido — intentá activar: si ya lo expiró el sistema, la orden se cancelará." : `para depositar la garantía de protección de compra.`}
             </span>
           </div>
 
@@ -188,7 +192,7 @@ export default function CollateralHoldCard({ order, role = "buyer", onUpdate }) 
                 </button>
                 <button
                   onClick={handleRetry}
-                  disabled={loading || expired}
+                  disabled={loading}
                   className="flex items-center gap-2 bg-[#3483fa] hover:bg-blue-600 text-white px-4 py-2.5 rounded-xl font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? <LoadingSpinner size="sm" /> : <RefreshCw size={16} />}
@@ -196,7 +200,7 @@ export default function CollateralHoldCard({ order, role = "buyer", onUpdate }) 
                 </button>
                 <button
                   onClick={handleCancelHold}
-                  disabled={loading || expired}
+                  disabled={loading}
                   className="flex items-center gap-2 border border-red-300 dark:border-red-800 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 px-4 py-2.5 rounded-xl font-semibold text-sm transition-colors disabled:opacity-50"
                 >
                   {loading ? <LoadingSpinner size="sm" /> : <XCircle size={16} />}

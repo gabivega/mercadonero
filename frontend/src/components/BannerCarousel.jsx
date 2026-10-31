@@ -15,7 +15,7 @@ const desktopBanners = [
   {
     image: '/assets/img/banner-desktop/referral.webp',
     title: "Sistema de referidos",
-    subtitle: "Compartí productos y ganá una comisión en USDT por cada compra.",
+    subtitle: "Compartí productos y ganá una comisión en USD por cada compra.",
     button: "Ver productos habilitados",
     url: "/referidos",
     overlay: "bg-black/50"
@@ -38,18 +38,18 @@ const desktopBanners = [
   },
   {
     image: '/assets/img/banner-desktop/package-delivery.webp',
-    title: "Envíos en el día",
+    title: "Envíos a todo el país.",
     subtitle: "Envios flexibles y rápidos, al mejor precio. Llegamos a todo el país",
     button: "",
     overlay: "bg-gradient-to-r from-black/70 to-transparent" // Degradado estético de izquierda a derecha
   },
-  {
-    image: '/assets/img/banner-desktop/social.webp',
-    title: "Comprá en grupo, pagá menos",
-    subtitle: "Creá o unite a un grupo de compra y desbloqueá descuentos",
-    button: "",
-    overlay: "bg-black/50" // Degradado estético de izquierda a derecha
-  },
+  // {
+  //   image: '/assets/img/banner-desktop/social.webp',
+  //   title: "Comprá en grupo, pagá menos",
+  //   subtitle: "Creá o unite a un grupo de compra y desbloqueá descuentos",
+  //   button: "",
+  //   overlay: "bg-black/50" // Degradado estético de izquierda a derecha
+  // },
   //   {
   //   image: '/assets/img/banner-desktop/supermarket.webp',
   //   title: "Al Super, sin salir de casa",
@@ -60,8 +60,8 @@ const desktopBanners = [
   // },
  {
   image: '/assets/img/banner-desktop/cashback.webp', // Tu nueva imagen
-  title: "Cashback en USDT",
-  subtitle: "Obtené un 2.5% en USDT de reintegro en todas tus compras.",
+  title: "Cashback en USD",
+  subtitle: "Obtené un 2.5% en USD de reintegro en todas tus compras.",
   // button: "Empezar a comprar",
   overlay: "bg-black/60", 
   url: "/referidos", // O la ruta que le hayas asignado a la pestaña de creadores
@@ -81,7 +81,7 @@ const mobileBanners = [
   {
     image: '/assets/img/banner-desktop/referral.webp',
     title: "Sistema de referidos",
-    subtitle: "Compartí productos y ganá una comisión en USDT por cada compra.",
+    subtitle: "Compartí productos y ganá una comisión en USD por cada compra.",
     button: "Ver productos habilitados",
     url: "/referidos",
     overlay: "bg-black/50"
@@ -104,18 +104,18 @@ const mobileBanners = [
   },
   {
     image: '/assets/img/banner-desktop/package-delivery.webp',
-    title: "Envíos en el día",
+    title: "Envíos a todo el país.",
     subtitle: "Envios flexibles y rápidos, al mejor precio. Llegamos a todo el país",
     button: "",
     overlay: "bg-gradient-to-r from-black/70 to-transparent" // Degradado estético de izquierda a derecha
   },
-  {
-    image: '/assets/img/banner-desktop/social.webp',
-    title: "Comprá en grupo, pagá menos",
-    subtitle: "Creá o unite a un grupo de compra y desbloqueá descuentos",
-    button: "",
-    overlay: "bg-black/50" // Degradado estético de izquierda a derecha
-  },
+  // {
+  //   image: '/assets/img/banner-desktop/social.webp',
+  //   title: "Comprá en grupo, pagá menos",
+  //   subtitle: "Creá o unite a un grupo de compra y desbloqueá descuentos",
+  //   button: "",
+  //   overlay: "bg-black/50" // Degradado estético de izquierda a derecha
+  // },
   //   {
   //   image: '/assets/img/banner-desktop/supermarket.webp',
   //   title: "Al Super, sin salir de casa",
@@ -126,8 +126,8 @@ const mobileBanners = [
   // },
  {
   image: '/assets/img/banner-desktop/cashback.webp', // Tu nueva imagen
-  title: "Cashback en USDT",
-  subtitle: "Obtené un 2.5% en USDT de reintegro en todas tus compras.",
+  title: "Cashback en USD",
+  subtitle: "Obtené un 2.5% en USD de reintegro en todas tus compras.",
   // button: "Empezar a comprar",
   overlay: "bg-black/60", 
   url: "/referidos", // O la ruta que le hayas asignado a la pestaña de creadores

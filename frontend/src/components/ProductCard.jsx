@@ -4,6 +4,7 @@ import { usePrivy } from "../Utils/authClient";
 import { useCartStore } from "../store/useCartStore";
 import { useFavoritesStore } from "../store/useFavoritesStore";
 import { useFavorites } from "../Utils/useFavorites";
+import { useUserStore } from "../store/useUserStore";
 import noImage from "../assets/img/no-image.png";
 import Swal from "sweetalert2";
 import { productPath } from "../Utils/productUrl";
@@ -16,13 +17,43 @@ export default function ProductCard({ product }) {
   const isFavorite = favorites.some(
     (f) => String(f._id) === String(product?._id),
   );
-  const addToCart = useCartStore((state) => state.addToCart);
+    const addToCart = useCartStore((state) => state.addToCart);
+  const currentUserId = useUserStore((state) => state.dbUser?._id || null);
+  // Anti-autocompra: un vendedor no puede agregar al carrito SUS propios
+  // productos (el backend también lo bloquea al crear la orden).
+  const isOwnProduct =
+    Boolean(currentUserId) &&
+    String(product.seller?._id || product.seller) === String(currentUserId);
+
     const handleCardClick = () => {
     navigate(productPath(product));
   };
 
         const handleAddToCart = (e) => {
     e.stopPropagation();
+
+    // Bloqueo duro: no permitir comprarse a sí mismo.
+    if (isOwnProduct) {
+      Swal.fire({
+        toast: true,
+        position: "bottom-end",
+        showConfirmButton: false,
+        timer: 2500,
+        timerProgressBar: true,
+        icon: "info",
+        title: "Es tu propia publicación",
+        text: "No podés agregar al carrito tus propios productos.",
+        background: document.documentElement.classList.contains("dark") ? "#18181b" : "#ffffff",
+        color: document.documentElement.classList.contains("dark") ? "#f4f4f5" : "#3f3f46",
+        iconColor: "#F26722",
+        customClass: {
+          popup: "border border-gray-100 dark:border-zinc-800 rounded-xl shadow-lg font-sans mb-10",
+          title: "text-sm font-bold text-gray-800 dark:text-zinc-100",
+          htmlContainer: "text-xs text-gray-500 dark:text-zinc-400",
+        },
+      });
+      return;
+    }
     // Normalizamos el producto antes de guardarlo en el carrito:
     // - sellerId SIEMPRE plano (id) para agrupar órdenes por vendedor.
     // - seller conserva el objeto poblado (con shop.name/username) SI viene,
@@ -178,8 +209,8 @@ export default function ProductCard({ product }) {
           )}
 
         {/* Hover Actions */}
-        <div className="absolute inset-0 bg-black/0 hover:bg-black/10 transition-colors flex items-end justify-center gap-2 pb-3 opacity-0 hover:opacity-100">
-          {product.listingType !== "classified" && (
+                <div className="absolute inset-0 bg-black/0 hover:bg-black/10 transition-colors flex items-end justify-center gap-2 pb-3 opacity-0 hover:opacity-100">
+          {product.listingType !== "classified" && !isOwnProduct && (
             <button
               onClick={handleAddToCart}
               className="bg-[#F26722] text-white p-2 rounded-full hover:bg-[#d9531e] transition-colors"

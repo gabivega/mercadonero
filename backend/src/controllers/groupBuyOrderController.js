@@ -1,53 +1,65 @@
 // backend/src/controllers/groupBuyOrderController.js
 //
-// CONTROLADOR DE ÓRDENES PARA COMPRAS GRUPALES (Social Selling).
+// ÓRDENES PARA COMPRAS GRUPALES (Social Selling) — ESCROW VÍA NEROESCROW.
 //
-// A diferencia de orderController.js (que maneja el ciclo transaccional de
-// TODA la plataforma: bancaria + crypto + colateral + disputas), este
-// controlador SOLO se ocupa de:
+// Cambio de modelo (Opción A):
+//   Cada member del grupo crea/fondea SU PROPIA orden crypto en el NeroEscrow
+//   común (el mismo de las compras individuales). NO hay contrato de grupo
+//   (NeroGroupBuy) en este flujo.
 //
-//   1) CREAR las órdenes individuales que nacen de un pool ya cerrado/liberado.
-//      Cada member pasa a ser un comprador con su propia orden en estado 'paid'
-//      (el pool ya fondeó el escrow on-chain, no hay pending_payment ni colateral).
+//   Flujo:
+//     1) createPool / joinPool  → createPendingOrderForPoolMember()
+//        (orden nacida 'pending_payment' / payment.status 'funding').
+//     2) El comprador fondea con el MISMO modal de las compras individuales
+//        (endpoints /api/order/:id/escrow/prepare-funding y /escrow/fund).
+//     3) closePool (admin) → finalizePoolOrdersFinalPrice()
+//        fija el precio final escalonado en cada orden y deja listo el settle.
+//     4) Al confirmar recepción → adminCompleteOrder hace
+//        settleOrderEscrow() con el reintegro (lockedUsd - precioFinal*units).
 //
-//   2) SINCRONIZAR (idempotente) todas las órdenes de un pool tras el release
-//      on-chain, creando una orden por member y llevando un log de resultados.
-//
-// IMPORTANTE: la orden creada acá se integra SIN PROBLEMA con el `updateOrder`
-// existente en orderController.js (confirmación de recepción, envío, disputas,
-// cancelación). Los únicos dos guards en updateOrder son:
+// La orden es EXACTAMENTE una orden crypto normal; los guards en updateOrder
+// son:
 //   - No volver a descontar stock si `order.groupBuy.stockConsumed === true`.
-//   - No re-liberar el escrow si `order.payment.groupBuy === true`.
+//   - No liberar escrow por fuera del settle si `order.payment.groupBuy === true`.
 
 import Order from "../models/Order.js";
 import Product from "../models/Product.js";
 import Pool from "../models/Pool.js";
-import { createNotification } from "../services/notificationService.js";
 
 /**
- * Crea UNA orden individual en estado 'paid' para un member de un pool
- * que ya fue cerrado y liberado on-chain.
+ * Crea la orden crypto PROVISIONAL de un member del grupo.
  *
- * Características:
- *   - Nace 'paid' (el pool ya fondeó el escrow): no pasa por pending_payment.
- *   - NO toca el colateral del vendedor.
- *   - Idempotente por (pool._id, member._id): si ya existe, la devuelve.
- *   - Consume stock + reservedStock + sold en la MISMA operación atómica.
+ * - Nace 'pending_payment' / payment.status 'funding' (aún NO fondeada).
+ * - NO descuenta stock (se reserva recién al confirmar el fondeo on-chain).
+ * - Idempotente por (pool._id, member._id): si ya existe, la devuelve.
+ * - Guarda la metadata de grupo (poolId/memberId/units/lockedUsd) para que el
+ *   cierre fije el precio final y el settle calcule el reintegro escalonado.
  *
  * @param {Object} args
- * @param {import("mongoose").Document} args.pool    Pool ya hidratado (con members)
- * @param {Object} args.member                       member del pool (subdoc)
- * @param {import("mongoose").Document} args.product Producto del pool
- * @returns {Promise<import("mongoose").Document>}   Orden creada (o existente)
+ * @param {import("mongoose").Document} args.pool     Pool hidratado
+ * @param {Object} args.member                        member subdoc (con _id)
+ * @param {import("mongoose").Document} args.product  Producto del pool
+ * @param {number} args.chainId                       Red del escrow elegida
+ * @param {number} args.lockedProductsUsd             USD de productos congelados (tier vigente)
+ * @param {number} args.shippingUsd                   USD de envío
+ * @param {string} [args.tokenSymbol]                 Token/red de pago (USDT/USDC/...)
+ * @returns {Promise<import("mongoose").Document>}    Orden creada (o existente)
  */
-export const createPaidOrderForPoolMember = async ({ pool, member, product }) => {
+export const createPendingOrderForPoolMember = async ({
+  pool,
+  member,
+  product,
+  chainId,
+  lockedProductsUsd,
+  shippingUsd = 0,
+  tokenSymbol = "USDT",
+  usdRate = 1,
+}) => {
   // ── 0. Idempotencia: ¿ya existe orden para (pool, member)? ───────
-  // Usamos member._id si existe; si no (pools viejos sin subdoc _id),
-  // caemos al userId, que dentro de un pool es único.
   const memberKey = member._id || `user:${member.user}`;
   const existingQuery = member._id
     ? { "groupBuy.poolId": pool._id, "groupBuy.memberId": member._id }
-    : { "groupBuy.poolId": pool._id, "groupBuy.chainGroupId": pool.chainGroupId, buyer: member.user };
+    : { "groupBuy.poolId": pool._id, buyer: member.user, isGroupBuy: true };
   const existing = await Order.findOne(existingQuery);
   if (existing) {
     console.log(
@@ -59,32 +71,19 @@ export const createPaidOrderForPoolMember = async ({ pool, member, product }) =>
   const units = Number(member.units || 1);
   if (units < 1) throw new Error("GROUP_BUY_INVALID_UNITS");
 
-  // ── 1. Validación de stock (defensa en profundidad) ──────────────
   const freshProduct = await Product.findById(product._id);
   if (!freshProduct) throw new Error("PRODUCT_NOT_FOUND");
-  if ((freshProduct.stock ?? 0) < units) {
-    throw new Error("STOCK_INSUFFICIENT");
-  }
 
-  // ── 2. Precio efectivo (respeta sale activa igual que el flujo normal) ──
+  // Precio efectivo unitario (sale activa) para el snapshot del item.
   let effectivePrice = freshProduct.price;
   if (freshProduct.sale?.active && freshProduct.sale?.price > 0) {
     effectivePrice = freshProduct.sale.price;
   }
-  // Si el pool ya fijó un precio final unitario, lo preferimos (fue el
-  // negociado por el grupo al cerrarse).
-  if (pool.finalUnitPriceUsd > 0) {
-    effectivePrice = pool.finalUnitPriceUsd;
-  }
 
-  const totalAmount = effectivePrice * units;
+  const lockedProducts = Number(lockedProductsUsd) || 0;
+  const shipping = Number(shippingUsd) || 0;
+  const totalUsd = Number((lockedProducts + shipping).toFixed(2));
 
-  // ── 3. Envío ──────────────────────────────────────────────────────
-  const shippingCost = freshProduct.shipping?.free
-    ? 0
-    : freshProduct.shipping?.cost || 0;
-
-  // ── 4. Crear la orden 'paid' ─────────────────────────────────────
   const order = new Order({
     buyer: member.user,
     seller: freshProduct.seller,
@@ -107,175 +106,349 @@ export const createPaidOrderForPoolMember = async ({ pool, member, product }) =>
       },
     ],
     shippingAddress: member.shippingAddress || pool.shippingAddress || {},
-    totalAmount: totalAmount + shippingCost,
-    productsAmount: totalAmount,
-    shippingAmount: shippingCost,
-    status: "paid", // ← nace pagada (el pool ya fondeó el escrow)
-    paymentVerifiedAt: new Date(),
-    payment: {
-      method: "crypto",
-      token: "USDT",
-      status: "funded", // el pool ya lo fondeó on-chain; el release lo cierra
-      groupBuy: true,   // ← guard para NO re-liberar escrow en updateOrder
-    },
-    groupBuy: {
-      poolId: pool._id,
-      // memberId puede faltar en pools creados antes de habilitar el subdoc
-      // _id. Guardamos null en ese caso (no rompemos el schema).
-      memberId: member._id || null,
-      chainGroupId: pool.chainGroupId,
-      units,
-      unitPriceUsd: effectivePrice,
-      stockConsumed: false, // se pone true tras descontar stock (abajo)
+    totalAmount: totalUsd,
+    productsAmount: lockedProducts,
+    shippingAmount: shipping,
+    status: "pending_payment",
+    // Las órdenes de grupo NO expiran por falta de pago (compromiso inmediato).
+    expiresAt: null,
+    financials: {
+      // ⚠️ Convención del flujo individual: totalUsd = SOLO productos;
+      // shippingCostUsd = envío. El monto a fondear es la SUMA de ambos
+      // (prepareEscrowFunding/confirmEscrowFunding hacen totalUsd+shipping).
+      // Si mezclamos el envío en totalUsd, se contaría dos veces.
+      // `usdRate` (TDC) y `sellerNetReleaseUsd` son REQUERIDOS por el schema.
+      usdRate: Number(usdRate) || 1,
+      totalUsd: lockedProducts,
+      shippingCostUsd: shipping,
+      // El fee final se recalcula al cerrar (precio escalonado). Placeholder.
+      platformFeeUsd: 0,
+      baseFeeUsd: 0,
+      referralFeeUsd: 0,
+      // Provisional: se recalcula en finalizePoolOrdersFinalPrice con el fee
+      // real + reintegro escalonado. Solo evita el required del schema.
+      sellerNetReleaseUsd: Number((lockedProducts + shipping).toFixed(2)),
     },
     isGroupBuy: true,
+    groupBuy: {
+      poolId: pool._id,
+      memberId: member._id || null,
+      chainGroupId: null, // no hay grupo on-chain; queda null
+      units,
+      unitPriceUsd: 0, // se fija al cerrar (precio final escalonado)
+      lockedUsd: lockedProducts,
+      refundUsd: 0, // se calcula al cerrar
+      stockConsumed: false,
+    },
     statusHistory: [
       {
-        status: "paid",
+        status: "pending_payment",
         changedAt: new Date(),
         comment:
-          "Orden creada por compra grupal: el pool fondeó el escrow on-chain y el grupo se cerró.",
+          "Orden creada por compra grupal. Esperando el fondeo del escrow on-chain.",
       },
     ],
-    // Las órdenes de grupo no expiran por falta de pago (ya está paga).
-    expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+    payment: {
+      method: "crypto",
+      token: tokenSymbol,
+      status: "funding",
+      chainId: chainId ?? null,
+      groupBuy: true, // ← guard para NO re-liberar escrow en updateOrder
+      amountUsdRetained: totalUsd,
+    },
   });
 
-  // ── 5. Descontar stock + reservedStock + sold en una operación atómica ──
-  //     El `stock: { $gte: units }` actúa como árbitro de concurrencia en Mongo.
-  const stockUpdate = await Product.updateOne(
-    { _id: freshProduct._id, stock: { $gte: units } },
-    { $inc: { stock: -units, reservedStock: -units, sold: units } },
-  );
-  if (stockUpdate.modifiedCount === 0) {
-    throw new Error("STOCK_INSUFFICIENT");
-  }
-
-  // Marcamos que el stock ya fue consumido por el grupo (updateOrder no lo
-  // vuelve a descontar al completarse).
-  order.groupBuy.stockConsumed = true;
-
   await order.save();
-
-  // ── 6. Notificación in-app al comprador ───────────────────────────
-  createNotification({
-    recipient: member.user,
-    type: "order_created",
-    title: "¡Tu compra grupal se concretó!",
-    message: `El grupo se llenó y se liberaron los fondos. Ya tenés la orden #${order._id
-      .toString()
-      .slice(-6)
-      .toUpperCase()} en estado pagado.`,
-    data: { orderId: order._id, totalAmount: order.totalAmount },
-  }).catch((err) =>
-    console.error("[GroupBuy] Falló notificación al comprador:", err),
-  );
-
   return order;
 };
 
 /**
- * Sincroniza TODAS las órdenes de los members de un pool tras el release
- * on-chain. Crea una orden 'paid' por member y registra el resultado.
+ * Fija el PRECIO FINAL escalonado en todas las órdenes de un pool cerrado.
  *
- * Idempotente: usa un "claim" atómico sobre `pool.orderSyncStatus`. Si el pool
- * ya fue sincronizado ("done"), devuelve ALREADY_SYNCED. Los estados "partial"
- * permiten reintentos.
+ * Por cada member con orden:
+ *   - unitPriceUsd = finalUnitPriceUsd
+ *   - productsAmount = finalUnitPriceUsd * units  (precio final en USD)
+ *   - refundUsd = max(0, lockedUsd - finalUnitPriceUsd * units)  (reintegro)
+ *   - totalAmount = productsAmount + envío
+ *   - financials.sellerNetUsd / platformFeeUsd a partir del fee del contrato.
+ * NO mueve plata on-chain: el reintegro viaja en el `settle` al confirmar
+ * recepción (adminCompleteOrder). Idempotente.
  *
- * @param {string} poolId
- * @returns {Promise<Object>} { success, status, ordersCreated, log, reason? }
+ * @param {Object} args
+ * @param {import("mongoose").Document} args.pool
+ * @param {number} args.finalUnitPriceUsd
+ * @param {number} [args.feeBps]   fee del contrato (puntos base). Si no llega, no recalcula fee.
+ * @returns {Promise<{updated:number, orders:Array}>}
  */
-export const syncPoolOrdersAfterRelease = async (poolId) => {
-  // ── 1. Claim atómico del sync (evita doble ejecución) ────────────
-  const pool = await Pool.findOneAndUpdate(
-    {
-      _id: poolId,
-      orderSyncStatus: { $in: ["pending", "partial", "failed"] },
-    },
-    { $set: { orderSyncStatus: "running", orderSyncStartedAt: new Date() } },
-    { new: true },
-  );
+export const finalizePoolOrdersFinalPrice = async ({
+  pool,
+  finalUnitPriceUsd,
+  feeBps = 0,
+}) => {
+  const finalUnit = Number(finalUnitPriceUsd) || 0;
+  const orders = [];
+  let updated = 0;
 
-  if (!pool) {
-    const current = await Pool.findById(poolId);
-    if (!current) {
-      return { success: false, reason: "POOL_NOT_FOUND" };
-    }
-    // Ya estaba "running" o "done".
-    return {
-      success: current.orderSyncStatus === "done",
-      reason: "ALREADY_SYNCED",
-      status: current.orderSyncStatus,
-      pool: current,
-    };
-  }
-
-  const product = await Product.findById(pool.product);
-  if (!product) {
-    await Pool.updateOne(
-      { _id: poolId },
-      { $set: { orderSyncStatus: "failed", orderSyncError: "PRODUCT_NOT_FOUND" } },
-    );
-    return { success: false, reason: "PRODUCT_NOT_FOUND" };
-  }
-
-  const createdOrders = [];
-  const log = [];
-
-  // ── 2. Crear orden por cada member (aislado, tolerante a fallos) ─
   for (const member of pool.members) {
-    try {
-      const order = await createPaidOrderForPoolMember({
-        pool,
-        member,
-        product,
-      });
-      createdOrders.push(order._id);
-      log.push({
-        memberId: member._id || null,
-        orderId: order._id,
-        ok: true,
-        at: new Date(),
-      });
-    } catch (err) {
-      console.error(
-        `[GroupBuy] Fallo creando orden para member ${member._id || member.user}:`,
-        err.message,
+    // Buscamos la orden del member (por orderId o por la metadata de grupo).
+    const filter = member.orderId
+      ? { _id: member.orderId }
+      : member._id
+        ? { "groupBuy.poolId": pool._id, "groupBuy.memberId": member._id }
+        : { "groupBuy.poolId": pool._id, buyer: member.user, isGroupBuy: true };
+
+    const order = await Order.findOne(filter);
+    if (!order) {
+      console.warn(
+        `[GroupBuy] No hay orden para member ${member._id || member.user} del pool ${pool._id}. Skip cierre.`,
       );
-      log.push({
-        memberId: member._id || null,
-        ok: false,
-        error: err.message,
-        at: new Date(),
-      });
+      continue;
     }
+
+    const units = Number(order.groupBuy?.units || member.units || 1);
+    const lockedUsd = Number(order.groupBuy?.lockedUsd || 0);
+    const shipping = Number(order.shippingAmount || 0);
+    const finalProductsUsd = Number((finalUnit * units).toFixed(6));
+    const refundUsd = Math.max(
+      0,
+      Number((lockedUsd - finalProductsUsd).toFixed(6)),
+    );
+
+    order.groupBuy.unitPriceUsd = finalUnit;
+    order.groupBuy.refundUsd = refundUsd;
+    // Precio FINAL que realmente paga el comprador (neto del reintegro).
+    order.productsAmount = finalProductsUsd;
+    order.totalAmount = Number((finalProductsUsd + shipping).toFixed(2));
+    // ⚠️ amountUsdRetained NO se toca: es el monto REALMENTE fondeado on-chain
+    // (tier vigente al unirse + envío). El settle reparte ese total entre
+    // vendedor + fee + reintegro, y debe cuadrar con lo retenido en el escrow.
+
+    // Fee / neto del vendedor según el fee vigente del contrato.
+    if (feeBps > 0) {
+      const feeProductsUsd = Number(
+        (finalProductsUsd * (feeBps / 10000)).toFixed(2),
+      );
+      order.financials.platformFeeUsd = feeProductsUsd;
+      order.financials.sellerNetReleaseUsd = Number(
+        (finalProductsUsd - feeProductsUsd + shipping).toFixed(2),
+      );
+    }
+
+    order.statusHistory.push({
+      status: order.status,
+      changedAt: new Date(),
+      comment: `Precio final del grupo fijado: US$ ${finalUnit.toFixed(2)}/u. Reintegro a favor: US$ ${refundUsd.toFixed(2)}.`,
+    });
+
+    await order.save();
+    orders.push(order);
+    updated += 1;
   }
 
-  // ── 3. Determinar estado final ───────────────────────────────────
-  const allOk = log.length > 0 && log.every((l) => l.ok);
-  const someOk = log.some((l) => l.ok);
-  const finalStatus = allOk ? "done" : someOk ? "partial" : "failed";
+  return { updated, orders };
+};
 
-  await Pool.updateOne(
-    { _id: poolId },
-    {
-      $set: {
-        orderSyncStatus: finalStatus,
-        orderSyncFinishedAt: new Date(),
-      },
-      $push: { orderSyncLog: { $each: log } },
-    },
+/**
+ * MATERIALIZA el grupo cuando la orden crypto YA está fondeada on-chain.
+ *
+ * Corazón del flujo "pago primero, grupo después": el Pool NO existe hasta que
+ * hay un pago verificado. Se llama desde confirmEscrowFunding(order, fundTxHash)
+ * justo después de marcar la orden como 'paid'.
+ *
+ *   - groupBuy.createPoolProductId → crea el Pool con el buyer como creador y
+ *     primer member "locked", y notifica al vendedor.
+ *   - groupBuy.joinPoolId → suma al buyer como member "locked", recalcula el
+ *     precio actual (tier por nº de fondeados) y notifica.
+ *
+ * Idempotente: si el member ya existe, no duplica. NO lanza si algo falta:
+ * el fondeo ya ocurrió on-chain; sólo loguea.
+ *
+ * @param {import("mongoose").Document} order  Orden de grupo ya 'paid'.
+ * @param {string} fundTxHash                  Hash del fondeo on-chain.
+ * @returns {Promise<{pool: object|null, member: object|null}>}
+ */
+export const materializeGroupBuyOrder = async (order, fundTxHash = "") => {
+  const gb = order.groupBuy || {};
+  const buyerId = order.buyer;
+
+  const buyer = await User.findById(buyerId).select(
+    "username firstName lastName avatar walletAddress",
   );
+  const units = Number(gb.units || 1);
 
-  return {
-    success: allOk,
-    status: finalStatus,
-    ordersCreated: createdOrders,
-    log,
-  };
+  // ── CASO CREACIÓN ───────────────────────────────────────────────
+  if (gb.createPoolProductId) {
+    // Idempotencia: ya materializado.
+    if (gb.poolId) {
+      const existing = await Pool.findById(gb.poolId);
+      if (existing) return { pool: existing, member: null };
+    }
+
+    const product = await Product.findById(gb.createPoolProductId);
+    if (!product) {
+      console.warn(`[GroupBuy] Producto inexistente ${gb.createPoolProductId}.`);
+      return { pool: null, member: null };
+    }
+
+    const ss = product.socialSelling || {};
+    const tiers = ss.tiers || {};
+    const targetBuyers = 5;
+    const basePrice = product.sale?.active ? product.sale.price : product.price;
+    const duration = ss.durationHours || 24;
+
+    const pool = new Pool({
+      product: product._id,
+      seller: product.seller,
+      creator: buyerId,
+      members: [
+        {
+          user: buyerId,
+          username: buyer?.username || buyer?.firstName || "vos",
+          avatar: buyer?.avatar || "",
+          joinedAt: new Date(),
+          units,
+          wallet: buyer?.walletAddress || "",
+          escrowStatus: "locked",
+          orderId: order._id,
+          txHash: fundTxHash,
+          fundedAt: new Date(),
+        },
+      ],
+      targetBuyers,
+      expiresAt: new Date(Date.now() + duration * 60 * 60 * 1000),
+      status: "open",
+      baseUnitPrice: Number(basePrice) || 0,
+      currentUnitPrice: Number(basePrice) || 0,
+      targetUnitPrice: priceForBuyers(tiers, targetBuyers, basePrice),
+      chainGroupId: null,
+      escrowAddress: order.payment?.escrowTokenAddress || "",
+      reservedUnits: units,
+      rateAtLock: order.financials?.usdRate || 0,
+    });
+
+    const saved = await pool.save();
+
+    // Vincular la orden con el pool/member recién creado.
+    order.groupBuy.poolId = saved._id;
+    order.groupBuy.memberId = saved.members[0]._id;
+    order.groupBuy.stockConsumed = false;
+    order.groupBuy.createPoolProductId = null; // intención consumida
+    await order.save();
+
+    notifyVendorPoolActivity({
+      pool: { ...saved.toObject(), productName: product.name, product: product._id },
+      action: "created",
+      actorUser: buyer,
+    });
+
+    return { pool: saved, member: saved.members[0] };
+  }
+
+  // ── CASO UNIÓN ──────────────────────────────────────────────────
+  if (gb.joinPoolId) {
+    const pool = await Pool.findById(gb.joinPoolId).populate("product");
+    if (!pool) {
+      console.warn(`[GroupBuy] Pool inexistente ${gb.joinPoolId}.`);
+      return { pool: null, member: null };
+    }
+
+    // Idempotencia: ¿ya está este buyer?
+    const already = pool.members.find(
+      (m) => String(m.user) === String(buyerId),
+    );
+    if (already) {
+      order.groupBuy.poolId = pool._id;
+      order.groupBuy.memberId = already._id;
+      order.groupBuy.joinPoolId = null;
+      await order.save();
+      return { pool, member: already };
+    }
+
+    pool.members.push({
+      user: buyerId,
+      username: buyer?.username || buyer?.firstName || "vos",
+      avatar: buyer?.avatar || "",
+      joinedAt: new Date(),
+      units,
+      wallet: buyer?.walletAddress || "",
+      escrowStatus: "locked",
+      orderId: order._id,
+      txHash: fundTxHash,
+      fundedAt: new Date(),
+    });
+
+    // Precio actual = tier según nº de members FONDEADOS (locked/released).
+    const fundedCount = pool.members.filter(
+      (m) => m.escrowStatus === "locked" || m.escrowStatus === "released",
+    ).length;
+    const tiers = pool.product?.socialSelling?.tiers || {};
+    pool.currentUnitPrice = priceForBuyers(
+      tiers,
+      fundedCount,
+      pool.baseUnitPrice,
+    );
+
+    if (pool.members.length >= pool.targetBuyers) {
+      pool.status = "filled";
+      pool.filledAt = pool.filledAt || new Date();
+    }
+
+    const saved = await pool.save();
+    const newMember = saved.members[saved.members.length - 1];
+
+    order.groupBuy.poolId = saved._id;
+    order.groupBuy.memberId = newMember._id;
+    order.groupBuy.joinPoolId = null; // intención consumida
+    await order.save();
+
+    notifyVendorPoolActivity({
+      pool: saved,
+      action: "joined",
+      actorUser: buyer,
+    });
+
+    return { pool: saved, member: newMember };
+  }
+
+  console.warn("[GroupBuy] Orden de grupo sin intención (ni crear ni unir).");
+  return { pool: null, member: null };
+};
+
+/**
+ * Precio unitario (ARS) del TIER VIGENTE para una orden de grupo, ANTES de
+ * crearla. Se usa en createOrder para fijar el monto a fondear (= tier, no el
+ * precio base del producto).
+ *
+ *   - createPool -> tier de 1 comprador (precio base).
+ *   - joinPool   -> tier de (members fondeados actuales + 1).
+ *
+ * @returns {Promise<number|null>} precio unitario en ARS (o null si no aplica)
+ */
+export const computeGroupUnitPriceArs = async ({ groupBuy, product }) => {
+  if (!groupBuy || !product) return null;
+  const ss = product.socialSelling || {};
+  const tiers = ss.tiers || {};
+  const basePrice = product.sale?.active ? product.sale.price : product.price;
+
+  if (groupBuy.createPool) {
+    return priceForBuyers(tiers, 1, basePrice);
+  }
+
+  if (groupBuy.joinPoolId) {
+    const pool = await Pool.findById(groupBuy.joinPoolId).lean();
+    if (!pool) return priceForBuyers(tiers, 1, basePrice);
+    const fundedCount = (pool.members || []).filter(
+      (m) => m.escrowStatus === "locked" || m.escrowStatus === "released",
+    ).length;
+    return priceForBuyers(tiers, fundedCount + 1, pool.baseUnitPrice || basePrice);
+  }
+
+  return null;
 };
 
 export default {
-  createPaidOrderForPoolMember,
-  syncPoolOrdersAfterRelease,
+  createPendingOrderForPoolMember,
+  finalizePoolOrdersFinalPrice,
+  materializeGroupBuyOrder,
+  computeGroupUnitPriceArs,
 };

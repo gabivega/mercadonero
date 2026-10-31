@@ -43,6 +43,17 @@ export const getAllOrders = async (req, res) => {
       pendingRequest: o.pendingRequest,
       releaseRequest: o.releaseRequest,
       orderActions: o.orderActions,
+      // Datos del PAGO (método + estado del escrow). El panel de admin los
+      // necesita para distinguir transferencia bancaria de escrow crypto y
+      // habilitar la acción correcta ("Reembolsar comprador" usa cancel-escrow
+      // sólo cuando payment.method === "crypto").
+      payment: o.payment,
+      // Estado de disputa. El modal de admin lo usa para mostrar el banner
+      // "Orden en disputa", habilitar los botones de cierre (a favor del
+      // comprador/vendedor) y OCULTAR "Abrir Disputa" cuando ya hay una
+      // disputa abierta. Sin este campo, dispute llega undefined y el modal
+      // cree que la orden no tiene disputa.
+      dispute: o.dispute,
     }));
 
     res.status(200).json({ success: true, orders: data });
@@ -215,6 +226,86 @@ export const getUserById = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════
+// GESTIÓN DEL ESTADO DE LA CUENTA (solo admin)
+// ════════════════════════════════════════════════════════════════════
+// PATCH /api/admin/users/:id/status
+// Body: { status: "active" | "suspended", reason? }
+// Cambia el accountStatus del usuario. Suspender también pausa sus productos
+// activos (reversible). Nunca borra el documento (preserva órdenes/escrow).
+export const adminSetUserStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, reason = "" } = req.body || {};
+
+    if (!["active", "suspended"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Estado inválido. Usá 'active' o 'suspended'.",
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Usuario no encontrado." });
+    }
+
+    if (user.role === "admin") {
+      return res.status(400).json({
+        success: false,
+        message: "No se puede cambiar el estado de una cuenta de administrador.",
+      });
+    }
+
+    if (status === "suspended" && !String(reason).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "El motivo de suspensión es obligatorio.",
+      });
+    }
+
+    user.accountStatus = status;
+    user.accountStatusChangedAt = new Date();
+    user.accountStatusChangedBy = req.user._id;
+    user.accountStatusReason =
+      status === "suspended" ? String(reason).trim() : "";
+    await user.save();
+
+    let productsPaused = 0;
+    if (status === "suspended") {
+      const r = await Product.updateMany(
+        { seller: user._id, status: "active" },
+        { $set: { status: "paused" } },
+      );
+      productsPaused = r.modifiedCount || 0;
+    }
+
+    res.status(200).json({
+      success: true,
+      message:
+        status === "suspended"
+          ? `Cuenta suspendida. ${productsPaused} publicación(es) pausada(s).`
+          : "Cuenta reactivada.",
+      user: {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        accountStatus: user.accountStatus,
+        accountStatusReason: user.accountStatusReason,
+        accountStatusChangedAt: user.accountStatusChangedAt,
+      },
+      productsPaused,
+    });
+  } catch (error) {
+    console.log(error);
+    res
+      .status(500)
+      .json({ message: "Error al actualizar el estado de la cuenta" });
+  }
+};
+
 // MODERACIÓN DE PUBLICACIONES (aprobación manual por admin)
 // ════════════════════════════════════════════════════════════════════
 // Flujo: el vendedor publica → el producto nace en moderation.status="pending"
@@ -776,13 +867,13 @@ export const getStats = async (req, res) => {
 
 // --------------------------------------------------------------------
 // GET /api/admin/collateral/audit
-// Auditor�a del colateral de vendedores: contrasta la DB con la blockchain
-// y devuelve las �rdenes que requieren acci�n del admin (liberar garant�a,
+// Auditor�a del colateral de vendedores: contrasta la DB con la blockchain
+// y devuelve las �rdenes que requieren acci�n del admin (liberar garant�a,
 // completar tras el buffer o reconciliar la DB).
 //
 // Query:
-//   ?since=<d�as | ISO date>  Ventana de antig�edad de las �rdenes (default 60).
-//   ?attention=true           Devuelve SOLO las que requieren atenci�n.
+//   ?since=<d�as | ISO date>  Ventana de antig�edad de las �rdenes (default 60).
+//   ?attention=true           Devuelve SOLO las que requieren atenci�n.
 //
 // Respuesta: { summary, since, count, orders }. Es de SOLO LECTURA: no mueve
 // fondos. El admin acciona luego con los endpoints existentes
@@ -792,7 +883,7 @@ export const auditCollateralHandler = async (req, res) => {
   try {
     const { since, attention } = req.query;
 
-    // Aceptamos "since" como n�mero de d�as o como fecha ISO.
+    // Aceptamos "since" como n�mero de d�as o como fecha ISO.
     let sinceDate;
     if (since && Number.isFinite(Number(since))) {
       sinceDate = new Date(Date.now() - Number(since) * 24 * 60 * 60 * 1000);

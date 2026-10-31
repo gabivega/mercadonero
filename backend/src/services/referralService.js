@@ -208,6 +208,8 @@ export async function accrueReferralForOrder(order) {
   }
 
   const orderTag = String(order._id).slice(-6).toUpperCase();
+  // Título del producto para mostrarlo en el detalle del movimiento.
+  const productTitle = order.itemsSnapshot?.[0]?.title || "";
 
   // Acreditamos al REFERIDOR y al COMPRADOR de forma atómica ($inc).
   await User.updateOne(
@@ -224,6 +226,9 @@ export async function accrueReferralForOrder(order) {
           description: `Referido por orden #${orderTag}`,
           refType: "order",
           refId: order._id,
+          orderId: order._id,
+          productTitle,
+          role: "referrer",
           status: "completed",
         },
       },
@@ -244,6 +249,9 @@ export async function accrueReferralForOrder(order) {
           description: `Reintegro por referido en orden #${orderTag}`,
           refType: "order",
           refId: order._id,
+          orderId: order._id,
+          productTitle,
+          role: "buyer",
           status: "completed",
         },
       },

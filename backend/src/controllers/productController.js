@@ -506,7 +506,7 @@ const NERO_CATEGORY_MAP = {
 // OBTENER PRODUCTOS POR CATEGORIA O GENERAL
 export const getProducts = async (req, res) => {
   try {
-                                const { search, category, subCategory, brand, minPrice, maxPrice, sort, sellerId, page, limit } = req.query;
+                                                                const { search, category, subCategory, brand, minPrice, maxPrice, sort, sellerId, page, limit, excludeSellerId } = req.query;
     // ── VISIBILIDAD PÚBLICA ──
     // Un producto se muestra solo si está ACTIVO (ciclo de venta) Y APROBADO
     // por el admin (moderación). El catálogo público NUNCA expone productos
@@ -520,6 +520,29 @@ export const getProducts = async (req, res) => {
     // solo las publicaciones activas de un vendedor determinado.
     if (sellerId) {
       query.seller = sellerId;
+    }
+
+    // ── ANTI-AUTOCOMPRA: EXCLUIR AL PROPIO VENDEDOR ──
+    // El front (buscador, home, categorías) manda el `_id` del usuario
+    // logueado para que NO aparezcan sus propias publicaciones en el
+    // catálogo. Se filtra en la DB (no en el front) para que `total`,
+    // la paginación y las facetas queden coherentes al excluir productos.
+    // Es opcional: si no viene, se comporta como siempre.
+    if (
+      excludeSellerId &&
+      mongoose.Types.ObjectId.isValid(String(excludeSellerId)) &&
+      String(excludeSellerId).length === 24
+    ) {
+      // Si además se pidió un `sellerId` y coincide, no hay nada que mostrar.
+      if (sellerId && String(sellerId) === String(excludeSellerId)) {
+        return res.json({
+          products: [],
+          total: 0,
+          hasMore: false,
+          filters: { categories: [], subCategories: [], brands: [] },
+        });
+      }
+      query.seller = { $ne: excludeSellerId };
     }
     
 // Configuración de ordenamiento por defecto (Del más nuevo al más viejo)
@@ -701,10 +724,10 @@ export const getProducts = async (req, res) => {
         const j = Math.floor(Math.random() * (i + 1));
         [pool[i], pool[j]] = [pool[j], pool[i]];
       }
-      // Populate manual del seller solo de los elegidos (barato).
+            // Populate manual del seller solo de los elegidos (barato).
       products = await Product.populate(pool, {
         path: 'seller',
-        select: 'username name shop isVerified walletAddress',
+        select: 'username name shop isVerified walletAddress accountStatus',
       });
         } else {
       // Orden estable: paginamos en Mongo. Traemos SOLO la página + total.
@@ -714,17 +737,25 @@ export const getProducts = async (req, res) => {
         buildBaseQuery().skip(startIndex).limit(cap).lean(),
         Product.countDocuments(query),
       ]);
-      products = await Product.populate(pageDocs, {
+            products = await Product.populate(pageDocs, {
         path: 'seller',
-        select: 'username name shop isVerified walletAddress',
+        select: 'username name shop isVerified walletAddress accountStatus',
       });
       total = count;
     }
 
-    // 🔒 OCULTAR PRODUCTOS DE PAGO DE VENDEDORES SIN WALLET: el escrow/colateral
+        // 🔒 OCULTAR PRODUCTOS DE PAGO DE VENDEDORES SIN WALLET: el escrow/colateral
     // necesita la wallet del vendedor. Los clasificados no usan escrow.
     products = products.filter(
       (p) => p.listingType !== "product" || (p.seller && p.seller.walletAddress),
+    );
+
+    // 🔒 OCULTAR PRODUCTOS DE CUENTAS NO ACTIVAS (suspendidas/desactivadas/
+    // eliminadas). El populate trae `accountStatus`; si el vendedor no está
+    // "active" (o no existe → seller null) NO se muestra al público. Incluye a
+    // los clasificados: un vendedor suspendido no debe aparecer.
+    products = products.filter(
+      (p) => p.seller && (p.seller.accountStatus || "active") === "active",
     );
 
     // ── Facetas ──
@@ -777,18 +808,22 @@ export const getProductById = async (req, res) => {
     // como por el slug SEO (/producto/consola-gaming-rog-ally-20ky5u).
     const lookup = buildProductLookup(id);
 
-    const product = await Product.findOne(lookup).populate(
+        const product = await Product.findOne(lookup).populate(
       "seller",
-      "username name shop isVerified shopName walletAddress",
+      "username name shop isVerified shopName walletAddress accountStatus",
     ); // Traemos data del vendedor
 
         // Validamos que el producto exista, esté activo Y aprobado por moderación.
     // Un producto pending/rejected no es visible al público (mismo mensaje
     // genérico para no filtrar el motivo de moderación).
+    // También ocultamos el producto si el vendedor NO está activo (cuenta
+    // suspendida/desactivada/eliminada) o si el vendedor ya no existe.
     if (
       !product ||
       product.status !== "active" ||
-      product.moderation?.status !== "approved"
+      product.moderation?.status !== "approved" ||
+      !product.seller ||
+      (product.seller.accountStatus || "active") !== "active"
     ) {
       return res.status(404).json({
         message: "Esta publicación ya no está disponible o ha sido pausada.",

@@ -440,10 +440,16 @@ const step1 = await Swal.fire({
             <span>📦 Subtotal Productos:</span>
             <span style="font-weight: 700;">$${formatMoney(total)}</span>
           </p>
-          <p style="margin: 3px 0; display: flex; justify-content: space-between;">
-            <span>🚚 Costo de Envío:</span>
+                    <p style="margin: 3px 0; display: flex; justify-content: space-between;">
+            <span>${deliveryMethod === "pickup" ? "🏪 Retiro en sucursal:" : "🚚 Costo de Envío:"}</span>
             <span style="font-weight: 700; color: ${shippingTotal === 0 ? '#10b981' : 'inherit'}">
-              ${shippingTotal === 0 ? 'GRATIS' : `$${formatMoney(shippingTotal)}`}
+              ${
+                deliveryMethod === "pickup"
+                  ? "GRATIS"
+                  : shippingTotal === 0
+                    ? "GRATIS"
+                    : `$${formatMoney(shippingTotal)}`
+              }
             </span>
           </p>
                     <p style="margin: 8px 0 0 0; display: flex; justify-content: space-between; font-size: 1.1rem; border-top: 1px solid ${isDark ? "#3f3f46" : "#e5e7eb"}; pt-2">
@@ -477,7 +483,7 @@ const step1 = await Swal.fire({
             ? `<p style="margin: 5px 0;">🏪 <b>Punto de entrega:</b> ${selectedShipping.pickupPoint.name} — ${[selectedShipping.pickupPoint.street, selectedShipping.pickupPoint.streetNumber].filter(Boolean).join(" ")}, ${selectedShipping.pickupPoint.city || ""}</p>`
             : ""
         }
-        <p style="margin: 5px 0;">🚚 <b>Despacho:</b> El vendedor despacha en <b>${sellerProducts[0]?.shipping?.shippingTime || "48h"}</b></p>
+        <p style="margin: 5px 0;">🚚 <b>Despacho:</b> El vendedor entrega en <b>${sellerProducts[0]?.shipping?.shippingTime || "48h"}</b></p>
         <p style="margin: 10px 0 0 0; font-size: 0.8rem; color: #10b981; display: flex; align-items: center; gap: 4px;">
           🛡️ Compra protegida por Mercado Nero
         </p>
@@ -891,12 +897,7 @@ const step1 = await Swal.fire({
         <div id="crypto-balance-note" style="margin-top:4px;"></div>
 
                 <p style="font-size: 0.76rem; color: ${isDark ? "#a8a29e" : "#78716c"}; margin: 10px 0 0 0;">
-          🛡️ Tus fondos quedan protegidos en el contrato hasta que recibas el pedido. El gas lo cubre la plataforma.
-        </p>
-
-        <!-- TODO: sección "Pagar con QR" (pendiente de implementar). -->
-        <p id="crypto-pay-qr" style="margin: 14px 0 0 0; font-size: 0.82rem; font-weight: 700; color: ${isDark ? "#f3f4f6" : "#1f2937"};">
-          Pagar con QR
+          🛡️ Tus fondos quedan protegidos en el contrato hasta que recibas el pedido.
         </p>
       </div>
     `;
@@ -1360,167 +1361,7 @@ if (!authenticated ||  !dbUser ) {
       <main className="max-w-5xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Lado Izquierdo: Configuración */}
                 <div className="lg:col-span-2 space-y-6">
-          {/* SECCIÓN MÉTODO DE ENTREGA (solo si el vendedor ofrece retiro) */}
-          {pickupAvailable && (
-            <section className="bg-white dark:bg-[#121212] rounded-lg shadow-sm border dark:border-zinc-800 p-6">
-              <h3 className="flex items-center gap-3 font-bold text-gray-800 dark:text-gray-100 mb-6">
-                <Truck className="text-[#3483fa]" size={22} />
-                ¿Cómo querés recibir tu compra?
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Envío a domicilio */}
-                <button
-                  type="button"
-                  onClick={() => setDeliveryMethod("shipping")}
-                  className={`text-left p-4 rounded-lg border transition-all ${
-                    deliveryMethod === "shipping"
-                      ? "border-[#3483fa] bg-blue-50 dark:bg-blue-900/10"
-                      : "border-zinc-200 dark:border-zinc-700 hover:border-zinc-300"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Truck size={18} className="text-[#3483fa]" />
-                    <span className="font-semibold text-sm dark:text-white">
-                      Envío a domicilio
-                    </span>
-                  </div>
-                                    <p className="text-xs text-gray-500 mt-1">
-                    {shippingPending
-                      ? "Calculá el costo según tu dirección"
-                                            : shippingTotal > 0
-                        ? `Costo de envío: $${formatMoney(shippingTotal)}`
-                        : "Recibí tu compra en tu dirección"}
-                  </p>
-                </button>
-
-                {/* Retiro en sucursal */}
-                <button
-                  type="button"
-                  onClick={() => setDeliveryMethod("pickup")}
-                  className={`text-left p-4 rounded-lg border transition-all ${
-                    deliveryMethod === "pickup"
-                      ? "border-[#00bb2d] bg-[#00bb2d]/5"
-                      : "border-zinc-200 dark:border-zinc-700 hover:border-zinc-300"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Store size={18} className="text-[#00bb2d]" />
-                    <span className="font-semibold text-sm dark:text-white">
-                      Retiro en sucursal
-                    </span>
-                    <span className="text-[10px] bg-[#00bb2d] text-white px-1.5 py-0.5 rounded font-bold uppercase">
-                      Gratis
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Retirás vos mismo en el local del vendedor.
-                  </p>
-                </button>
-              </div>
-            </section>
-          )}
-
-          {/* SECCIÓN DIRECCIÓN (solo si el envío a domicilio está activo) */}
-          {deliveryMethod === "shipping" && (
-            <section className="bg-white dark:bg-[#121212] rounded-lg shadow-sm border dark:border-zinc-800 p-6">
-              <h3 className="flex items-center gap-3 font-bold text-gray-800 dark:text-gray-100 mb-6">
-                <MapPin className="text-[#3483fa]" size={22} />
-                ¿Dónde quieres recibir tu compra?
-              </h3>
-
-             <AddressSection
-    addresses={addresses}
-    getAccessToken={getAccessToken}
-    setAddresses={setAddresses}
-    handleSelectAddress={handleSelectAddress}
-    selectedAddress={selectedAddress}
-  />
-
-                            {selectedAddress && (
-                <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg">
-                  <p className="text-sm text-green-700 dark:text-green-400 font-medium capitalize">
-                    Dirección seleccionada: {selectedAddress.street}{" "}
-                    {selectedAddress.streetNumber}, {selectedAddress.city}
-                  </p>
-                </div>
-              )}
-
-                            {/* COTIZACIÓN DE ENVÍO (ZIPNOVA) — se suma al total a transferir.
-                  Solo cuando hay dirección Y el modo del pedido es "zipnova"
-                  (envío a domicilio cotizado por la plataforma). En modo
-                  "fixed" mostramos el precio fijo del vendedor; en "arrange",
-                  un aviso de que el envío se coordina después. */}
-              {selectedAddress && (
-                <div className="mt-6 pt-6 border-t border-zinc-100 dark:border-zinc-800">
-                  {usesZipnovaQuote ? (
-                    <>
-                      <h4 className="flex items-center gap-2 font-bold text-gray-800 dark:text-gray-100 mb-4 text-sm">
-                        <Truck className="text-[#3483fa]" size={18} />
-                        Opciones de envío
-                      </h4>
-                      <CheckoutShippingSelector
-                        products={sellerProducts}
-                        address={selectedAddress}
-                        deliveryMethod={deliveryMethod}
-                        onShippingChange={handleShippingChange}
-                      />
-                    </>
-                  ) : homeDeliveryMode === "fixed" ? (
-                    <div className="flex items-start gap-3 p-4 rounded-2xl border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10">
-                      <Truck className="text-[#3483fa] shrink-0 mt-0.5" size={18} />
-                      <div>
-                        <p className="text-sm font-semibold dark:text-white">
-                          Envío a domicilio:{" "}
-                          ${formatMoney(fixedShippingCost)}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          El vendedor gestiona el envío e informa el costo. Se
-                          suma al total de tu compra.
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-start gap-3 p-4 rounded-2xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10">
-                      <Truck className="text-amber-500 shrink-0 mt-0.5" size={18} />
-                      <div>
-                        <p className="text-sm font-semibold dark:text-white">
-                          Envío a coordinar con el vendedor
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          El vendedor te contactará para acordar el medio y el
-                          costo del envío.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </section>
-          )}
-
-          {/* SECCIÓN RETIRO EN SUCURSAL (solo si el retiro está activo) */}
-          {deliveryMethod === "pickup" && (
-            <section className="bg-white dark:bg-[#121212] rounded-lg shadow-sm border dark:border-zinc-800 p-6">
-              <h3 className="flex items-center gap-3 font-bold text-gray-800 dark:text-gray-100 mb-4">
-                <Store className="text-[#00bb2d]" size={22} />
-                Elegí el punto de retiro
-              </h3>
-                            <PickupOption
-                product={sellerProducts[0]}
-                selectedLocationId={selectedPickup?._id}
-                onSelect={(loc) => setSelectedPickup(loc)}
-                defaultExpanded
-              />
-                            {!selectedPickup && (
-                <p className="text-xs text-amber-600 dark:text-amber-400 mt-3">
-                  Seleccioná una sucursal para elegir dónde retirás tu compra.
-                </p>
-              )}
-            </section>
-          )}
-
-
-          {/* SECCIÓN PAGO (INFO) */}
+                           {/* SECCIÓN PAGO (INFO) */}
           <section className="bg-white dark:bg-[#121212] rounded-lg shadow-sm border dark:border-zinc-800 p-6">
             <h3 className="flex items-center gap-3 font-bold text-gray-800 dark:text-gray-100 mb-6">
               <CreditCard className="text-[#3483fa]" size={22} />
@@ -1736,6 +1577,167 @@ if (!authenticated ||  !dbUser ) {
               ))}
             </div>
           </section>
+          {/* SECCIÓN MÉTODO DE ENTREGA (solo si el vendedor ofrece retiro) */}
+          {pickupAvailable && (
+            <section className="bg-white dark:bg-[#121212] rounded-lg shadow-sm border dark:border-zinc-800 p-6">
+              <h3 className="flex items-center gap-3 font-bold text-gray-800 dark:text-gray-100 mb-6">
+                <Truck className="text-[#3483fa]" size={22} />
+                ¿Cómo querés recibir tu compra?
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Envío a domicilio */}
+                <button
+                  type="button"
+                  onClick={() => setDeliveryMethod("shipping")}
+                  className={`text-left p-4 rounded-lg border transition-all ${
+                    deliveryMethod === "shipping"
+                      ? "border-[#3483fa] bg-blue-50 dark:bg-blue-900/10"
+                      : "border-zinc-200 dark:border-zinc-700 hover:border-zinc-300"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Truck size={18} className="text-[#3483fa]" />
+                    <span className="font-semibold text-sm dark:text-white">
+                      Envío a domicilio
+                    </span>
+                  </div>
+                                    <p className="text-xs text-gray-500 mt-1">
+                    {shippingPending
+                      ? "Calculá el costo según tu dirección"
+                                            : shippingTotal > 0
+                        ? `Costo de envío: $${formatMoney(shippingTotal)}`
+                        : "Recibí tu compra en tu dirección"}
+                  </p>
+                </button>
+
+                {/* Retiro en sucursal */}
+                <button
+                  type="button"
+                  onClick={() => setDeliveryMethod("pickup")}
+                  className={`text-left p-4 rounded-lg border transition-all ${
+                    deliveryMethod === "pickup"
+                      ? "border-[#00bb2d] bg-[#00bb2d]/5"
+                      : "border-zinc-200 dark:border-zinc-700 hover:border-zinc-300"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Store size={18} className="text-[#00bb2d]" />
+                    <span className="font-semibold text-sm dark:text-white">
+                      Retiro en sucursal
+                    </span>
+                    <span className="text-[10px] bg-[#00bb2d] text-white px-1.5 py-0.5 rounded font-bold uppercase">
+                      Gratis
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Retirás vos mismo en el local del vendedor.
+                  </p>
+                </button>
+              </div>
+            </section>
+          )}
+ 
+
+          {/* SECCIÓN DIRECCIÓN (solo si el envío a domicilio está activo) */}
+          {deliveryMethod === "shipping" && (
+            <section className="bg-white dark:bg-[#121212] rounded-lg shadow-sm border dark:border-zinc-800 p-6">
+              <h3 className="flex items-center gap-3 font-bold text-gray-800 dark:text-gray-100 mb-6">
+                <MapPin className="text-[#3483fa]" size={22} />
+                ¿Dónde quieres recibir tu compra?
+              </h3>
+
+             <AddressSection
+    addresses={addresses}
+    getAccessToken={getAccessToken}
+    setAddresses={setAddresses}
+    handleSelectAddress={handleSelectAddress}
+    selectedAddress={selectedAddress}
+  />
+
+                            {selectedAddress && (
+                <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg">
+                  <p className="text-sm text-green-700 dark:text-green-400 font-medium capitalize">
+                    Dirección seleccionada: {selectedAddress.street}{" "}
+                    {selectedAddress.streetNumber}, {selectedAddress.city}
+                  </p>
+                </div>
+              )}
+
+                            {/* COTIZACIÓN DE ENVÍO (ZIPNOVA) — se suma al total a transferir.
+                  Solo cuando hay dirección Y el modo del pedido es "zipnova"
+                  (envío a domicilio cotizado por la plataforma). En modo
+                  "fixed" mostramos el precio fijo del vendedor; en "arrange",
+                  un aviso de que el envío se coordina después. */}
+              {selectedAddress && (
+                <div className="mt-6 pt-6 border-t border-zinc-100 dark:border-zinc-800">
+                  {usesZipnovaQuote ? (
+                    <>
+                      <h4 className="flex items-center gap-2 font-bold text-gray-800 dark:text-gray-100 mb-4 text-sm">
+                        <Truck className="text-[#3483fa]" size={18} />
+                        Opciones de envío
+                      </h4>
+                      <CheckoutShippingSelector
+                        products={sellerProducts}
+                        address={selectedAddress}
+                        deliveryMethod={deliveryMethod}
+                        onShippingChange={handleShippingChange}
+                      />
+                    </>
+                  ) : homeDeliveryMode === "fixed" ? (
+                    <div className="flex items-start gap-3 p-4 rounded-2xl border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10">
+                      <Truck className="text-[#3483fa] shrink-0 mt-0.5" size={18} />
+                      <div>
+                        <p className="text-sm font-semibold dark:text-white">
+                          Envío a domicilio:{" "}
+                          ${formatMoney(fixedShippingCost)}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          El vendedor gestiona el envío e informa el costo. Se
+                          suma al total de tu compra.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-3 p-4 rounded-2xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10">
+                      <Truck className="text-amber-500 shrink-0 mt-0.5" size={18} />
+                      <div>
+                        <p className="text-sm font-semibold dark:text-white">
+                          Envío a coordinar con el vendedor
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          El vendedor te contactará para acordar el medio y el
+                          costo del envío.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* SECCIÓN RETIRO EN SUCURSAL (solo si el retiro está activo) */}
+          {deliveryMethod === "pickup" && (
+            <section className="bg-white dark:bg-[#121212] rounded-lg shadow-sm border dark:border-zinc-800 p-6">
+              <h3 className="flex items-center gap-3 font-bold text-gray-800 dark:text-gray-100 mb-4">
+                <Store className="text-[#00bb2d]" size={22} />
+                Elegí el punto de retiro
+              </h3>
+                            <PickupOption
+                product={sellerProducts[0]}
+                selectedLocationId={selectedPickup?._id}
+                onSelect={(loc) => setSelectedPickup(loc)}
+                defaultExpanded
+              />
+                            {!selectedPickup && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-3">
+                  Seleccioná una sucursal para elegir dónde retirás tu compra.
+                </p>
+              )}
+            </section>
+          )}
+
+
         </div>
 
         {/* Lado Derecho: Sticky Summary */}

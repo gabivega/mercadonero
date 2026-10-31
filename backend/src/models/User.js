@@ -119,6 +119,45 @@ const userSchema = new Schema(
     firstName: { type: String, default: "" },
     lastName: { type: String, default: "" },
     bio: { type: String, maxLength: 300, default: "" },
+    role: {
+      type: String,
+      enum: ["user", "admin"],
+      default: "user",
+    },
+    // ────────────────────────────────────────────────────────────────
+    // ESTADO DE LA CUENTA (ciclo de vida / moderación de la cuenta)
+    // ────────────────────────────────────────────────────────────────
+    // Es ORTOGONAL al rol (`role`) y a los flags anti-abuso
+    // (`accounting.restricted`). Representa si la CUENTA puede operar.
+    //   - "active":       cuenta normal.
+    //   - "suspended":    bloqueada por el admin (fraude, incumplimiento,
+    //                     etc.). No puede loguearse/usar la API y sus
+    //                     productos se ocultan del catálogo público.
+    //   - "deactivated":  el propio usuario desactivó su cuenta (soft-delete
+    //                     self-service). Mismos efectos que "suspended" en
+    //                     visibilidad pública, pero iniciado por el user.
+    //   - "deleted":      cuenta eliminada (soft-delete definitivo). Se
+    //                     preserva el documento para no romper el historial
+    //                     de órdenes/escrow. NO usar hard-delete (rompe
+    //                     historial contable y colateral on-chain).
+    // `attachUser` rechaza el acceso si el estado NO es "active"; el catálogo
+    // y las vistas públicas ocultan los productos/perfiles de cuentas no
+    // activas. Ver: getProducts, getProductById, getPublicUserProfile.
+    accountStatus: {
+      type: String,
+      enum: ["active", "suspended", "deactivated", "deleted"],
+      default: "active",
+      index: true,
+    },
+    // Trazabilidad del último cambio de estado (quién y cuándo).
+    accountStatusChangedAt: { type: Date, default: null },
+    accountStatusChangedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    // Motivo (obligatorio al suspender desde el panel de admin).
+    accountStatusReason: { type: String, trim: true, default: "" },
     avatar: { type: String, default: "" },
     username: {
       type: String,
@@ -363,6 +402,15 @@ const userSchema = new Schema(
             default: "order",
           },
           refId: { type: mongoose.Schema.Types.ObjectId },
+          // Orden asociada al movimiento de referido (si aplica). Permite
+          // mostrar detalle (ej: qué producto generó la recompensa) sin depender
+          // de `refId`, que puede apuntar a un retiro.
+          orderId: { type: mongoose.Schema.Types.ObjectId, ref: "Order", default: null },
+          // Título del producto que originó la recompensa (snapshot al acreditar).
+          productTitle: { type: String, default: "" },
+          // Rol del usuario en el movimiento: referidor (compartió el enlace)
+          // o comprador (recibió su reintegro).
+          role: { type: String, enum: ["referrer", "buyer", ""], default: "" },
           status: {
             type: String,
             enum: ["pending", "completed", "failed"],
@@ -372,6 +420,35 @@ const userSchema = new Schema(
         },
       ],
     },
+
+    // ────────────────────────────────────────────────
+    // ESTADO COMO REFERIDOR (acceso al programa de referidos)
+    // Es una barrera de entrada: no cualquiera puede compartir enlaces y ganar.
+    // El usuario debe SOLICITAR ser referidor (con su perfil ya completo) y un
+    // admin lo aprueba manualmente. Así un comprador esporádico no puede
+    // inscribirse solo en el programa ni auto-asignarse enlaces ?ref=.
+    //   - "none":      nunca pidió ser referidor (estado por defecto).
+    //   - "pending":   pidió acceso y espera aprobación del admin.
+    //   - "approved":  habilitado para ver productos y compartir enlaces.
+    //   - "rejected":  rechazado por el admin (puede volver a solicitar).
+    // Ortogonal a `role` y `accountStatus`.
+    // ────────────────────────────────────────────────
+    referralStatus: {
+      type: String,
+      enum: ["none", "pending", "approved", "rejected"],
+      default: "none",
+      index: true,
+    },
+    // Trazabilidad del ciclo de vida de la solicitud de referidor.
+    referralRequestedAt: { type: Date, default: null },
+    referralReviewedAt: { type: Date, default: null },
+    referralReviewedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    // Motivo opcional (sobre todo al rechazar) para mostrar al usuario.
+    referralStatusReason: { type: String, trim: true, default: "" },
 
     // Quién refirió a este usuario (una sola vez, queda fijo). Sirve para
     // métricas de adquisición. El reward concreto se registra por orden en

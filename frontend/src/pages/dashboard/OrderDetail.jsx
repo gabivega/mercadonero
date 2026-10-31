@@ -69,6 +69,60 @@ export default function OrderDetail() {
   // puede completar el pago sin volver a comprar.
   const [showPayModal, setShowPayModal] = useState(false);
 
+  // ── REPORTAR PROBLEMA AL ADMIN ──────────────────────────────────
+  // El usuario (comprador o vendedor) describe el inconveniente y lo
+  // envía al admin. NO cambia el estado de la orden ni congela el
+  // colateral: sólo registra el mensaje y notifica al admin (in-app +
+  // email) para que lo revise y resuelva manualmente.
+  const [showReportIssue, setShowReportIssue] = useState(false);
+  const [issueMessage, setIssueMessage] = useState("");
+  const [sendingIssue, setSendingIssue] = useState(false);
+
+  const handleSendIssue = async () => {
+    const text = issueMessage.trim();
+    if (!text) {
+      Swal.fire({
+        icon: "warning",
+        title: "Escribí el problema",
+        text: "Contanos qué pasó para que el equipo pueda ayudarte.",
+        background: isDark ? "#121212" : "#ffffff",
+        color: isDark ? "#f3f4f6" : "#1f2937",
+        confirmButtonColor: "#3483fa",
+      });
+      return;
+    }
+    setSendingIssue(true);
+    try {
+      const token = await getAccessToken();
+      await axios.post(
+        `${import.meta.env.VITE_SERVER_URL}/api/order/${id}/report-issue`,
+        { message: text },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setShowReportIssue(false);
+      setIssueMessage("");
+      Swal.fire({
+        icon: "success",
+        title: "Reporte enviado",
+        text: "El equipo lo revisará y se contactará con vos si necesita más información.",
+        background: isDark ? "#121212" : "#ffffff",
+        color: isDark ? "#f3f4f6" : "#1f2937",
+        confirmButtonColor: "#3483fa",
+      });
+    } catch (err) {
+      Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: err?.response?.data?.message || "No se pudo enviar el reporte.",
+        background: isDark ? "#121212" : "#ffffff",
+        color: isDark ? "#f3f4f6" : "#1f2937",
+        confirmButtonColor: "#3483fa",
+      });
+    } finally {
+      setSendingIssue(false);
+    }
+  };
+
   const scrollToRatings = () => {
     // Pequeño delay para dejar que el estado se actualice y Swal se cierre.
     setTimeout(() => {
@@ -245,11 +299,14 @@ export default function OrderDetail() {
     : order.seller?.shop?.name || null;
 
 
-  const handleStartChat = async () => {
+    const handleStartChat = async () => {
     if (!otherUserId || startingChat) return;
     setStartingChat(true);
     try {
-      const conversation = await startConversation(otherUserId);
+      // Pasamos el id de la orden para que el chat quede atado a ESTA
+      // compra/venta. Así, si volvés a operar con la misma persona por otro
+      // producto, se abre un hilo nuevo en lugar de reutilizar el anterior.
+      const conversation = await startConversation(otherUserId, order._id);
       if (conversation?._id) {
         navigate(`/mensajes?c=${conversation._id}`);
       } else {
@@ -298,10 +355,27 @@ export default function OrderDetail() {
       0,
     );
 
-    // ── PAGO: método, token y tipo de cambio ──
+        // ── PAGO: método, token y tipo de cambio ──
     // Si la orden se abona con cripto, mostramos los importes también en USDT
     // (en el detalle de cada ítem y en una tarjeta de resumen del importe).
     const isCryptoOrder = order.payment?.method === "crypto";
+
+    // ── COMPRA GRUPAL ──────────────────────────────────────────────
+    // Una orden grupal, una vez cerrado el grupo, es UNA ORDEN INDIVIDUAL más:
+    // mismo envío, recepción, disputa, etc. La ÚNICA diferencia es el reintegro
+    // on-chain (el comprador congeló el precio de su tier al unirse y el grupo
+    // terminó pagando un precio final más bajo). El contrato NeroGroupBuy
+    // devuelve la diferencia directo a la wallet; acá solo la MOSTRAMOS.
+    // OJO: NO usamos EscrowPaymentStatus/EscrowClosedSummary para órdenes
+    // grupales porque esos componentes son del escrow NeroEscrow (hable de
+    // contrato escrow, fundTxHash, etc.), que NO aplica al grupo.
+    const isGroupBuyOrder = order.isGroupBuy === true || order.payment?.groupBuy === true;
+    const groupBuy = order.groupBuy || {};
+    const groupBuyRefundUsd = Number(groupBuy.refundUsd) || 0;
+    const groupBuyLockedUsd = Number(groupBuy.lockedUsd) || 0;
+    const groupBuyUnitPriceUsd = Number(groupBuy.unitPriceUsd) || 0;
+    const groupBuyUnits = Number(groupBuy.units) || 1;
+    const groupBuyFinalTotalUsd = Number((groupBuyUnitPriceUsd * groupBuyUnits).toFixed(6));
     const payToken = order.payment?.token || "USDT";
     const usdRate = Number(order.financials?.usdRate) || 0;
 
@@ -574,7 +648,8 @@ export default function OrderDetail() {
                               {/* Pago cripto EN CURSO: la orden está pagada/despachada pero el escrow
               todavía no se liberó. Mostramos el detalle activo (con hash on-chain
               y estado del depósito) para comprador y vendedor. */}
-          {isCryptoOrder &&
+                    {isCryptoOrder &&
+            !isGroupBuyOrder &&
             ["paid", "shipped"].includes(order.status) &&
             (role === "buyer" || role === "seller") && (
               <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
@@ -582,11 +657,28 @@ export default function OrderDetail() {
               </section>
             )}
 
+          {/* Tarjeta de COMPRA GRUPAL (reemplaza al resumen del escrow individual
+              NeroEscrow, que NO aplica a las órdenes de pool). Muestra el precio
+              final y el reintegro on-chain de este comprador. */}
+          {isGroupBuyOrder && (role === "buyer" || role === "seller") && (
+            <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
+              <GroupBuySummary
+                order={order}
+                role={role}
+                lockedUsd={groupBuyLockedUsd}
+                refundUsd={groupBuyRefundUsd}
+                unitPriceUsd={groupBuyUnitPriceUsd}
+                units={groupBuyUnits}
+                finalTotalUsd={groupBuyFinalTotalUsd}
+              />
+            </section>
+          )}
+
           {/* Pago cripto CERRADO: la operación ya se cerró (recepción confirmada,
               completada, cancelada o expirada). Mostramos un resumen final
               idéntico para ambas partes, sin textos de "en espera de fondeo" ni
               botones de pago. */}
-          {isCryptoClosed && (role === "buyer" || role === "seller") && (
+          {isCryptoClosed && !isGroupBuyOrder && (role === "buyer" || role === "seller") && (
             <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
               <EscrowClosedSummary order={order} role={role} totalUsdt={orderTotalUsdt} />
             </section>
@@ -602,6 +694,35 @@ export default function OrderDetail() {
                 }}
               />
             </section>
+        )}
+
+        {/* REPORTAR PROBLEMA AL ADMIN (comprador o vendedor, cualquier estado activo).
+            No cambia el estado ni el colateral: sólo envía un mensaje al admin, que
+            lo revisa y resuelve manualmente (puede catalogarlo como disputa). */}
+        {(role === "buyer" || role === "seller") &&
+          !["completed", "cancelled", "expired"].includes(order.status) && (
+          <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 bg-rose-500/10 text-rose-500 rounded-xl shrink-0">
+                <AlertCircle size={20} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h4 className="text-sm font-black uppercase tracking-wide text-rose-600 dark:text-rose-400 mb-1">
+                  ¿Tuviste un problema con esta orden?
+                </h4>
+                <p className="text-sm text-zinc-600 dark:text-zinc-300">
+                  Contanos qué pasó y nuestro equipo lo revisará a la brevedad. Podés
+                  reportar cualquier inconveniente con el pago, el envío o el producto.
+                </p>
+                <button
+                  onClick={() => setShowReportIssue(true)}
+                  className="mt-3 inline-flex items-center gap-2 bg-rose-500 hover:bg-rose-600 text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-colors"
+                >
+                  <MessageSquare size={16} /> Reportar un problema
+                </button>
+              </div>
+            </div>
+          </section>
         )}
 
         {/* BANNER COMPRADOR: el vendedor reportó "pago no recibido" → subir comprobante */}
@@ -962,6 +1083,64 @@ export default function OrderDetail() {
           comprador cerró el modal en el checkout, cambió de dispositivo, etc.).
           Al completarse el pago, onSuccess refresca la orden (pasa a "paid").
       ────────────────────────────────────────────────────────── */}
+      {/* MODAL: reportar problema al admin */}
+      {showReportIssue && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => !sendingIssue && setShowReportIssue(false)}
+        >
+          <div
+            className="bg-white dark:bg-[#121212] w-full max-w-lg rounded-2xl border dark:border-zinc-800 shadow-2xl p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3 mb-4">
+              <div className="p-2.5 bg-rose-500/10 text-rose-500 rounded-xl shrink-0">
+                <AlertCircle size={20} />
+              </div>
+              <div>
+                <h3 className="font-black uppercase tracking-tight dark:text-white italic">
+                  Reportar un problema
+                </h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Orden #{String(order._id).slice(-6).toUpperCase()}
+                </p>
+              </div>
+            </div>
+            <textarea
+              value={issueMessage}
+              onChange={(e) => setIssueMessage(e.target.value)}
+              rows={6}
+              maxLength={2000}
+              placeholder="Describí el inconveniente con el mayor detalle posible (qué pasó, cuándo, qué esperabas)..."
+              className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#1a1a1a] p-3 text-sm text-zinc-800 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-rose-500/40 resize-none"
+            />
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-[11px] text-zinc-400">{issueMessage.length}/2000</span>
+            </div>
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={() => {
+                  if (sendingIssue) return;
+                  setShowReportIssue(false);
+                  setIssueMessage("");
+                }}
+                disabled={sendingIssue}
+                className="flex-1 py-3 rounded-xl font-bold text-sm border border-zinc-300 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSendIssue}
+                disabled={sendingIssue}
+                className="flex-1 py-3 rounded-xl font-bold text-sm bg-rose-500 hover:bg-rose-600 text-white disabled:opacity-60 transition-colors flex items-center justify-center gap-2"
+              >
+                {sendingIssue ? "Enviando..." : "Enviar al equipo"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showPayModal && order.payment?.method === "crypto" && (
         <CryptoPaymentModal
           order={{
@@ -1212,6 +1391,119 @@ function EscrowPaymentStatus({ order, onUpdate, onPayClick, role }) {
       )}
 
 
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// RESUMEN DE COMPRA GRUPAL (Social Selling).
+// Una vez cerrado el grupo, la orden es una orden individual más. Lo único
+// que la distingue es el REINTEGRO on-chain: cada comprador congeló el precio
+// de su tier al unirse (p. ej. 9) y el grupo terminó pagando el precio final
+// (p. ej. 6). El contrato NeroGroupBuy devuelve la diferencia directo a la
+// wallet del comprador al liberar (releaseMember). Acá mostramos ese detalle.
+// ──────────────────────────────────────────────────────────────
+function GroupBuySummary({ order, role, lockedUsd, refundUsd, unitPriceUsd, units, finalTotalUsd }) {
+  const isSeller = role === "seller";
+  const hasRefund = refundUsd > 0;
+  const gb = order?.groupBuy || {};
+  const refunded = gb.refunded === true;
+
+  return (
+    <div className="bg-violet-500/5 border-2 border-violet-500/60 p-6 rounded-[2.5rem] shadow-sm">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="bg-violet-600 p-2 rounded-xl text-white shadow-lg shadow-violet-600/20">
+          <Star size={20} />
+        </div>
+        <div>
+          <h3 className="font-black uppercase tracking-tight dark:text-white italic">
+            Compra Grupal
+          </h3>
+          <p className="text-xs font-bold text-violet-600 dark:text-violet-400">
+            Precio final del grupo aplicado
+          </p>
+        </div>
+      </div>
+
+      <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-6 font-medium leading-relaxed">
+        {isSeller
+          ? "Este pedido proviene de una compra grupal. El comprador pagó el precio final negociado por el grupo y se le reintegró automáticamente la diferencia de lo que había congelado al unirse."
+          : hasRefund
+            ? "Te uniste al grupo congelando el precio del tier vigente en ese momento. Al completarse el grupo, todos pagaron el precio final (más bajo) y el contrato te devolvió la diferencia directamente a tu billetera."
+            : "Compraste al precio final del grupo. Este ya era el precio más bajo del grupo, así que no hubo reintegro."}
+      </p>
+
+      <div className="bg-white dark:bg-[#252525] rounded-2xl p-5 border border-gray-100 dark:border-gray-800">
+        <h4 className="text-xs font-black uppercase text-center tracking-widest text-violet-600 dark:text-violet-400 mb-4">
+          Detalle de la compra grupal
+        </h4>
+        <div className="space-y-3 md:px-[20%]">
+          <div className="flex justify-between items-center flex-col sm:flex-row">
+            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Precio final unitario</span>
+            <span className="text-sm font-mono font-bold text-violet-600 dark:text-violet-400">
+              US$ {unitPriceUsd > 0 ? unitPriceUsd.toFixed(2) : "—"}
+            </span>
+          </div>
+          <div className="flex justify-between items-center flex-col sm:flex-row">
+            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Unidades</span>
+            <span className="text-sm font-medium dark:text-white">{units}</span>
+          </div>
+          <div className="flex justify-between items-center flex-col sm:flex-row">
+            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total pagado (final)</span>
+            <span className="text-sm font-mono font-bold text-[#3483fa]">
+              US$ {finalTotalUsd > 0 ? finalTotalUsd.toFixed(2) : "—"}
+            </span>
+          </div>
+          {lockedUsd > 0 && (
+            <div className="flex justify-between items-center flex-col sm:flex-row">
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Congelado al unirse</span>
+              <span className="text-sm font-mono font-medium dark:text-white">
+                US$ {lockedUsd.toFixed(2)}
+              </span>
+            </div>
+          )}
+          {hasRefund && (
+            <div className="flex justify-between items-center flex-col sm:flex-row border-t border-gray-100 dark:border-gray-800 pt-3">
+              <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Reintegro</span>
+              <span className="text-sm font-mono font-black text-emerald-600 dark:text-emerald-400">
+                + US$ {refundUsd.toFixed(2)}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Estado del reintegro on-chain (sólo para el comprador). */}
+      {hasRefund && !isSeller && (
+        <div
+          className={`mt-4 p-4 rounded-2xl flex items-start gap-3 border ${
+            refunded
+              ? "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/40"
+              : "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40"
+          }`}
+        >
+          <Wallet
+            className={refunded ? "text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" : "text-amber-600 dark:text-amber-400 shrink-0 mt-0.5"}
+            size={18}
+          />
+          <div className={refunded ? "text-xs text-emerald-700 dark:text-emerald-300 leading-relaxed" : "text-xs text-amber-700 dark:text-amber-300 leading-relaxed"}>
+            {refunded ? (
+              <>
+                <b className="block uppercase tracking-wide mb-0.5">Reintegro acreditado</b>
+                El contrato te devolvió US$ {refundUsd.toFixed(2)} directamente a tu
+                billetera al liberar tu porción. Podés verlo en tu wallet de USDT.
+              </>
+            ) : (
+              <>
+                <b className="block uppercase tracking-wide mb-0.5">Reintegro pendiente</b>
+                Tu reintegro de US$ {refundUsd.toFixed(2)} se acreditará a tu
+                billetera cuando se libere tu porción (al confirmar la recepción
+                del pedido).
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

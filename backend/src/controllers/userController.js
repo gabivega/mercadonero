@@ -261,13 +261,21 @@ export const getPublicUserProfile = async (req, res) => {
   try {
     const { userId } = req.params;
 
-    const user = await User.findById(userId)
+        const user = await User.findById(userId)
             .select(
-        "firstName lastName username name avatar isVerified shop rating createdAt addresses accounting",
+        "firstName lastName username name avatar isVerified shop rating createdAt addresses accounting accountStatus",
       )
       .lean();
 
     if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Usuario no encontrado." });
+    }
+
+    // Ocultamos el perfil público si la cuenta NO está activa (suspendida/
+    // desactivada/eliminada). Mismo mensaje genérico para no filtrar el motivo.
+    if ((user.accountStatus || "active") !== "active") {
       return res
         .status(404)
         .json({ success: false, message: "Usuario no encontrado." });

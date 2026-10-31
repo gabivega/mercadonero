@@ -3,8 +3,7 @@ import { Resend } from 'resend';
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 // Remitente predeterminado (cambiar por tu dominio cuando lo verifiques)
-const FROM_EMAIL = process.env.EMAIL_FROM || 'Mercado Nero <onboarding@resend.dev>';
-
+const FROM_EMAIL = process.env.RESEND_FROM_EMAIL; 
 /**
  * Notificación: Nueva Orden Creada (al Comprador)
  */
@@ -97,7 +96,7 @@ export const sendOrderCreatedToVendor = async ({
           </div>
 
           <p style="font-size: 13px; color: #555;">
-            Tus fondos en Escrow están seguros y bloqueados en el Smart Contract. Te avisaremos apenas el comprador confirme la transferencia.
+            Se ha bloqueado el importe equivalente al monto de la orden. Estate atento a la transferencia bancaria por parte del comprador.
           </p>
         </div>
       `,
@@ -534,7 +533,7 @@ export const sendVendorCryptoPaid = async ({
             ${productListHtml}
             ${
               amountUsdt != null
-                ? `<p style="margin: 10px 0 0 0; border-top: 1px solid #e4e4e7; padding-top: 8px;"><strong>Cobrarás:</strong> US$ ${amountUsdt} USDT</p>`
+                ? `<p style="margin: 10px 0 0 0; border-top: 1px solid #e4e4e7; padding-top: 8px;"><strong>Cobrarás:</strong> US$ ${amountUsdt} USD</p>`
                 : amount != null
                   ? `<p style="margin: 10px 0 0 0; border-top: 1px solid #e4e4e7; padding-top: 8px;"><strong>Monto Total:</strong> $${amount} ARS</p>`
                   : ""
@@ -544,7 +543,7 @@ export const sendVendorCryptoPaid = async ({
           <div style="background-color: #ecfdf5; border: 1px solid #6ee7b7; padding: 14px; border-radius: 6px; margin: 15px 0;">
             <p style="margin: 0 0 6px 0; font-weight: bold; color: #065f46;">✅ Podés despachar</p>
             <p style="margin: 0; font-size: 13px; color: #065f46;">
-              Los USDT del comprador ya están depositados en el escrow. Ingresá a la plataforma, sección <strong>"Mis Ventas"</strong>, para coordinar el envío del producto.
+              Los USD del comprador ya están depositados en el contrato inteligente. Ingresá a la plataforma, sección <strong>"Mis Ordenes"</strong>, para avanzar el envío del producto.
             </p>
           </div>
 
@@ -808,10 +807,10 @@ export const sendEscrowReleaseReminderToBuyer = async ({
       html: `
         <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
           <h2 style="color: #111;">Tu pago sigue retenido en garantía</h2>
-          <p>Tu orden <strong>#${shortOrderId}</strong> fue pagada con USDT y los fondos siguen retenidos en el escrow${daysSinceFunded ? ` desde hace ${daysSinceFunded} días` : ""}.</p>
+          <p>Tu orden <strong>#${shortOrderId}</strong> fue pagada con USD y los fondos siguen retenidos en el escrow${daysSinceFunded ? ` desde hace ${daysSinceFunded} días` : ""}.</p>
           <div style="background-color: #f4f4f5; padding: 15px; border-radius: 6px; margin: 15px 0;">
             <p style="margin: 0;"><strong>Número de orden:</strong> #${shortOrderId}</p>
-            ${amountUsdt != null ? `<p style="margin: 5px 0 0 0;"><strong>Monto retenido:</strong> US$ ${amountUsdt} USDT</p>` : ""}
+            ${amountUsdt != null ? `<p style="margin: 5px 0 0 0;"><strong>Monto retenido:</strong> US$ ${amountUsdt} USD</p>` : ""}
           </div>
           <p style="font-size: 13px; color: #555;">
             Si ya recibiste tu producto, ingresá a la plataforma y pulsá <strong>"Recibí el producto"</strong> para liberar los fondos al vendedor.
@@ -848,10 +847,10 @@ export const sendEscrowReleasedToVendor = async ({
       html: `
         <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
           <h2 style="color: #111;">¡Tus fondos fueron liberados!</h2>
-          <p>El escrow de la orden <strong>#${shortOrderId}</strong> fue liberado y los USDT ya fueron enviados a tu billetera.</p>
+          <p>El escrow de la orden <strong>#${shortOrderId}</strong> fue liberado y los USD ya fueron enviados a tu billetera.</p>
           <div style="background-color: #f4f4f5; padding: 15px; border-radius: 6px; margin: 15px 0;">
             <p style="margin: 0;"><strong>Número de orden:</strong> #${shortOrderId}</p>
-            ${sellerNetUsd != null ? `<p style="margin: 5px 0 0 0;"><strong>Monto recibido (neto):</strong> US$ ${sellerNetUsd} USDT</p>` : ""}
+            ${sellerNetUsd != null ? `<p style="margin: 5px 0 0 0;"><strong>Monto recibido (neto):</strong> US$ ${sellerNetUsd} USD</p>` : ""}
             ${txHash ? `<p style="margin: 5px 0 0 0; font-size: 12px;"><strong>Tx:</strong> <code>${txHash}</code></p>` : ""}
           </div>
           <p style="font-size: 13px; color: #555;">Podés ver el detalle completo en tu panel, sección <strong>"Mis Ventas"</strong>.</p>
@@ -883,10 +882,10 @@ export const sendEscrowRefundedToBuyer = async ({
       html: `
         <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
           <h2 style="color: #111;">Tu reembolso fue enviado</h2>
-          <p>La orden <strong>#${shortOrderId}</strong> fue cancelada y los USDT del escrow fueron devueltos a tu billetera.</p>
+          <p>La orden <strong>#${shortOrderId}</strong> fue cancelada y los USD del escrow fueron devueltos a tu billetera.</p>
           <div style="background-color: #f4f4f5; padding: 15px; border-radius: 6px; margin: 15px 0;">
             <p style="margin: 0;"><strong>Número de orden:</strong> #${shortOrderId}</p>
-            ${amountUsdt != null ? `<p style="margin: 5px 0 0 0;"><strong>Monto reembolsado:</strong> US$ ${amountUsdt} USDT</p>` : ""}
+            ${amountUsdt != null ? `<p style="margin: 5px 0 0 0;"><strong>Monto reembolsado:</strong> US$ ${amountUsdt} USD</p>` : ""}
             ${txHash ? `<p style="margin: 5px 0 0 0; font-size: 12px;"><strong>Tx:</strong> <code>${txHash}</code></p>` : ""}
           </div>
         </div>
@@ -970,9 +969,154 @@ export const sendPickupConfirmedToBuyer = async ({
         </div>
       `,
     });
-    if (error) console.error("Error email pickup-confirmed al comprador:", error);
+                if (error) console.error("Error email pickup-confirmed al comprador:", error);
     return { data, error };
   } catch (err) {
     console.error("Exception en sendPickupConfirmedToBuyer:", err);
+  }
+};
+
+/**
+ * 18. NOTIFICACIÓN AL ADMIN (Un usuario reportó un problema en una orden).
+ * El comprador o el vendedor describen el inconveniente libremente desde el
+ * detalle de la orden. NO cambia el estado de la orden ni toca el colateral:
+ * sólo avisa al admin para que catalogue el caso (disputa) y lo resuelva a
+ * mano. El mensaje completo del usuario se incluye en el correo.
+ */
+export const sendAdminOrderIssueReport = async ({
+  adminEmail,
+  orderId,
+  reporterRole,
+  reporterName,
+  orderStatus,
+  amount,
+  message,
+}) => {
+  try {
+    const shortOrderId = String(orderId).slice(-6).toUpperCase();
+    const safeMessage = String(message || "").slice(0, 2000);
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [adminEmail],
+      subject: `Problema reportado - Orden #${shortOrderId}`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+          <h2 style="color: #111;">Un usuario reportó un problema</h2>
+          <p>El <strong>${reporterRole}</strong>${reporterName ? ` <strong>${reporterName}</strong>` : ""} reportó un inconveniente en la orden <strong>#${shortOrderId}</strong>.</p>
+
+          <div style="background-color: #f4f4f5; padding: 15px; border-radius: 6px; margin: 15px 0;">
+            <p style="margin: 0 0 6px 0;"><strong>Número de orden:</strong> #${shortOrderId}</p>
+            <p style="margin: 0 0 6px 0;"><strong>Estado actual:</strong> ${orderStatus || "—"}</p>
+            ${amount != null ? `<p style="margin: 0 0 6px 0;"><strong>Importe:</strong> $${amount} ARS</p>` : ""}
+            <p style="margin: 0 0 6px 0;"><strong>Reportado por:</strong> ${reporterRole}</p>
+          </div>
+
+          <div style="background-color: #fffbeb; border: 1px solid #fcd34d; padding: 14px; border-radius: 6px; margin: 15px 0;">
+            <p style="margin: 0 0 6px 0; font-weight: bold; color: #92400e;">Mensaje del usuario:</p>
+            <p style="margin: 0; font-size: 13px; color: #7c2d12; white-space: pre-wrap;">${safeMessage}</p>
+          </div>
+
+          <p style="font-size: 13px; color: #555;">
+            Ingresá al panel de administración, revisá la orden y, si corresponde, marcala
+            como disputa y resolvé el caso manualmente.
+          </p>
+        </div>
+      `,
+    });
+    if (error) console.error("Error email de reporte de problema al admin:", error);
+    return { data, error };
+  } catch (err) {
+    console.error("Exception en sendAdminOrderIssueReport:", err);
+  }
+};
+
+
+/**
+ * 19. NOTIFICACIÓN AL COMPRADOR (El admin abrió una disputa en la orden).
+ * Avisa que el equipo de soporte puso la orden en revisión y que se resolverá
+ * a la brevedad. No mueve fondos: es solo comunicación del estado de disputa.
+ */
+export const sendDisputeOpenedToBuyer = async ({
+  buyerEmail,
+  orderId,
+  amount,
+  description,
+}) => {
+  try {
+    const shortOrderId = String(orderId).slice(-6).toUpperCase();
+    const safeDesc = String(description || "").slice(0, 2000);
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [buyerEmail],
+      subject: `Tu orden #${shortOrderId} está en revisión (disputa)`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+          <h2 style="color: #111;">Tu orden está en revisión</h2>
+          <p>El equipo de soporte puso la orden <strong>#${shortOrderId}</strong> en <strong>disputa</strong> para revisarla en detalle.</p>
+
+          <div style="background-color: #f4f4f5; padding: 15px; border-radius: 6px; margin: 15px 0;">
+            <p style="margin: 0 0 6px 0;"><strong>Número de orden:</strong> #${shortOrderId}</p>
+            ${amount != null ? `<p style="margin: 0 0 6px 0;"><strong>Importe:</strong> $${amount} ARS</p>` : ""}
+            ${safeDesc ? `<p style="margin: 0;"><strong>Motivo:</strong> ${safeDesc}</p>` : ""}
+          </div>
+
+          <p style="font-size: 13px; color: #555;">
+            Durante la revisión, un operador analizará el caso y se contactará con vos si
+            necesita más información. No es necesario que hagas nada por ahora.
+          </p>
+          <p style="font-size: 13px; color: #555;">
+            Podés seguir el estado en tu panel, sección <strong>"Mis Compras"</strong>.
+          </p>
+        </div>
+      `,
+    });
+    if (error) console.error("Error email disputa abierta al comprador:", error);
+    return { data, error };
+  } catch (err) {
+    console.error("Exception en sendDisputeOpenedToBuyer:", err);
+  }
+};
+
+/**
+ * 20. NOTIFICACIÓN AL VENDEDOR (El admin abrió una disputa en la orden).
+ */
+export const sendDisputeOpenedToVendor = async ({
+  vendorEmail,
+  orderId,
+  amount,
+  description,
+}) => {
+  try {
+    const shortOrderId = String(orderId).slice(-6).toUpperCase();
+    const safeDesc = String(description || "").slice(0, 2000);
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [vendorEmail],
+      subject: `Una de tus ventas #${shortOrderId} está en revisión (disputa)`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+          <h2 style="color: #111;">Una venta está en revisión</h2>
+          <p>El equipo de soporte puso la orden <strong>#${shortOrderId}</strong> en <strong>disputa</strong> para revisarla en detalle.</p>
+
+          <div style="background-color: #f4f4f5; padding: 15px; border-radius: 6px; margin: 15px 0;">
+            <p style="margin: 0 0 6px 0;"><strong>Número de orden:</strong> #${shortOrderId}</p>
+            ${amount != null ? `<p style="margin: 0 0 6px 0;"><strong>Importe:</strong> $${amount} ARS</p>` : ""}
+            ${safeDesc ? `<p style="margin: 0;"><strong>Motivo:</strong> ${safeDesc}</p>` : ""}
+          </div>
+
+          <p style="font-size: 13px; color: #555;">
+            Durante la revisión, un operador analizará el caso y se contactará con vos si
+            necesita más información. No es necesario que hagas nada por ahora.
+          </p>
+          <p style="font-size: 13px; color: #555;">
+            Podés seguir el estado en tu panel, sección <strong>"Mis Ventas"</strong>.
+          </p>
+        </div>
+      `,
+    });
+    if (error) console.error("Error email disputa abierta al vendedor:", error);
+    return { data, error };
+  } catch (err) {
+    console.error("Exception en sendDisputeOpenedToVendor:", err);
   }
 };

@@ -157,7 +157,7 @@ const startOrderCleanup = () => {
     return;
   }
 
-  cron.schedule("*/15 * * * *", () => {
+    cron.schedule(process.env.ORDER_CLEANUP_CRON || "*/15 * * * *", () => {
     runOrderCleanupOnce();
   });
 };

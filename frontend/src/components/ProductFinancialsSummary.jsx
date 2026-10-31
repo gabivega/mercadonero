@@ -193,6 +193,7 @@ export default function ProductFinancialsSummary({ product, isClassified }) {
                       <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
                         <Gift size={16} className="text-emerald-500" />
                         Recompensa de referidos
+                        <span className="text-[10px] text-gray-400">(50/50)</span>
                       </div>
                       <div className="text-right">
                         <span className="text-sm font-semibold dark:text-white">
@@ -206,6 +207,9 @@ export default function ProductFinancialsSummary({ product, isClassified }) {
                             {ars(rewardTotalUsd)}
                           </span>
                         )}
+                        <span className="block text-[10px] text-gray-400 font-normal">
+                          mitad ref. · mitad comprador
+                        </span>
                       </div>
                     </div>
                   )}
@@ -233,7 +237,7 @@ export default function ProductFinancialsSummary({ product, isClassified }) {
               {/* Nota aclaratoria */}
               <p className="text-[11px] text-gray-400 leading-relaxed">
                 Estimativo según el TDC actual. La cotización real se toma al
-                crear la orden. El total congelado incluye el envío (si lo ofreces gratis). La comisión y la recompensa se descuentan de tu
+                crear la orden. El total estimado no incluye el envío (sólo si lo ofreces gratis), el mismo se sumará en el checkout del comprador. La comisión y la recompensa se descuentan de tu
                 garantía; el neto vuelve a tu saldo.
               </p>
             </>

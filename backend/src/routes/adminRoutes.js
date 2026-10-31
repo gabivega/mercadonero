@@ -7,24 +7,31 @@ import {
   getStats,
         adminGetProducts,
   adminModerateProduct,
-  adminModerateProductsBulk,
+    adminModerateProductsBulk,
   auditCollateralHandler,
+  adminSetUserStatus,
 } from '../controllers/adminController.js';
 import {
   adminCompleteOrder,
   adminReleaseGuarantee,
   adminCancelOrder,
   adminGetCollateralStatus,
-    adminReleaseEscrow,
+  adminResolvePaymentDispute,
+  adminOpenDispute,
+  adminCloseDispute,
+} from '../controllers/orderController.js';
+// FASE 1 (refactor): handlers admin 100% crypto movidos a orderCryptoController.js
+import {
+  adminReleaseEscrow,
   adminCancelEscrow,
-    adminUpdateEscrowFee,
+  adminSettleEscrow,
+  adminUpdateEscrowFee,
   adminGetEscrowConfig,
   adminUpdateEscrowFeeWallet,
   adminUpdateEscrowConfig,
   adminListCryptoOrders,
   adminNotifyBuyerEscrow,
-  adminResolvePaymentDispute,
-} from '../controllers/orderController.js';
+} from '../controllers/orderCryptoController.js';
 import {
   adminGetCashbackConfig,
   adminUpdateCashbackConfig,
@@ -33,6 +40,8 @@ import {
 import {
   adminGetReferralConfig,
   adminUpdateReferralConfig,
+  adminGetReferralRequests,
+  adminReviewReferralRequest,
 } from '../controllers/referralController.js';
 import verifyAuth from '../middleware/verifyAuth.js';
 import attachUser from '../middleware/attachUser.js';
@@ -42,6 +51,11 @@ import { isAdmin } from '../middleware/isAdmin.js';
 router.get('/orders', verifyAuth, attachUser, isAdmin, getAllOrders);
 router.get('/users', verifyAuth, attachUser, isAdmin, getAllUsers);
 router.get('/users/:id', verifyAuth, attachUser, isAdmin, getUserById);
+
+// Cambiar el estado de una cuenta: suspender o reactivar (solo admin).
+// Body: { status: 'active' | 'suspended', reason? }. Al suspender, oculta
+// (pausa) sus publicaciones y bloquea el acceso del usuario.
+router.patch('/users/:id/status', verifyAuth, attachUser, isAdmin, adminSetUserStatus);
 
 // Estadísticas globales del panel (KPIs, GMV, ganancias, tops).
 router.get('/stats', verifyAuth, attachUser, isAdmin, getStats);
@@ -71,6 +85,16 @@ router.patch('/orders/:orderId/complete', verifyAuth, attachUser, isAdmin, admin
 // Body: { resolution: 'payment_received' | 'no_payment', note }.
 router.patch('/orders/:orderId/resolve-payment-dispute', verifyAuth, attachUser, isAdmin, adminResolvePaymentDispute);
 
+// ABRIR una disputa manualmente (solo admin). No cambia el estado de la orden
+// ni mueve fondos: solo marca order.dispute como abierta y avisa a las partes.
+// Body: { issueType?, description? }.
+router.patch('/orders/:orderId/open-dispute', verifyAuth, attachUser, isAdmin, adminOpenDispute);
+
+// CERRAR una disputa a favor de una de las partes (solo admin). Solo registra
+// la resolución; el admin mueve fondos/estado con los botones de reembolso/
+// completar/liberar. Body: { favor: 'buyer' | 'seller', note? }.
+router.patch('/orders/:orderId/close-dispute', verifyAuth, attachUser, isAdmin, adminCloseDispute);
+
 
 // Liberación manual de garantía del vendedor (solo admin)
 router.patch('/orders/:orderId/release-guarantee', verifyAuth, attachUser, isAdmin, adminReleaseGuarantee);
@@ -90,6 +114,9 @@ router.get('/collateral/audit', verifyAuth, attachUser, isAdmin, auditCollateral
 router.patch('/orders/:orderId/release-escrow', verifyAuth, attachUser, isAdmin, adminReleaseEscrow);
 // Cancelar/reembolsar el escrow (USDT al comprador).
 router.patch('/orders/:orderId/cancel-escrow', verifyAuth, attachUser, isAdmin, adminCancelEscrow);
+// Settle flexible del escrow (poder absoluto del admin, montos variables).
+// Body: { sellerAmount, feeAmount, refundAmount } (USD). Suma = monto retenido.
+router.patch('/orders/:orderId/settle-escrow', verifyAuth, attachUser, isAdmin, adminSettleEscrow);
 // Actualizar el fee global del escrow en el contrato (puntos base).
 router.patch('/escrow/fee', verifyAuth, attachUser, isAdmin, adminUpdateEscrowFee);
 // Actualizar la feeWallet del escrow en el contrato.
@@ -115,5 +142,11 @@ router.patch('/cashback/user/:userId', verifyAuth, attachUser, isAdmin, adminAdj
 // Configuración global: tope de %, default, activar/desactivar, etc.
 router.get('/referral/config', verifyAuth, attachUser, isAdmin, adminGetReferralConfig);
 router.patch('/referral/config', verifyAuth, attachUser, isAdmin, adminUpdateReferralConfig);
+
+// Solicitudes de REFERIDOR (aprobacion manual).
+// Lista por estado. Query: ?status=pending|approved|rejected|all&search=
+router.get('/referral/requests', verifyAuth, attachUser, isAdmin, adminGetReferralRequests);
+// Aprobar o rechazar una solicitud. Body: { action: 'approve'|'reject', reason? }.
+router.patch('/referral/requests/:id', verifyAuth, attachUser, isAdmin, adminReviewReferralRequest);
 
 export default router;

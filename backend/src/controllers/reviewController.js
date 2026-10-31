@@ -22,9 +22,11 @@ const validateRating = ({ order, type, author, productId, targetUser }) => {
   switch (type) {
     case "product_rating":
       if (!isBuyer) return { error: "Solo el comprador puede calificar los productos." };
-      // El comprador debe haber completado la compra para calificar el producto.
-      if (order.status !== "completed") {
-        return { error: "Podés calificar el producto solo cuando la orden esté completada." };
+      // El comprador puede calificar el producto cuando ya confirmó la
+      // recepción ('reception_confirmed'), sin esperar a que el admin cierre
+      // la orden ('completed'). Ambos estados habilitan la calificación.
+      if (order.status !== "completed" && order.status !== "reception_confirmed") {
+        return { error: "Podés calificar el producto cuando confirmes la recepción o la orden esté completada." };
       }
       // Validar que el producto pertenece a la orden
       if (!productId || !order.itemsSnapshot.some((i) => i.productId?.toString() === productId.toString())) {
@@ -34,9 +36,13 @@ const validateRating = ({ order, type, author, productId, targetUser }) => {
 
     case "seller_rating":
       if (!isBuyer) return { error: "Solo el comprador puede calificar al vendedor." };
-      // Solo orden completada o cancelada por el vendedor
-      if (order.status !== "completed" && order.status !== "cancelled") {
-        return { error: "Solo podés calificar al vendedor en órdenes completadas o canceladas." };
+      // Calificable con recepción confirmada, orden completada o cancelada.
+      if (
+        order.status !== "completed" &&
+        order.status !== "reception_confirmed" &&
+        order.status !== "cancelled"
+      ) {
+        return { error: "Solo podés calificar al vendedor cuando confirmes la recepción, la orden esté completada o cancelada." };
       }
       if (order.status === "cancelled" && order.cancelledBy === "buyer") {
         return { error: "Esta orden fue cancelada por el comprador; el rating de vendedor no aplica." };
@@ -50,9 +56,13 @@ const validateRating = ({ order, type, author, productId, targetUser }) => {
 
     case "buyer_rating":
       if (!isSeller) return { error: "Solo el vendedor puede calificar al comprador." };
-      // Solo orden completada o cancelada por el comprador
-      if (order.status !== "completed" && order.status !== "cancelled") {
-        return { error: "Solo podés calificar al comprador en órdenes completadas o canceladas." };
+      // Calificable con recepción confirmada, orden completada o cancelada.
+      if (
+        order.status !== "completed" &&
+        order.status !== "reception_confirmed" &&
+        order.status !== "cancelled"
+      ) {
+        return { error: "Solo podés calificar al comprador cuando haya confirmado la recepción, la orden esté completada o cancelada." };
       }
       if (order.status === "cancelled" && order.cancelledBy === "seller") {
         return { error: "Esta orden fue cancelada por el vendedor; el rating de comprador no aplica." };

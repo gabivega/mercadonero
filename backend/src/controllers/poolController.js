@@ -4,17 +4,19 @@ import User from "../models/User.js";
 import { createNotification } from "../services/notificationService.js";
 import { sendPoolActivityToVendor } from "../services/sendEmail.js";
 import { getTdc } from "../services/tdcService.js";
-import { prepareFunding as prepareGasFunding } from "../services/gasDripService.js";
+import Order from "../models/Order.js";
+import { getEscrowChainConfig, ESCROW_DEFAULT_CHAIN_ID } from "../config/chains.js";
+// Escrow individual (NeroEscrow) reutilizado para cada orden del grupo.
 import {
-  verifyMemberFunded,
-  verifyGroupFunded,
-  getGroupOnChain,
-  closeGroupOnChain,
-  releaseMemberOnChain,
-  refundGroupOnChain,
-  GROUP_BUY_CONTRACT_ADDRESS,
-} from "../services/groupBuyEscrowService.js";
-import { syncPoolOrdersAfterRelease } from "./groupBuyOrderController.js";
+  cancelOrderEscrow,
+  settleOrderEscrow,
+  releaseOrderEscrow,
+  getFeeBps,
+} from "../services/escrowServices.js";
+import {
+  createPendingOrderForPoolMember,
+  finalizePoolOrdersFinalPrice,
+} from "./groupBuyOrderController.js";
 
 /**
  * Avisa al vendedor (in-app + email) que hubo actividad en un grupo de compra.
@@ -83,19 +85,30 @@ const ACTION_WINDOW_MS = 1000 * 60 * 60 * 24; // (no usado aún; reservado)
 
 // ── CONFIG DE ESCROW DEL GRUPO ────────────────────────────────────────
 // Token de escrow del grupo (USDT). En testnet usamos el USDT de prueba.
-const GROUP_ESCROW_TOKEN =
-  process.env.USDT_TESTNET_ADDRESS ||
-  "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd";
-const GROUP_ESCROW_TOKEN_DECIMALS = 18; // USDT en BSC (mainnet y testnet) usa 18.
-
-/** Lanza si el contrato de compra grupal no está configurado. */
-const requireGroupContract = () => {
-  if (!GROUP_BUY_CONTRACT_ADDRESS) {
-    throw new Error(
-      "GROUP_BUY_CONTRACT_ADDRESS no está configurada. Desplegá NeroGroupBuy y setea la variable.",
-    );
-  }
+// El contrato de escrow vive en el NeroEscrow común (no hay contratos de grupo).
+// Red/token/contrato se resuelven con getEscrowChainConfig(chainId).
+const ALLOWED_PAYMENT_TOKENS = [
+  "USDT",
+  "USDC",
+  "USDXM",
+  "DAI",
+  "BNB",
+  "POL",
+  "ETH",
+];
+const resolvePaymentToken = (token, escrowChain) => {
+  const norm = (v) =>
+    ALLOWED_PAYMENT_TOKENS.includes(String(v || "").toUpperCase())
+      ? String(v).toUpperCase()
+      : null;
+  return (
+    norm(token) ||
+    norm(escrowChain?.tokenSymbol) ||
+    norm(escrowChain?.nativeSymbol) ||
+    "USDT"
+  );
 };
+const requireGroupContract = () => true; // no-op (compat)
 
 /**
  * Devuelve el precio unitario (ARS) para un pool según la cantidad de
@@ -177,10 +190,11 @@ const applyLazyExpiry = async (pool) => {
 // Crea un pool para un producto. El creador queda como primer miembro.
 // body: { productId }
 // ──────────────────────────────────────────────────────────────────────
+
 export const createPool = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { productId, units: rawUnits } = req.body;
+    const { productId, units: rawUnits, chainId } = req.body;
     const units = Math.max(1, Math.floor(Number(rawUnits) || 1));
 
     if (!productId) {
@@ -204,7 +218,6 @@ export const createPool = async (req, res) => {
       });
     }
 
-    // El vendedor no puede unirse a su propio pool (evita auto-sabotaje).
     if (product.seller.toString() === userId.toString()) {
       return res.status(403).json({
         success: false,
@@ -212,7 +225,6 @@ export const createPool = async (req, res) => {
       });
     }
 
-    // ¿El usuario ya está en un pool abierto para este producto?
     const existing = await Pool.findOne({
       product: productId,
       status: "open",
@@ -226,23 +238,11 @@ export const createPool = async (req, res) => {
       });
     }
 
-    // Stock disponible real = stock - reservado por pools abiertos.
-    const availableStock = Math.max(
-      0,
-      (product.stock ?? 0) - (product.reservedStock ?? 0),
-    );
-    if (availableStock < units) {
-      return res.status(400).json({
-        success: false,
-        message: `No hay stock suficiente para ${units} unidad(es). Disponible: ${availableStock}.`,
-      });
-    }
-
     const user = await User.findById(userId).select(
       "username firstName lastName avatar walletAddress",
     );
 
-    // El creador necesita wallet Web3 para fondear on-chain.
+    // Wallet Web3 obligatoria (se firma el escrow del member en la orden).
     if (!user?.walletAddress) {
       return res.status(400).json({
         success: false,
@@ -257,91 +257,92 @@ export const createPool = async (req, res) => {
     const targetBuyers = 5;
     const basePrice = product.sale?.active ? product.sale.price : product.price;
 
-    // ── VALIDACIÓN DE SALDO PREVIA (evita pools sin saldo congelado) ──
-    // El grupo nace SOLO si el creador puede congelar su USDT. Validamos acá
-    // ANTES de insertar el pool: si no alcanza, no se crea nada (nada de
-    // grupos huérfanos ni "crear por crear").
+    // TDC snapshot (solo para el precio informativo del pool; la orden lo
+    // recalcula on-chain igual que el flujo individual).
     let tdcSnapshot = 0;
     try {
       const tdcRes = await getTdc();
-      if (!tdcRes.success) {
-        return res.status(503).json({
-          success: false,
-          message:
-            "No se pudo obtener la cotización (TDC). Reintentá en unos segundos.",
-        });
-      }
-      tdcSnapshot = tdcRes.tdc;
-
-      const priceUnitArs = priceForBuyers(tiers, 1, basePrice);
-      const lockedUsd = computeLockedAmountUsd(units, priceUnitArs, tdcSnapshot);
-
-      const gas = await prepareGasFunding({
-        userId,
-        walletAddress: user.walletAddress,
-        usdtAddress: GROUP_ESCROW_TOKEN,
-        requiredUsd: lockedUsd,
-        reason: "create_group",
-        refId: null,
-      });
-      if (!gas.success) {
-        return res.status(400).json({
-          success: false,
-          message:
-            gas.error || "No pudimos validar tu saldo para fondear el grupo.",
-          insufficientUsdt: !!gas.insufficientUsdt,
-          required: gas.requiredUsd ?? lockedUsd,
-          balance: gas.balanceUsd ?? 0,
-        });
-      }
-    } catch (prepErr) {
-      console.error("Error validando saldo en createPool:", prepErr);
-      return res.status(502).json({
-        success: false,
-        message:
-          "No pudimos validar tu saldo on-chain. Reintentá en unos segundos.",
-      });
+      if (tdcRes.success) tdcSnapshot = tdcRes.tdc;
+    } catch (e) {
+      // No bloqueante: el precio final se calcula al fondear desde la orden.
+      console.error("createPool: no se pudo obtener TDC:", e?.message);
     }
+
+    const escrowChain = getEscrowChainConfig(chainId ?? ESCROW_DEFAULT_CHAIN_ID);
+
+    const member = {
+      user: userId,
+      username: user?.username || user?.firstName || "vos",
+      avatar: user?.avatar || "",
+      joinedAt: new Date(),
+      units,
+      wallet: user?.walletAddress || "",
+      escrowStatus: "pending",
+      shippingAddress: req.body.shippingAddress || {},
+    };
 
     const pool = new Pool({
       product: product._id,
       seller: product.seller,
       creator: userId,
-      members: [
-        {
-          user: userId,
-          username: user?.username || user?.firstName || "vos",
-          avatar: user?.avatar || "",
-          joinedAt: new Date(),
-          units,
-          wallet: user?.walletAddress || "",
-          escrowStatus: "pending",
-        },
-      ],
+      members: [member],
       targetBuyers,
       expiresAt: new Date(Date.now() + duration * 60 * 60 * 1000),
       status: "open",
       baseUnitPrice: Number(basePrice) || 0,
-      // Con 1 miembro todavía no aplica tier: precio actual = base.
       currentUnitPrice: Number(basePrice) || 0,
       targetUnitPrice: priceForBuyers(tiers, targetBuyers, basePrice),
-      // Vínculo on-chain: el groupId es el _id del Pool.
-      chainGroupId: null, // se setea al confirmar el fondeo on-chain
-      escrowAddress: GROUP_BUY_CONTRACT_ADDRESS || "",
-      reservedUnits: 0, // se suma al confirmar el fondeo
-      rateAtLock: tdcSnapshot, // TDC snapshot para el precio en USDT
+      chainGroupId: null,
+      escrowAddress: escrowChain.contractAddress || "",
+      reservedUnits: 0,
+      rateAtLock: tdcSnapshot,
     });
 
     const saved = await pool.save();
+    const savedMember = saved.members[saved.members.length - 1];
 
-    // Avisamos al vendedor (in-app + email). No bloquea la respuesta.
+    // Monto (USD) a congelar del membro creador, según el tier vigente (1).
+    const priceUnitArs = priceForBuyers(tiers, 1, basePrice);
+    const lockedProductsUsd =
+      tdcSnapshot > 0
+        ? computeLockedAmountUsd(units, priceUnitArs, tdcSnapshot)
+        : Number(basePrice) || 0;
+    const shippingUsd = product.shipping?.free
+      ? 0
+      : Number(product.shipping?.cost) || 0;
+
+    const order = await createPendingOrderForPoolMember({
+      pool: saved,
+      member: savedMember,
+      product,
+      chainId: escrowChain.chainId,
+      lockedProductsUsd,
+      shippingUsd,
+      tokenSymbol: resolvePaymentToken(null, escrowChain),
+      usdRate: tdcSnapshot,
+    });
+    savedMember.orderId = order._id;
+    await saved.save();
+
     notifyVendorPoolActivity({
       pool: { ...saved.toObject(), productName: product.name, product: product._id },
       action: "created",
       actorUser: user,
     });
 
-    return res.status(201).json({ success: true, pool: serializePool(saved) });
+    const seller = await User.findById(product.seller).select("walletAddress");
+    const orderForModal = {
+      ...order.toObject(),
+      sellerWallet: seller?.walletAddress || "",
+      escrowContract: escrowChain.contractAddress || "",
+      tokenSymbol: resolvePaymentToken(null, escrowChain),
+      chainId: escrowChain.chainId,
+      fundingMode: escrowChain.fundingMode,
+    };
+
+    return res
+      .status(201)
+      .json({ success: true, pool: serializePool(saved), order: orderForModal });
   } catch (error) {
     console.error("Error en createPool:", error);
     return res
@@ -350,15 +351,18 @@ export const createPool = async (req, res) => {
   }
 };
 
+
 // ──────────────────────────────────────────────────────────────────────
 // POST /api/pool/:id/join   (protegida)
 // Suma al usuario logueado al pool. Si se llena, pasa a "filled".
 // ──────────────────────────────────────────────────────────────────────
+
 export const joinPool = async (req, res) => {
   try {
     const userId = req.user._id;
     const { id } = req.params;
     const units = Math.max(1, Math.floor(Number(req.body?.units) || 1));
+    const chainId = req.body?.chainId;
 
     const pool = await Pool.findById(id).populate("product");
     if (!pool) {
@@ -379,7 +383,6 @@ export const joinPool = async (req, res) => {
       });
     }
 
-    // No puede unirse el vendedor dueño del producto.
     if (pool.seller.toString() === userId.toString()) {
       return res.status(403).json({
         success: false,
@@ -387,7 +390,6 @@ export const joinPool = async (req, res) => {
       });
     }
 
-    // Evitar doble membresía.
     if (pool.members.some((m) => m.user.toString() === userId.toString())) {
       return res.status(409).json({
         success: false,
@@ -396,7 +398,6 @@ export const joinPool = async (req, res) => {
       });
     }
 
-    // No se puede sumar si ya se alcanzó el objetivo.
     if (pool.members.length >= pool.targetBuyers) {
       pool.status = "filled";
       pool.filledAt = pool.filledAt || new Date();
@@ -408,24 +409,10 @@ export const joinPool = async (req, res) => {
       });
     }
 
-    // Stock disponible real (stock - reservado por pools abiertos).
-    const product = pool.product;
-    const availableStock = Math.max(
-      0,
-      (product.stock ?? 0) - (product.reservedStock ?? 0),
-    );
-    if (availableStock < units) {
-      return res.status(400).json({
-        success: false,
-        message: `No hay stock suficiente para ${units} unidad(es). Disponible: ${availableStock}.`,
-      });
-    }
-
     const user = await User.findById(userId).select(
       "username firstName lastName avatar walletAddress",
     );
 
-    // El comprador necesita una wallet Web3 para fondear on-chain.
     if (!user?.walletAddress) {
       return res.status(400).json({
         success: false,
@@ -443,9 +430,9 @@ export const joinPool = async (req, res) => {
       units,
       wallet: user.walletAddress,
       escrowStatus: "pending",
+      shippingAddress: req.body?.shippingAddress || {},
     });
 
-    // Recalculamos el precio actual con el nº de miembros resultante.
     const tiers = pool.product?.socialSelling?.tiers || {};
     pool.currentUnitPrice = priceForBuyers(
       tiers,
@@ -453,24 +440,63 @@ export const joinPool = async (req, res) => {
       pool.baseUnitPrice,
     );
 
-    // ¿Se llenó?
     if (pool.members.length >= pool.targetBuyers) {
       pool.status = "filled";
       pool.filledAt = new Date();
     }
 
     const saved = await pool.save();
+    const savedMember = saved.members[saved.members.length - 1];
 
-    // Avisamos al vendedor (in-app + email). No bloquea la respuesta.
+    // Monto (USD) a congelar del nuevo member, según el tier VIGENTE ahora.
+    const tdc = Number(pool.rateAtLock) || 0;
+    const priceUnitArs = priceForBuyers(
+      tiers,
+      saved.members.length,
+      pool.baseUnitPrice,
+    );
+    const lockedProductsUsd =
+      tdc > 0
+        ? computeLockedAmountUsd(units, priceUnitArs, tdc)
+        : Number(pool.currentUnitPrice) || 0;
+    const shippingUsd = saved.product?.shipping?.free
+      ? 0
+      : Number(saved.product?.shipping?.cost) || 0;
+
+    const escrowChain = getEscrowChainConfig(chainId ?? ESCROW_DEFAULT_CHAIN_ID);
+
+    const order = await createPendingOrderForPoolMember({
+      pool: saved,
+      member: savedMember,
+      product: saved.product,
+      chainId: escrowChain.chainId,
+      lockedProductsUsd,
+      shippingUsd,
+      tokenSymbol: resolvePaymentToken(null, escrowChain),
+      usdRate: tdc,
+    });
+    savedMember.orderId = order._id;
+    await saved.save();
+
     notifyVendorPoolActivity({
       pool: saved,
       action: "joined",
       actorUser: user,
     });
 
+    const seller = await User.findById(pool.seller).select("walletAddress");
+    const orderForModal = {
+      ...order.toObject(),
+      sellerWallet: seller?.walletAddress || "",
+      escrowContract: escrowChain.contractAddress || "",
+      tokenSymbol: resolvePaymentToken(null, escrowChain),
+      chainId: escrowChain.chainId,
+      fundingMode: escrowChain.fundingMode,
+    };
+
     return res
       .status(200)
-      .json({ success: true, pool: serializePool(saved) });
+      .json({ success: true, pool: serializePool(saved), order: orderForModal });
   } catch (error) {
     console.error("Error en joinPool:", error);
     return res
@@ -478,6 +504,7 @@ export const joinPool = async (req, res) => {
       .json({ success: false, message: "Error al unirse al grupo." });
   }
 };
+
 
 // ──────────────────────────────────────────────────────────────────────
 // GET /api/pool/product/:productId   (pública)
@@ -909,20 +936,18 @@ export const leavePool = async (req, res) => {
 // El comprador luego hace approve + createGroup/joinGroup desde el front.
 // Después debe llamar a POST /:id/escrow/fund con el txHash.
 // ──────────────────────────────────────────────────────────────────────
+
 export const preparePoolFunding = async (req, res) => {
   try {
-    requireGroupContract();
     const userId = req.user._id;
     const { id } = req.params;
 
-    const pool = await Pool.findById(id).populate("product");
+    const pool = await Pool.findById(id);
     if (!pool) {
       return res
         .status(404)
         .json({ success: false, message: "Grupo no encontrado." });
     }
-
-    // El member debe existir y no estar ya fondeado.
     const member = pool.members.find(
       (m) => m.user.toString() === userId.toString(),
     );
@@ -931,98 +956,25 @@ export const preparePoolFunding = async (req, res) => {
         .status(403)
         .json({ success: false, message: "No sos parte de este grupo." });
     }
-    if (member.escrowStatus === "locked" || member.escrowStatus === "released") {
-      return res.status(409).json({
-        success: false,
-        message: "Tu porción ya está fondeada.",
-        pool: serializePool(pool),
-      });
-    }
-    if (pool.status === "cancelled") {
-      return res
-        .status(400)
-        .json({ success: false, message: "El grupo fue cancelado." });
-    }
 
-    // El vendedor debe tener wallet (destino de los fondos on-chain).
-    const seller = await User.findById(pool.seller).select("walletAddress");
-    if (!seller?.walletAddress) {
-      return res.status(400).json({
-        success: false,
-        message: "El vendedor no tiene una billetera Web3 vinculada.",
-      });
-    }
-
-    // ── TDC + precio del tier actual ──
-    const tdcRes = await getTdc();
-    if (!tdcRes.success) {
-      return res.status(503).json({
-        success: false,
-        message: "No se pudo obtener la cotización (TDC). Reintentá en unos segundos.",
-      });
-    }
-    const tdc = tdcRes.tdc;
-
-    const tiers = pool.product?.socialSelling?.tiers || {};
-    // Tier según cuántas personas hay AHORA (incluyéndome).
-    const priceUnitArs = priceForBuyers(
-      tiers,
-      pool.members.length,
-      pool.baseUnitPrice,
-    );
-    const units = member.units || 1;
-    const lockedUsd = computeLockedAmountUsd(units, priceUnitArs, tdc);
-    const lockedWei = (
-      BigInt(Math.round(lockedUsd * 1e6)) * BigInt(10) ** BigInt(12)
-    ).toString(); // 6 dec → 18 dec
-
-    // ── Gas drip: garantiza BNB para firmar + valida saldo USDT ──
-    const buyerWallet = member.wallet || req.user.walletAddress;
-    let gas = null;
-    if (buyerWallet) {
-      gas = await prepareGasFunding({
-        userId,
-        walletAddress: buyerWallet,
-        usdtAddress: GROUP_ESCROW_TOKEN,
-        requiredUsd: lockedUsd,
-        reason: pool.creator.toString() === userId.toString()
-          ? "create_group"
-          : "join_group",
-        refId: pool._id,
-      });
-      if (!gas.success) {
-        return res.status(400).json({
-          success: false,
-          message:
-            gas.error ||
-            "No se pudo preparar el gas/saldo para el fondeo.",
-          // Datos para que el front muestre el aviso de recarga de USDT.
-          insufficientUsdt: !!gas.insufficientUsdt,
-          required: gas.requiredUsd ?? lockedUsd,
-          balance: gas.balanceUsd ?? 0,
+    const order = member.orderId
+      ? await Order.findById(member.orderId)
+      : await Order.findOne({
+          "groupBuy.poolId": pool._id,
+          buyer: member.user,
+          isGroupBuy: true,
         });
-      }
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "No se encontró la orden del comprador en el grupo.",
+      });
     }
 
-    return res.status(200).json({
-      success: true,
-      funding: {
-        groupId: pool._id.toString(),
-        contractAddress: GROUP_BUY_CONTRACT_ADDRESS,
-        tokenAddress: GROUP_ESCROW_TOKEN,
-        tokenSymbol: "USDT",
-        tokenDecimals: GROUP_ESCROW_TOKEN_DECIMALS,
-        sellerWallet: seller.walletAddress,
-        targetBuyers: pool.targetBuyers,
-        isCreator: pool.creator.toString() === userId.toString(),
-        units,
-        priceUnitArs,
-        tdc,
-        lockedUsd,
-        lockedWei,
-      },
-      gas,
-    });
+    // Delegamos en el MISMO prepare de las órdenes individuales.
+    const { prepareEscrowFunding } = await import("./orderCryptoController.js");
+    req.params.orderId = order._id.toString();
+    return prepareEscrowFunding(req, res);
   } catch (error) {
     console.error("Error en preparePoolFunding:", error);
     return res.status(500).json({
@@ -1031,6 +983,7 @@ export const preparePoolFunding = async (req, res) => {
     });
   }
 };
+
 
 // ──────────────────────────────────────────────────────────────────────
 // POST /api/pool/:id/escrow/fund   (protegida)
@@ -1041,26 +994,18 @@ export const preparePoolFunding = async (req, res) => {
 //
 // body: { txHash }
 // ──────────────────────────────────────────────────────────────────────
+
 export const confirmPoolFunding = async (req, res) => {
   try {
-    requireGroupContract();
     const userId = req.user._id;
     const { id } = req.params;
-    const { txHash } = req.body;
 
-    if (!txHash) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Falta el txHash del fondeo." });
-    }
-
-    const pool = await Pool.findById(id).populate("product");
+    const pool = await Pool.findById(id);
     if (!pool) {
       return res
         .status(404)
         .json({ success: false, message: "Grupo no encontrado." });
     }
-
     const member = pool.members.find(
       (m) => m.user.toString() === userId.toString(),
     );
@@ -1070,98 +1015,28 @@ export const confirmPoolFunding = async (req, res) => {
         .json({ success: false, message: "No sos parte de este grupo." });
     }
 
-    // Idempotencia: si ya estaba fondeado, devolvemos ok.
-    if (member.escrowStatus === "locked") {
-      return res.status(200).json({
-        success: true,
-        alreadyFunded: true,
-        pool: serializePool(pool),
-      });
-    }
-
-    const buyerWallet = member.wallet || req.user.walletAddress;
-    if (!buyerWallet) {
-      return res.status(400).json({
+    const order = member.orderId
+      ? await Order.findById(member.orderId)
+      : await Order.findOne({
+          "groupBuy.poolId": pool._id,
+          buyer: member.user,
+          isGroupBuy: true,
+        });
+    if (!order) {
+      return res.status(404).json({
         success: false,
-        message: "No se pudo determinar tu wallet para verificar el fondeo.",
+        message: "No se encontró la orden del comprador en el grupo.",
       });
     }
 
-    const groupId = pool._id.toString();
-    const units = member.units || 1;
-
-    // ── 1. Verificar el miembro on-chain por su wallet ──
-    // El contrato no guarda el txHash por miembro, así que verificamos el
-    // estado on-chain real: el buyer debe figurar fondeado con sus unidades.
-    const check = await verifyMemberFunded(groupId, buyerWallet, { units });
-    if (!check.success || !check.funded) {
-      return res.status(400).json({
-        success: false,
-        message:
-          check.error ||
-          "No encontramos tu fondeo on-chain. Verificá que la transacción se haya confirmado.",
-      });
+    // Delegamos en el MISMO confirm de las órdenes individuales.
+    const { confirmEscrowFunding } = await import("./orderCryptoController.js");
+    req.params.orderId = order._id.toString();
+    // El modal manda fundTxHash; el wrapper de pool puede recibir txHash.
+    if (req.body?.txHash && !req.body?.fundTxHash) {
+      req.body.fundTxHash = req.body.txHash;
     }
-
-    // ── 2. Reservar stock: reservedStock += units (atómico, con guard) ──
-    const product = pool.product;
-    const stockRes = await Product.updateOne(
-      {
-        _id: product._id,
-        $expr: {
-          $gte: [
-            { $subtract: [{ $ifNull: ["$stock", 0] }, { $ifNull: ["$reservedStock", 0] }] },
-            units,
-          ],
-        },
-      },
-      { $inc: { reservedStock: units } },
-    );
-    if (stockRes.modifiedCount === 0) {
-      // El fondeo on-chain ya ocurrió pero no hay stock físico: caso borde.
-      // Marcamos el member para revisión manual (no rompemos el flujo on-chain).
-      member.escrowStatus = "locked";
-      member.txHash = txHash;
-      member.fundedAt = new Date();
-      member.needsReview = true;
-      await pool.save();
-      return res.status(409).json({
-        success: false,
-        message:
-          "Tu pago se confirmó on-chain, pero ya no hay stock físico para reservar. Contactá a soporte.",
-        pool: serializePool(pool),
-      });
-    }
-
-    // ── 3. Persistir el member fondeado ──
-    member.escrowStatus = "locked";
-    member.txHash = txHash;
-    member.fundedAt = new Date();
-    member.locked = check.member?.lockedAmount
-      ? String(check.member.lockedAmount)
-      : member.locked;
-
-    // ── 4. Vínculo con el grupo on-chain (groupId = Pool._id) ──
-    pool.chainGroupId = groupId;
-    if (!pool.escrowAddress) pool.escrowAddress = GROUP_BUY_CONTRACT_ADDRESS;
-    pool.reservedUnits = (pool.reservedUnits || 0) + units;
-
-    // ── 5. ¿Están TODOS los members fondeados? → group fully funded ──
-    const allFunded = pool.members.every(
-      (m) => m.escrowStatus === "locked" || m.escrowStatus === "released",
-    );
-    if (allFunded && pool.status === "filled") {
-      // Listo para que el admin cierre el grupo on-chain.
-      pool.orderSyncStatus = "pending";
-    }
-
-    await pool.save();
-
-    return res.status(200).json({
-      success: true,
-      pool: serializePool(pool),
-      allFunded,
-    });
+    return confirmEscrowFunding(req, res);
   } catch (error) {
     console.error("Error en confirmPoolFunding:", error);
     return res.status(500).json({
@@ -1171,6 +1046,7 @@ export const confirmPoolFunding = async (req, res) => {
   }
 };
 
+
 // ──────────────────────────────────────────────────────────────────────
 // POST /api/pool/:id/close   (ADMIN)
 //
@@ -1179,13 +1055,13 @@ export const confirmPoolFunding = async (req, res) => {
 //
 // Reglas:
 //   - Si memberCount >= 2 → closeGroupOnChain + sync órdenes.
-//   - Si memberCount === 1 → refundGroupOnChain (devuelve el 100% al creador).
+//   - Si hay 1 solo comprador: reembolso íntegro (cancelOrderEscrow).
 //
 // body: { force?: boolean }  (force permite cerrar un grupo "open" ya vencido)
 // ──────────────────────────────────────────────────────────────────────
+
 export const closePool = async (req, res) => {
   try {
-    requireGroupContract();
     const { id } = req.params;
 
     const pool = await Pool.findById(id).populate("product");
@@ -1195,75 +1071,14 @@ export const closePool = async (req, res) => {
         .json({ success: false, message: "Grupo no encontrado." });
     }
 
-    if (!pool.chainGroupId) {
+    if (!["open", "filled"].includes(pool.status)) {
       return res.status(400).json({
         success: false,
-        message: "El grupo nunca se fondeó on-chain. No hay nada que cerrar.",
+        message: "El grupo no está abierto/filled; no se puede cerrar.",
       });
     }
 
-    // ── Leer estado on-chain ──
-    const onChain = await getGroupOnChain(pool.chainGroupId);
-    if (!onChain.success) {
-      return res.status(502).json({
-        success: false,
-        message: `No se pudo leer el grupo on-chain: ${onChain.error}`,
-      });
-    }
-    if (onChain.closed) {
-      return res.status(409).json({
-        success: false,
-        message: "El grupo ya estaba cerrado on-chain.",
-      });
-    }
-    if (onChain.refunded) {
-      return res.status(409).json({
-        success: false,
-        message: "El grupo ya fue reembolsado on-chain.",
-      });
-    }
-
-    const memberCount = Number(onChain.memberCount);
-
-    // ── CASO A: solo 1 comprador → reembolso íntegro ──
-    if (memberCount < 2) {
-      const refund = await refundGroupOnChain(pool.chainGroupId);
-      if (!refund.success) {
-        return res.status(502).json({
-          success: false,
-          message: `Fallo el reembolso on-chain: ${refund.error}`,
-        });
-      }
-
-      // Restaurar stock reservado de ese único member.
-      const units = pool.members.reduce((a, m) => a + (m.units || 1), 0);
-      if (units > 0) {
-        await Product.updateOne(
-          { _id: pool.product._id },
-          { $inc: { reservedStock: -units } },
-        );
-      }
-
-      pool.status = "expired";
-      pool.closedAt = new Date();
-      pool.refundTxHash = refund.txHash;
-      pool.members.forEach((m) => {
-        m.escrowStatus = "refunded";
-        m.refundedAt = new Date();
-      });
-      await pool.save();
-
-      return res.status(200).json({
-        success: true,
-        refunded: true,
-        txHash: refund.txHash,
-        pool: serializePool(pool),
-      });
-    }
-
-    // ── CASO B: cerrar con precio final unitario (USDT) ──
-    // El precio final = tier de targetBuyers (o el más bajo definido). Lo
-    // convertimos a USDT con el TDC del cierre.
+    // Precio final unitario (USDT) según el tier del objetivo del grupo.
     const tdcRes = await getTdc();
     if (!tdcRes.success) {
       return res.status(503).json({
@@ -1272,7 +1087,6 @@ export const closePool = async (req, res) => {
       });
     }
     const tdc = tdcRes.tdc;
-
     const tiers = pool.product?.socialSelling?.tiers || {};
     const finalPriceArs = finalTargetPriceArs(
       tiers,
@@ -1281,48 +1095,74 @@ export const closePool = async (req, res) => {
     );
     const finalUnitPriceUsd = Number((finalPriceArs / tdc).toFixed(6));
 
-    const closed = await closeGroupOnChain(
-      pool.chainGroupId,
+    // Fee vigente del contrato de escrow (para calcular el neto del vendedor).
+    let feeBps = 0;
+    try {
+      const feeRead = await getFeeBps(ESCROW_DEFAULT_CHAIN_ID);
+      if (feeRead.success) feeBps = feeRead.feeBps;
+    } catch (e) {
+      console.warn("closePool: no se pudo leer feeBps:", e?.message);
+    }
+
+    // Fix del precio final escalonado en cada orden del grupo.
+    const fin = await finalizePoolOrdersFinalPrice({
+      pool,
       finalUnitPriceUsd,
-    );
-    if (!closed.success) {
-      return res.status(502).json({
-        success: false,
-        message: `Fallo el cierre on-chain: ${closed.error}`,
+      feeBps,
+    });
+
+    // Grupo con 1 solo comprador → reembolso íntegro (cancelOrderEscrow).
+    const isSingle = (pool.members?.length || 0) < 2;
+    if (isSingle) {
+      const results = [];
+      for (const o of fin.orders) {
+        try {
+          if (o.payment?.status === "funded") {
+            const r = await cancelOrderEscrow(
+              o._id.toString(),
+              o.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
+            );
+            results.push({ orderId: o._id, ok: r.success, error: r.error });
+            if (r.success) {
+              o.payment.status = "cancelled_refunded";
+              o.status = "cancelled";
+              await o.save();
+            }
+          }
+        } catch (err) {
+          results.push({ orderId: o._id, ok: false, error: err.message });
+        }
+      }
+      pool.status = "expired";
+      pool.closedAt = new Date();
+      pool.finalUnitPriceUsd = finalUnitPriceUsd;
+      pool.members.forEach((m) => {
+        m.escrowStatus = "refunded";
+        m.refundedAt = new Date();
       });
-    }
-
-    // Actualizamos el pool con el precio final y disparamos el sync de órdenes.
-    pool.finalUnitPriceUsd = finalUnitPriceUsd;
-    pool.closeTxHash = closed.txHash;
-    pool.closedAt = new Date();
-    if (pool.status === "open") {
-      pool.status = "filled"; // se cerró (aunque no se haya "llenado" del todo)
-      pool.filledAt = pool.filledAt || new Date();
-    }
-    await pool.save();
-
-    // ── Crear las órdenes individuales (idempotente) ──
-    const sync = await syncPoolOrdersAfterRelease(pool._id);
-    if (!sync.success) {
-      // El cierre on-chain se hizo, pero el sync quedó parcial: se puede reintentar.
-      return res.status(207).json({
-        success: false,
-        partial: true,
-        message:
-          "El grupo se cerró on-chain, pero no se pudieron crear todas las órdenes. Reintentá el cierre.",
-        sync,
+      await pool.save();
+      return res.status(200).json({
+        success: true,
+        refunded: true,
+        single: true,
+        results,
         pool: serializePool(await Pool.findById(pool._id)),
       });
     }
 
+    // Grupo >= 2: el grupo se cierra. Las órdenes ya están fondeadas; el
+    // reintegro escalonado se ejecuta en el settle al confirmar recepción.
+    pool.status = "filled";
+    pool.filledAt = pool.filledAt || new Date();
+    pool.closedAt = new Date();
+    pool.finalUnitPriceUsd = finalUnitPriceUsd;
+    await pool.save();
+
     return res.status(200).json({
       success: true,
       closed: true,
-      txHash: closed.txHash,
       finalUnitPriceUsd,
-      ordersCreated: sync.ordersCreated?.length || 0,
-      sync,
+      ordersUpdated: fin.updated,
       pool: serializePool(await Pool.findById(pool._id)),
     });
   } catch (error) {
@@ -1334,6 +1174,7 @@ export const closePool = async (req, res) => {
   }
 };
 
+
 // ──────────────────────────────────────────────────────────────────────
 // POST /api/pool/:id/release-member   (protegida)
 //
@@ -1343,29 +1184,17 @@ export const closePool = async (req, res) => {
 //
 // body: { buyer?: address }  (admin puede liberar a otro; el comprador solo a sí mismo)
 // ──────────────────────────────────────────────────────────────────────
+
 export const releasePoolMember = async (req, res) => {
   try {
-    requireGroupContract();
     const userId = req.user._id;
     const { id } = req.params;
 
-    const pool = await Pool.findById(id).populate("product");
+    const pool = await Pool.findById(id);
     if (!pool) {
       return res
         .status(404)
         .json({ success: false, message: "Grupo no encontrado." });
-    }
-    if (pool.status !== "filled") {
-      return res.status(400).json({
-        success: false,
-        message: "El grupo todavía no se cerró.",
-      });
-    }
-    if (!pool.chainGroupId) {
-      return res.status(400).json({
-        success: false,
-        message: "El grupo nunca se fondeó on-chain.",
-      });
     }
 
     const member = pool.members.find(
@@ -1376,23 +1205,25 @@ export const releasePoolMember = async (req, res) => {
         .status(403)
         .json({ success: false, message: "No sos parte de este grupo." });
     }
-    if (member.escrowStatus === "released") {
-      return res.status(409).json({
+
+    // Resolvemos la orden del member y liberamos su escrow (NeroEscrow).
+    const order = member.orderId
+      ? await Order.findById(member.orderId)
+      : await Order.findOne({
+          "groupBuy.poolId": pool._id,
+          buyer: member.user,
+          isGroupBuy: true,
+        });
+    if (!order) {
+      return res.status(404).json({
         success: false,
-        message: "Tu porción ya fue liberada.",
-        pool: serializePool(pool),
-      });
-    }
-    if (member.escrowStatus !== "locked") {
-      return res.status(400).json({
-        success: false,
-        message: "Tu porción no está fondeada; no se puede liberar.",
+        message: "No se encontró la orden del comprador en el grupo.",
       });
     }
 
-    const released = await releaseMemberOnChain(
-      pool.chainGroupId,
-      member.wallet,
+    const released = await releaseOrderEscrow(
+      order._id.toString(),
+      order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
     );
     if (!released.success) {
       return res.status(502).json({
@@ -1400,6 +1231,14 @@ export const releasePoolMember = async (req, res) => {
         message: `Fallo la liberación on-chain: ${released.error}`,
       });
     }
+
+    order.payment.status = "released";
+    order.payment.releaseTxHash = released.txHash;
+    order.payment.releasedAt = new Date();
+    order.groupBuy.refunded = true;
+    order.groupBuy.refundTxHash = released.txHash;
+    order.groupBuy.refundedAt = new Date();
+    await order.save();
 
     member.escrowStatus = "released";
     member.releasedAt = new Date();
@@ -1420,3 +1259,4 @@ export const releasePoolMember = async (req, res) => {
     });
   }
 };
+

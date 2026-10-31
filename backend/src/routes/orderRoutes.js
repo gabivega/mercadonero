@@ -1,6 +1,8 @@
 import express from 'express';
 const router = express.Router();
-import { createOrder, getMyOrders, getMyCollateralBreakdown, markAsPaid, getOrderById, updateOrder, cancelOrder, vendorConfirmsRefund, buyerConfirmsRefundReceived, requestAdminRelease, retryCollateral, cancelCollateralHold, prepareEscrowFunding, updateOrderPaymentChain, confirmEscrowFunding, getEscrowStatus, cancelCryptoOrder, rollbackCryptoOrder, openDispute, uploadPaymentProof, buyerRequestEscrowRelease } from '../controllers/orderController.js';
+import { createOrder, getMyOrders, getMyCollateralBreakdown, markAsPaid, getOrderById, updateOrder, cancelOrder, vendorConfirmsRefund, buyerConfirmsRefundReceived, requestAdminRelease, retryCollateral, cancelCollateralHold, openDispute, reportOrderIssue, uploadPaymentProof } from '../controllers/orderController.js';
+// FASE 1 (refactor): handlers 100% crypto movidos a orderCryptoController.js
+import { prepareEscrowFunding, updateOrderPaymentChain, confirmEscrowFunding, getEscrowStatus, cancelCryptoOrder, rollbackCryptoOrder, buyerRequestEscrowRelease } from '../controllers/orderCryptoController.js';
 import verifyAuth from '../middleware/verifyAuth.js';
 import attachUser from '../middleware/attachUser.js';
 
@@ -38,6 +40,10 @@ router.patch('/:orderId/buyer-confirms-refund-received', verifyAuth, attachUser,
 router.patch('/:orderId/request-admin-release', verifyAuth, attachUser, requestAdminRelease);
 // Comprador abre una disputa cuando el pedido va en camino pero llegó mal
 router.post('/:orderId/dispute', verifyAuth, attachUser, openDispute);
+// Usuario (comprador o vendedor) reporta un problema en la orden. NO cambia el
+// estado ni congela colateral: solo registra el mensaje y avisa al admin
+// (in-app + email) para que lo resuelva manualmente.
+router.post('/:orderId/report-issue', verifyAuth, attachUser, reportOrderIssue);
 // Comprador adjunta el comprobante de su transferencia ante una disputa de
 // pago no recibido (recibe una URL ya subida a Cloudinary desde el front).
 router.patch('/:orderId/upload-proof', verifyAuth, attachUser, uploadPaymentProof);

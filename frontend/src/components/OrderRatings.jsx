@@ -12,7 +12,7 @@ const BASE = import.meta.env.VITE_SERVER_URL;
  *
  * Según el rol (comprador o vendedor) y el estado de la orden, muestra los
  * botones disponibles:
- *   - Comprador: "Calificar producto" (en order completada) y "Calificar vendedor".
+ *   - Comprador: "Calificar producto" (recepción confirmada o completada) y "Calificar vendedor".
  *   - Vendedor  : "Calificar comprador".
  *
  * También consulta al backend qué ratings ya emitió el usuario para no mostrar
@@ -68,17 +68,22 @@ export default function OrderRatings({ order, role }) {
   const ratedSeller = ratings.some((r) => r.type === "seller_rating");
   const ratedBuyer = ratings.some((r) => r.type === "buyer_rating");
 
-  // ¿La orden es calificable (completada o cancelada)?
+  // ¿La orden es calificable? El comprador puede calificar apenas confirma la
+  // recepción ('reception_confirmed'), SIN esperar a que el admin cierre la
+  // orden ('completed'). También aplica el caso de cancelación (según quién la
+  // canceló).
   const isCompleted = status === "completed";
+  const isReceptionConfirmed = status === "reception_confirmed";
+  const isRatable = isCompleted || isReceptionConfirmed;
   const isCancelled = status === "cancelled";
   const cancelledBy = order?.cancelledBy;
 
   // Decisiones según rol
-  const canRateProducts = role === "buyer" && isCompleted;
+  const canRateProducts = role === "buyer" && isRatable;
   const canRateSeller =
-    role === "buyer" && (isCompleted || (isCancelled && cancelledBy !== "buyer"));
+    role === "buyer" && (isRatable || (isCancelled && cancelledBy !== "buyer"));
   const canRateBuyer =
-    role === "seller" && (isCompleted || (isCancelled && cancelledBy !== "seller"));
+    role === "seller" && (isRatable || (isCancelled && cancelledBy !== "seller"));
 
   // Solo mostrar la sección si hay al menos un botón disponible
   const hasProductsToRate = canRateProducts && order.itemsSnapshot.some(
@@ -97,7 +102,7 @@ export default function OrderRatings({ order, role }) {
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {ratings.length > 0
                 ? "Ya dejaste todas tus calificaciones para esta orden. ¡Gracias!"
-                : "Las calificaciones estarán disponibles al completarse o cancelarse la orden."}
+                : "Las calificaciones estarán disponibles una vez que confirmes la recepción (o la orden se complete o cancele)."}
             </p>
           </div>
         </div>

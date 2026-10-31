@@ -27,6 +27,13 @@ import ShippingQuoteBox from "../components/ShippingQuoteBox";
 import PickupOption from "../components/PickupOption";
 import { useUserStore } from "../store/useUserStore";
 import { productUrl } from "../Utils/productUrl";
+// Flag global de Social Selling / Compra en grupo. HOY está en `false` para el
+// lanzamiento: ocultamos TODOS los puntos de entrada (sección grande, banner
+// compacto y carrusel de compras grupales) sin borrar el código. Al pasarlo a
+// `true` en featureFlags.js vuelven solos. Gateamos acá explícitamente (no
+// confiamos en que cada componente se auto-oculte) para no dejar la página con
+// huecos ni CTAs huérfanos.
+import { SOCIAL_SELLING_ENABLED } from "../Utils/featureFlags";
 
 /**
  * Inyecta metadatos SEO (title, description, canonical, Open Graph y
@@ -377,8 +384,10 @@ export default function ProductDetail() {
             <hr className="my-8 border-gray-100 dark:border-gray-800" />
                 {/* SOCIAL SELLING: Compra en Grupo (pools) — el gancho principal,
                 arriba de todo en el bloque ancho para que se vea ni bien se
-                accede. Solo productos con el feature habilitado por el vendedor. */}
-            {product.listingType === "product" &&
+                accede. Solo productos con el feature habilitado por el vendedor
+                Y con el flag global prendido (apagado para el lanzamiento). */}
+            {SOCIAL_SELLING_ENABLED &&
+              product.listingType === "product" &&
               product.category !== "autos-motos-y-otros" &&
               product.socialSelling?.enabled && (
                 <div className="pb-8">
@@ -765,7 +774,8 @@ export default function ProductDetail() {
 
               {/* SOCIAL SELLING: CTA compacto → hace scroll a la sección de
                   compra en grupo (columna izquierda). Solo productos. */}
-              {product.listingType === "product" &&
+              {SOCIAL_SELLING_ENABLED &&
+                product.listingType === "product" &&
                 product.category !== "autos-motos-y-otros" && (
                   <SocialSellingBanner
                     product={product}
@@ -872,14 +882,16 @@ export default function ProductDetail() {
             habilitada por el vendedor. El backend expone la sección especial
             `social-selling` (productos de pago con tiers, sin filtrar por
             categoría). El botón "Explorar todo" lleva a /compras-grupales. */}
-        <div className="mt-10">
-          <ProductCarousel
-            title="Comprá en grupo y ahorrá"
-            category="social-selling"
-            sectionId="group-buy"
-            exploreTo="/compras-grupales"
-          />
-        </div>
+        {SOCIAL_SELLING_ENABLED && (
+          <div className="mt-10">
+            <ProductCarousel
+              title="Comprá en grupo y ahorrá"
+              category="social-selling"
+              sectionId="group-buy"
+              exploreTo="/compras-grupales"
+            />
+          </div>
+        )}
       </div>
     </div>
   );

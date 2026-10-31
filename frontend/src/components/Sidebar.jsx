@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  User, Wallet, Bell, ShoppingBag, History,
-  Tag, LogOut, LayoutDashboard, Heart,
-  ChevronLeft, ChevronRight, Menu, X, MessageSquare, Server,
-  Store
+  User, Wallet, Bell, ShoppingBag,
+  Plus, LogOut, Package, Heart,
+  ChevronLeft, ChevronRight, Menu, X, MessageSquare, Truck,
+  MapPin, ShieldCheck
 } from 'lucide-react';
 import { useUserStore } from '../store/useUserStore';
 
@@ -20,15 +20,15 @@ const Sidebar = ({ handleLogout }) => {
     { name: 'Mensajes', icon: <MessageSquare size={20} />, path: '/mensajes' },
     { name: 'Favoritos', icon: <Heart size={20} />, path: '/favoritos' },
     { name: 'Compras', icon: <ShoppingBag size={20} />, path: '/compras' },
-    { name: 'Vender', icon: <Tag size={20} />, path: '/vender' },
+    { name: 'Vender', icon: <Plus size={20} />, path: '/vender' },
     // 'Posts' deshabilitado: sección social post-lanzamiento
     // { name: 'Posts', icon: <FileText size={20} />, path: '/posts' },
-    { name: 'Mis Publicaciones', icon: <LayoutDashboard size={20} />, path: '/publicaciones' },
+    { name: 'Mis Publicaciones', icon: <Package size={20} />, path: '/publicaciones' },
     // Puntos de retiro: solo visible para vendedores con tienda activa.
-    ...(dbUser?.shop?.active ? [{ name: 'Puntos de retiro', icon: <Store size={20} />, path: '/puntos-retiro' }] : []),
+    ...(dbUser?.shop?.active ? [{ name: 'Puntos de retiro', icon: <MapPin size={20} />, path: '/puntos-retiro' }] : []),
     // { name: 'Referidos', icon: <Users size={20} />, path: '/referidos' },
-    ...(isAdmin ? [{ name: 'Proveedor', icon: <Server size={20} />, path: '/proveedor' }] : []),
-    ...(isAdmin ? [{ name: 'Admin', icon: <History size={20} />, path: '/admin' }] : []),
+    ...(isAdmin ? [{ name: 'Proveedor', icon: <Truck size={20} />, path: '/proveedor' }] : []),
+    ...(isAdmin ? [{ name: 'Admin', icon: <ShieldCheck size={20} />, path: '/admin' }] : []),
   ];
 
   return (

@@ -89,15 +89,19 @@ export const useChat = () => {
     [setActiveConversationId, fetchConversationMessages, getHeaders, clearConversationUnread],
   );
 
-  /** Inicia un chat de orden con otro usuario (verifica orden abierta). */
+  /**
+   * Inicia un chat de orden con otro usuario (verifica orden abierta).
+   * `orderId` (opcional) ata el chat a esa compra/venta concreta, para no
+   * reutilizar el hilo de otra orden entre las mismas personas.
+   */
   const startConversation = useCallback(
-    async (userId) => {
+    async (userId, orderId) => {
       setError("");
       try {
         const headers = await getHeaders();
         const { data } = await axios.post(
           `${BASE}/conversation`,
-          { userId },
+          { userId, orderId },
           { headers },
         );
         await fetchConversations();

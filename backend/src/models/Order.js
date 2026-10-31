@@ -282,9 +282,18 @@ const orderSchema = new Schema(
         type: String,
         // "POL"/"ETH"/"BNB" = moneda NATIVA de la red (fondeo native en redes
         // donde la smart wallet Crossmint no puede pagar gas con el token).
-        enum: ["USDT", "USDC", "DAI", "BNB", "POL", "ETH"],
+        // "USDXM" = stable de prueba de Polygon Amoy.
+        enum: ["USDT", "USDC", "USDXM", "DAI", "BNB", "POL", "ETH"],
         default: "USDT",
       },
+      // Dirección ERC-20 del token con el que se fondea el escrow (USDC en
+      // Base, USDT en BSC, USDXM en Amoy). El front la usa para approve +
+      // fundOrder. Se persiste al crear la orden crypto. SIN este campo en el
+      // schema, Mongoose lo descartaba en silencio al guardar y el modal de
+      // pago se quedaba sin la dirección ("La orden no tiene dirección de
+      // token"). `escrowTokenAddress` (abajo) es el espejo que se completó al
+      // fondear (address(0) si fue nativo); `tokenAddress` es el token real.
+      tokenAddress: { type: String, default: "" },
       status: {
         type: String,
         enum: ["unpaid", "funding", "funded", "released", "cancelled_refunded"],
@@ -451,8 +460,32 @@ const orderSchema = new Schema(
       memberId: { type: Schema.Types.ObjectId, default: null },
       chainGroupId: { type: String, default: null }, // groupId on-chain (string)
       units: { type: Number, default: 1 },           // unidades compradas
-      unitPriceUsd: { type: Number, default: 0 },
+      unitPriceUsd: { type: Number, default: 0 },    // precio UNITARIO final (USDT)
       stockConsumed: { type: Boolean, default: false },
+      // ── REINTEGRO ON-CHAIN (compra grupal) ────────────────────────
+      // Al unirse, cada member congela on-chain el precio del TIER VIGENTE en
+      // ese momento (p. ej. el 1º congela 9, el 3º congela 8...). Al cerrarse el
+      // grupo, TODOS pagan el precio final del tier completo (p. ej. 6). El
+      // contrato NeroGroupBuy devuelve, al liberar la porción de cada uno, la
+      // diferencia (lockedUsd - precioFinal*units) directo a la wallet del
+      // comprador. Estos campos NO acreditan saldo en la plataforma (el
+      // reintegro ya viaja on-chain): solo lo REGISTRAN para mostrarlo/auditar.
+      lockedUsd: { type: Number, default: 0 },     // USDT que congeló al entrar
+      refundUsd: { type: Number, default: 0 },     // USDT que se le reintegra (lockedUsd - totalFinal)
+      refunded: { type: Boolean, default: false }, // el contrato ya ejecutó el refund
+      refundTxHash: { type: String, default: "" }, // tx on-chain del releaseMember (incluye el refund)
+      refundedAt: { type: Date, default: null },
+      // ── INTENCIÓN (para materializar el Pool al fondear) ──
+      // La orden crypto de grupo se crea ANTES que el Pool. Al fondearse, el
+      // backend usa estos campos para crear el grupo (createPoolProductId) o
+      // sumar al buyer como member (joinPoolId). Una vez materializado, se
+      // pueden limpiar. Ver confirmEscrowFunding (orderCryptoController).
+      createPoolProductId: {
+        type: Schema.Types.ObjectId,
+        ref: "Product",
+        default: null,
+      },
+      joinPoolId: { type: Schema.Types.ObjectId, ref: "Pool", default: null },
     },
     // Flag rápido para queries/filtros.
     isGroupBuy: { type: Boolean, default: false, index: true },

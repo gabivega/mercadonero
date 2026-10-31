@@ -8,29 +8,24 @@ import {
   getOrderLock,
   getVendorCollateral,
   getVendorCollateralMultiChain,
-  verifyOrderReleased,
   triggerOrderDispute,
 } from "../services/blockchainServices.js";
 import { DEFAULT_CHAIN_ID, getChainConfig } from "../config/chains.js";
 // Config del ESCROW de pagos crypto (multichain + modo de fondeo nativo). Se
 // mantiene separada del registro de colateral para no mezclar conceptos.
 import {
-  getEscrowChainConfig,
   ESCROW_DEFAULT_CHAIN_ID,
 } from "../config/chains.js";
 
 
 import User from "../models/User.js";
-import { ethers } from "ethers";
 import { quoteShipment } from "../services/zipnovaService.js";
 import {
     sendOrderCreatedToBuyer,
     sendOrderCreatedToVendor,
       sendPaymentConfirmedToVendor,
-    sendVendorCryptoPaid,
   sendShippingDetailsToBuyer,
   sendPickupReadyToBuyer,
-  sendPickupConfirmedToBuyer,
   sendOrderCompletedToVendor,
   sendOrderCompletedToBuyer,
     sendRefundRequestedToVendor,
@@ -41,6 +36,9 @@ import {
   sendBuyerPaymentDisputeAskProof,
   sendPaymentProofUploaded,
   sendPaymentDisputeResolvedInBuyerFavor,
+    sendAdminOrderIssueReport,
+    sendDisputeOpenedToBuyer,
+    sendDisputeOpenedToVendor,
 } from "../services/sendEmail.js";
 import {
   createNotification,
@@ -55,10 +53,12 @@ import {
   validateVendorHoldCapacity,
   resolveCollateralHold,
   expireCollateralHold,
+  expireCollateralHoldIfDue,
   COLLATERAL_HOLD_CONFIG,
 } from "../services/collateralHoldService.js";
 // Helper centralizado de permisos admin (role en DB | email en ADMIN_EMAILS | ADMIN_PRIVY_ID).
 import { isAdminUser, findAdminUser } from "../middleware/isAdmin.js";
+import { makeCreateCryptoOrder } from "./orderCryptoController.js";
 
 // ─────────────────────────────────────────────────────────────
 // BUFFER DE SEGURIDAD ANTES DE LIBERAR LA GARANTÍA (FASE 1 - MANUAL)
@@ -150,6 +150,58 @@ const buildShippingDetails = (isPickup, shippingQuote, meta) => {
     quotedPrice: meta?.price != null ? Number(meta.price) : undefined,
     pickupPoint,
   };
+};
+
+// FASE 1 (refactor): handler de creación crypto (delegado a orderCryptoController).
+const createCryptoOrderHandler = makeCreateCryptoOrder();
+
+/**
+ * SÍMBOLOS DE PAGO PERMITIDOS en `Order.payment.token`.
+ *
+ * ⚠️ DEBE coincidir EXACTAMENTE con el `enum` del subdocumento `payment.token`
+ * del modelo Order (backend/src/models/Order.js). Si acá agregamos un símbolo
+ * que el enum del modelo no tiene, la validación lo va a rechazar igual.
+ *
+ * ¿Por qué validamos acá? `payment.token` NO es un campo libre: el modelo lo
+ * valida contra un enum. Si el front/env manda un símbolo fuera de la lista,
+ * Mongoose lanzaba:
+ *   ValidationError: `X` is not a valid enum value for path `payment.token`
+ * y la orden NO se creaba. Ahora, ante un símbolo desconocido, caemos al
+ * símbolo por defecto de la red (config de escrow) en vez de romper el checkout.
+ *
+ * ⚠️ IMPORTANTE: la lista INCLUYE "USDXM" (stable de prueba de Polygon Amoy).
+ * Si nos olvidamos de agregarlo acá, `resolveOrderPaymentToken("USDXM", ...)`
+ * lo descarta y cae al fallback nativo → la orden se guardaba con "POL" en vez
+ * de "USDXM". El enum del modelo Order YA lo soporta (payload válido); este
+ * whitelist es la ÚNICA validación de símbolos que debe alinearse con él.
+ */
+const ALLOWED_PAYMENT_TOKENS = [
+  "USDT",
+  "USDC",
+  "USDXM",
+  "DAI",
+  "BNB",
+  "POL",
+  "ETH",
+];
+
+/**
+ * Normaliza el símbolo de pago a un valor VÁLIDO para el enum del modelo.
+ * - Si viene un símbolo permitido (case-insensitive) → lo devuelve en MAYÚSCULAS.
+ * - Si viene vacío o desconocido → devuelve `escrowChain.tokenSymbol` (o "USDT").
+ * - Si el fallback tampoco fuera válido (config rara) → "USDT" (último recurso).
+ */
+const resolveOrderPaymentToken = (token, escrowChain) => {
+  const normalize = (value) =>
+    ALLOWED_PAYMENT_TOKENS.includes(String(value || "").toUpperCase())
+      ? String(value).toUpperCase()
+      : null;
+  return (
+    normalize(token) ||
+    normalize(escrowChain?.tokenSymbol) ||
+    normalize(escrowChain?.nativeSymbol) ||
+    "USDT"
+  );
 };
 
 const createOrder = async (req, res) => {
@@ -418,6 +470,42 @@ const createOrder = async (req, res) => {
       }
     }
 
+    // ── COMPRA GRUPAL (crypto): precio escalonado por tier ──────────────
+    // Si la orden es de grupo, el precio unitario NO es product.price sino el
+    // del TIER VIGENTE (según cuántos miembros fondeados tendría el grupo):
+    //   - createPool → 1 comprador (precio base).
+    //   - joinPool   → (members fondeados del pool) + 1.
+    // Lo calculamos acá, ANTES de financials, para que el monto a fonear sea
+    // exactamente el del tier (y coincida con lockedUsd al materializar).
+    if (paymentMethod === "crypto" && req.body.groupBuy) {
+      try {
+        const { computeGroupUnitPriceArs } = await import(
+          "./groupBuyOrderController.js"
+        );
+        const tierArs = await computeGroupUnitPriceArs({
+          groupBuy: req.body.groupBuy,
+          product: dbProducts[0], // grupo = 1 solo producto
+        });
+        if (tierArs != null && tierArs > 0) {
+          const qty = itemsSnapshot.reduce(
+            (a, it) => a + (it.quantity || 1),
+            0,
+          );
+          // Reemplazamos el total del producto por el del tier vigente.
+          calculatedTotal = Number((tierArs * qty).toFixed(2));
+          // Corregimos el snapshot para que refleje el precio real pagado.
+          itemsSnapshot.forEach((it) => {
+            it.price = tierArs;
+          });
+        }
+      } catch (tierErr) {
+        console.warn(
+          "[GroupBuy] No se pudo calcular el tier vigente, se usa precio base:",
+          tierErr?.message,
+        );
+      }
+    }
+
     // La comisión TOTAL incluye el reward de referidos (si la orden nació
     // referida): platformFeeUsd = baseFeeUsd(3%) + referralFeeUsd(%). Esto
     // garantiza que un solo saque on-chain cubra ambos, sin tocar el contrato.
@@ -463,151 +551,32 @@ const createOrder = async (req, res) => {
     // NO se exige colateral al vendedor: el escrow retiene el pago del comprador.
     // ════════════════════════════════════════════════════════════
     if (paymentMethod === "crypto") {
-      // Validamos que AMBOS (comprador y vendedor) tengan wallet, ya que:
-      //  - El comprador fondea el escrow con su wallet.
-      //  - El vendedor recibe el pago del escrow en SU wallet.
-      if (!buyer.walletAddress) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Para pagar con criptomonedas necesitás tener una wallet Web3 vinculada. Activá tu billetera desde 'Mi Billetera' antes de continuar.",
-        });
-      }
-      if (!seller.walletAddress) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "El vendedor no tiene una wallet Web3 vinculada, por lo que no puede recibir pagos en criptomonedas.",
-        });
-      }
-
-            // ── CONFIG DEL ESCROW MULTICHAIN ─────────────────────────────────
-            // Resolvemos la red del escrow UNA sola vez al crear la orden. Todo el
-            // ciclo de vida (verify → release/cancel del admin) usará ESTE chainId,
-            // así nunca escribimos/leemos el contrato equivocado.
-            // El `token` que manda el front (USDT/POL/…): si no viene, usamos el
-            // símbolo por defecto de la red (POL en Amoy, USDT en BSC).
-            const escrowChain = getEscrowChainConfig(
-              req.body.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
-            );
-            const escrowTokenSymbol = token || escrowChain.tokenSymbol;
-
-            // El fee del escrow es GLOBAL y lo define el admin en el contrato (feeBps).
-            // Al crear la orden leemos el fee ACTUAL on-chain para que la comisión de
-            // esta orden coincida con la que cobrará el contrato al liberar el escrow.
-            const { getFeeBps } = await import("../services/escrowServices.js");
-            const feeRead = await getFeeBps(escrowChain.chainId);
-      const currentFeeBps = feeRead.success ? feeRead.feeBps : 300;
-      // Recalculamos la comisión BASE de ESTA orden según el fee global vigente
-      // del contrato y le sumamos el reward de referidos (si aplica). El fee
-      // TOTAL (base + referidos) es lo que se retiene on-chain al liberar.
-      const baseFeeUsd = parseFloat(
-        (financials.totalUsd * (currentFeeBps / 10000)).toFixed(2),
-      );
-      const referralFeeUsd = parseFloat(
-        (financials.totalUsd * (referralPercent / 100)).toFixed(2),
-      );
-      financials.baseFeeUsd = baseFeeUsd;
-      financials.referralFeeUsd = referralFeeUsd;
-      financials.referralPercent = Number(referralPercent) || 0;
-      financials.platformFeeUsd = parseFloat(
-        (baseFeeUsd + referralFeeUsd).toFixed(2),
-      );
-      financials.sellerNetReleaseUsd = parseFloat(
-        (financials.totalUsd - financials.platformFeeUsd).toFixed(2),
-      );
-
-      // Creamos la orden en estado 'pending_payment' con el sub-estado de pago
-      // crypto en 'funding'. El comprador fondeará el escrow desde su billetera.
-            const newOrderCrypto = new Order({
-        buyer: buyerId,
-        seller: sellerId,
-        products: productIds,
+      // FASE 1 (refactor): la creación crypto se delega a orderCryptoController
+      // (factory makeCreateCryptoOrder). Aquí solo armamos el contexto común ya
+      // resuelto para no duplicar el pipeline (items, financials, envío, referral).
+      const cryptoCtx = {
+        buyer,
+        seller,
+        buyerId,
+        sellerId,
+        productIds,
         itemsSnapshot,
-                shippingAddress: effectiveShippingAddress,
-        deliveryMethod: isPickup ? "pickup" : "shipping",
-        pickupLocation: isPickup ? (pickupLocation || undefined) : undefined,
-        // Guardamos carrier/servicio/precio elegido + PUNTO DE ENTREGA (sucursal
-        // donde el comprador retira, si aplica) para que el vendedor despache
-        // correctamente, incluso en cargas manuales de Zipnova.
-        shippingDetails: buildShippingDetails(
-          isPickup,
-          shippingQuote,
-          req._shippingQuoteMeta,
-        ),
-        totalAmount: calculatedTotal + maxShippingCost,
-        productsAmount: calculatedTotal,
-        shippingAmount: maxShippingCost,
-                status: "pending_payment",
-                financials,
-                // Las órdenes con pago en cripto NO expiran: los USDT quedan retenidos
-                // en el escrow. Solo el vendedor o el admin pueden cancelarlas.
-                expiresAt: null,
-                referral: validReferrerId
-          ? {
-              referrer: validReferrerId,
-              percent: referralPercent,
-              creditAccrued: false,
-            }
-          : undefined,
-        payment: {
-          method: "crypto",
-          token: escrowTokenSymbol,
-          status: "funding",
-          // Red + modo de fondeo del escrow (ver config/chains.js).
-          chainId: escrowChain.chainId,
-          fundingMode: escrowChain.fundingMode,
-          tokenAddress: escrowChain.tokenAddress || "",
-          amountUsdRetained: financials.totalUsd + financials.shippingCostUsd,
-          feeUsd: financials.platformFeeUsd,
-          feeBps: currentFeeBps,
-          sellerNetUsd: financials.sellerNetReleaseUsd,
-        },
-      });
-
-            const savedCryptoOrder = await newOrderCrypto.save();
-
-      // ⚠️ IMPORTANTE — NO se envía NINGÚN email al crear la orden crypto.
-      // Motivo: el comprador todavía NO pagó (recién se abre el modal para
-      // fondear el escrow). Si cierra el modal sin pagar, la orden se descarta
-      // (rollback). Mandar un mail al vendedor acá generaría avisos de ventas
-      // que nunca existieron. El ÚNICO email al vendedor se envía cuando el
-      // comprador logra fondear el escrow (ver confirmEscrowFunding →
-      // sendVendorCryptoPaid). Al comprador tampoco hace falta un mail: ya está
-      // en el modal firmando el fondeo en ese instante.
-
-      // ⛔ NOTIFICACIÓN DESACTIVADA A PROPÓSITO.
-      // Antes se avisaba al vendedor "Nuevo comprador interesado (cripto)" al
-      // crear la orden en 'pending_payment'/'funding' (ANTES del fondeo). Esto
-      // generaba ruido y falsas ventas: si el comprador cierra el modal sin
-      // fondear, la orden se descarta (rollback) y el aviso ya se había enviado.
-      // La orden recién es VÁLIDA cuando el escrow queda fondeado on-chain; ese
-      // es el único punto que debe avisar al vendedor (ver confirmEscrowFunding
-      // → sendVendorCryptoPaid + la createNotification de 'payment_confirmed').
-      //
-      // Se conserva comentado para poder reactivarlo rápidamente si se deseara.
-      //
-      // createNotification({
-      //   recipient: sellerId,
-      //   type: "order_created",
-      //   title: "Nuevo comprador interesado (cripto)",
-      //   message: `${buyer.firstName || buyer.username || "El comprador"} inició la orden #${savedCryptoOrder._id.toString().slice(-6).toUpperCase()} y está por abonar en USDT. Te avisaremos por mail cuando el pago quede confirmado en el contrato.`,
-      //   data: { orderId: savedCryptoOrder._id, totalAmount: savedCryptoOrder.totalAmount },
-      // }).catch((err) => console.error("Falló notif in-app a vendedor:", err));
-
-            return res.status(201).json({
-        success: true,
-        message:
-          "Orden creada con pago en criptomonedas. Fondéa el escrow desde tu billetera para que el vendedor pueda despachar.",
-        order: savedCryptoOrder,
-        sellerWallet: seller.walletAddress,
-        buyerWallet: buyer.walletAddress,
-        escrowContract: escrowChain.contractAddress,
-        // Necesarios por el front para elegir fundOrder vs fundOrderNative.
-        chainId: escrowChain.chainId,
-        fundingMode: escrowChain.fundingMode,
-        tokenSymbol: escrowTokenSymbol,
-      });
+        effectiveShippingAddress,
+        isPickup,
+        pickupLocation,
+        shippingDetails: buildShippingDetails(isPickup, shippingQuote, req._shippingQuoteMeta),
+        calculatedTotal,
+        maxShippingCost,
+        financials,
+        validReferrerId,
+        referralPercent,
+        token,
+        // Metadata de compra grupal (opcional). Si viene, la orden nace
+        // marcada como grupo y, al fondearse, el backend crea/actualiza el
+        // Pool correspondiente (ver confirmEscrowFunding).
+        groupBuy: req.body.groupBuy || null,
+      };
+      return createCryptoOrderHandler(req, res, cryptoCtx);
     }
 
     // ════════════════════════════════════════════════════════════
@@ -832,7 +801,7 @@ const createOrder = async (req, res) => {
       recipient: sellerId,
       type: "collateral_hold_requested",
       title: "¡Tenés una venta en espera por falta de garantía!",
-      message: `${buyer.firstName || buyer.username || "El comprador"} quiere comprarte, pero no tenés saldo en tu cuenta de garantía. Depositá USDT en los próximos ${Math.round(
+      message: `${buyer.firstName || buyer.username || "El comprador"} quiere comprarte, pero no tenés saldo en tu cuenta de garantía. Depositá saldo en los próximos ${Math.round(
         COLLATERAL_HOLD_CONFIG.HOLD_MS / 60000,
       )} minutos para no perder la venta (orden #${newOrder._id
         .toString()
@@ -897,6 +866,20 @@ const getMyOrders = async (req, res) => {
       .populate("buyer", "username firstName lastName avatar")
       .populate("seller", "username shop firstName lastName") // Datos mínimos necesarios
       .sort({ createdAt: -1 });
+
+    // ─────────────────────────────────────────────────────────────
+    // EXPIRACIÓN "LAZY" DE HOLDS VENCIDOS EN LA LISTA.
+    // Antes de responder, corregimos cualquier "awaiting_collateral" con el
+    // hold vencido (red de seguridad aunque el cron esté apagado), así el
+    // vendedor/comprador ve la orden como "Expirado" y no como "En espera de
+    // garantía" para siempre. Se hace antes del saneo para reflejar el estado
+    // final en el objeto devuelto.
+    // ─────────────────────────────────────────────────────────────
+    for (const o of orders) {
+      // Si expiró, expireCollateralHold ya persiste el estado y el statusHistory
+      // en este mismo documento, por lo que el objeto devuelto queda al día.
+      await expireCollateralHoldIfDue(o);
+    }
 
     // ─────────────────────────────────────────────────────────────
     // SANEO DEFENSIVO DE REFERENCIAS HUÉRFANAS
@@ -979,11 +962,27 @@ const markAsPaid = async (req, res) => {
 const getOrderById = async (req, res) => {
   try {
     // console.log("Getting order by id:", req.params.orderId);
-    const order = await Order.findById(req.params.orderId)
+    let order = await Order.findById(req.params.orderId)
       .populate("buyer", "username avatar firstName lastName dni")
       .populate("seller", "username shop bankDetails"); // Traemos datos del vendedor
 
     if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    // ─────────────────────────────────────────────────────────────
+    // EXPIRACIÓN "LAZY" DEL HOLD DE COLATERAL (al leer la orden).
+    // Si la orden está en "awaiting_collateral" con el hold vencido (15 min),
+    // la expiramos ACÁ MISMO antes de responder, así el comprador y el vendedor
+    // ven el estado real ("Expirado") al instante, sin depender de que el cron
+    // (ENABLE_ORDER_CLEANUP_CRON) esté corriendo. Es idempotente: si ya fue
+    // resuelta/expirada o no venció, no hace nada. Si expira, se recarga la
+    // orden para devolver los campos/estado actualizados al front.
+    // ─────────────────────────────────────────────────────────────
+    const wasExpired = await expireCollateralHoldIfDue(order);
+    if (wasExpired) {
+      order = await Order.findById(req.params.orderId)
+        .populate("buyer", "username avatar firstName lastName dni")
+        .populate("seller", "username shop bankDetails");
+    }
 
     // EL FILTRO CRÍTICO:
     const isParticipant =
@@ -1463,7 +1462,7 @@ const updateOrder = async (req, res) => {
         recipient: order.buyer,
         type: "order_reception_confirmed",
         title: "¡Confirmaste la recepción!",
-        message: `Gracias por confirmar la orden #${shortId}. Tenés ${RELEASE_BUFFER_HOURS}h de protección: si el producto llegó dañado o equivocado, podés abrir un reclamo antes de que se libere la garantía.`,
+        message: `Gracias por confirmar la orden #${shortId}. Tenés ${RELEASE_BUFFER_HOURS}h de protección: si el producto llegó dañado o equivocado, podés abrir un reclamo antes de que se liberen los fondos al vendedor.`,
         data: { orderId: order._id, releaseEligibleAt },
       }).catch(() => {});
 
@@ -2296,11 +2295,53 @@ const adminCompleteOrder = async (req, res) => {
     let txHash = "";
     if (isCrypto) {
       if (order.payment?.groupBuy === true) {
-        // Compra grupal: el pool ya liberó on-chain. Solo cerramos en DB.
+      // Compra grupal (escrow individual NeroEscrow, precio escalonado).
+      // Cerramos la orden on-chain repartiendo lo fondeado: vendedor (neto),
+      // fee y el REINTEGRO escalonado al comprador (locked - final*units).
+      if (order.payment?.status !== "funded") {
+        // Ya liberada/reembolsada (p.ej. grupo de 1 comprador) → solo DB.
         txHash = order.payment?.releaseTxHash || "";
         order.payment.status = "released";
         order.payment.releasedAt = order.payment.releasedAt || now;
       } else {
+        const amountEscrow = Number(order.payment?.amountUsdRetained || 0);
+        const refundAmount = Number(order.groupBuy?.refundUsd || 0);
+        const feeAmount = Number(order.financials?.platformFeeUsd || 0);
+        const sellerAmount = Number(
+          (amountEscrow - feeAmount - refundAmount).toFixed(2),
+        );
+        if (sellerAmount < 0 || refundAmount < 0 || feeAmount < 0) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Los montos del settle grupal son inválidos (revisá el precio final/reintegro).",
+          });
+        }
+        const { settleOrderEscrow } = await import("../services/escrowServices.js");
+        const settleRes = await settleOrderEscrow(
+          order._id.toString(),
+          { sellerAmount, feeAmount, refundAmount },
+          order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
+        );
+        if (!settleRes.success) {
+          return res.status(500).json({
+            success: false,
+            message: "No se pudo liquidar el escrow grupal on-chain.",
+            error: settleRes.error,
+          });
+        }
+        txHash = settleRes.txHash || "";
+        order.payment.status = "released";
+        order.payment.releaseTxHash = txHash;
+        order.payment.feeUsd = feeAmount;
+        order.payment.sellerNetUsd = sellerAmount;
+        order.payment.releasedAt = now;
+        order.groupBuy.refunded = refundAmount > 0;
+        order.groupBuy.refundTxHash = txHash;
+        order.groupBuy.refundedAt = refundAmount > 0 ? now : order.groupBuy.refundedAt;
+      }
+
+    } else {
         if (order.payment?.status !== "funded") {
           return res.status(400).json({
             success: false,
@@ -2456,7 +2497,7 @@ const adminCompleteOrder = async (req, res) => {
         recipient: buyer._id,
         type: "order_completed",
         title: "¡Compra completada!",
-        message: `La orden #${shortId} se cerró y la garantía fue liberada. ¡Gracias por tu compra!`,
+        message: `La orden #${shortId} fue completada. La protección de comprador a finalizado. ¡Gracias por tu compra!`,
         data: { orderId: order._id, totalAmount: order.totalAmount },
       }).catch(() => {});
       createNotification({
@@ -3023,1234 +3064,6 @@ const cancelCollateralHold = async (req, res) => {
   }
 };
 
-// ════════════════════════════════════════════════════════════════════════
-// ESCROW DE PAGOS EN CRIPTO (NeroEscrow)
-// ════════════════════════════════════════════════════════════════════════
-
-/**
- * COMPRADOR CONFIRMA que fondeó el escrow on-chain.
- * El front, tras firmar fundOrder() con su wallet de Privy, envía el txHash.
- * El backend VERIFICA on-chain que el escrow quedó fondeado (lección aprendida:
- * no confiar solo en que una tx se minó) y actualiza el estado de la orden a
- * "funded". Solo entonces el vendedor puede despachar.
- */
-const confirmEscrowFunding = async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const { fundTxHash, tokenAddress, token, fundingMode } = req.body;
-    const userId = req.user._id.toString();
-
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
-
-    if (order.buyer.toString() !== userId) {
-      return res
-        .status(403)
-        .json({ message: "Solo el comprador puede confirmar el fondeo del escrow" });
-    }
-
-    if (order.payment?.method !== "crypto") {
-      return res.status(400).json({
-        success: false,
-        message: "Esta orden no usa pago en criptomonedas.",
-      });
-    }
-
-    if (order.payment?.status === "funded") {
-      return res.status(200).json({
-        success: true,
-        alreadyFunded: true,
-        message: "El escrow ya estaba marcado como fondeado.",
-        order,
-      });
-    }
-    if (!["funding", "unpaid"].includes(order.payment?.status)) {
-      return res.status(400).json({
-        success: false,
-        message: `No se puede confirmar el fondeo en este estado de pago: ${order.payment?.status}.`,
-      });
-    }
-    if (!fundTxHash) {
-      return res.status(400).json({
-        success: false,
-        message: "Falta el hash de la transacción del fondeo.",
-      });
-    }
-
-    // Verificamos on-chain que el escrow quedó fondeado y que el monto retenido
-    // coincida con lo esperado (total productos + envío en USD). SIEMPRE sobre
-    // la red del escrow persistida en la orden (multichain).
-    // Aceptamos `fundingMode`/`token` en el body: el front sabe si firmó
-    // fundOrder (token) o fundOrderNative (nativo) y lo informa para que el
-    // backend lo persista sin tener que adivinarlo.
-    const escrowChainId = order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID;
-    const { verifyOrderFunded } = await import("../services/escrowServices.js");
-    const verification = await verifyOrderFunded(
-      order._id.toString(),
-      order.financials.totalUsd + order.financials.shippingCostUsd,
-      escrowChainId,
-    );
-
-    if (!verification.success || !verification.funded) {
-      return res.status(409).json({
-        success: false,
-        message:
-          "No pudimos verificar el fondeo on-chain. ¿Estás seguro de que hiciste la transacción al contrato correcto?",
-        error: verification.error || "El escrow no está fondeado on-chain.",
-        fundTxHash,
-      });
-    }
-    if (verification.amountMatches === false) {
-      return res.status(409).json({
-        success: false,
-        message:
-          "El monto retenido on-chain no coincide con el total de la orden. Verificá el importe fondeado.",
-        escrow: verification.escrow,
-      });
-    }
-
-    // Actualizamos la orden y el sub-estado de pago.
-    const escrowInfo = verification.escrow || {};
-    const resolvedFundingMode =
-      fundingMode ||
-      order.payment?.fundingMode ||
-      (escrowInfo.isNative ? "native" : "token");
-
-    order.payment.status = "funded";
-    order.payment.fundTxHash = fundTxHash;
-    order.payment.chainId = escrowChainId;
-    order.payment.fundingMode = resolvedFundingMode;
-    // Dirección real con la que se fondeó (address(0) = nativo). Preferimos la
-    // lectura on-chain por sobre lo que mande el cliente.
-    order.payment.escrowTokenAddress =
-      escrowInfo.token ||
-      tokenAddress ||
-      order.payment.escrowTokenAddress ||
-      "";
-    order.payment.tokenAddress =
-      resolvedFundingMode === "native"
-        ? ""
-        : tokenAddress || escrowInfo.token || order.payment.tokenAddress;
-    order.payment.token =
-      token ||
-      order.payment.token ||
-      getEscrowChainConfig(escrowChainId).tokenSymbol;
-    order.payment.amountUsdRetained =
-      order.financials.totalUsd + order.financials.shippingCostUsd;
-    order.payment.fundedAt = new Date();
-    order.statusHistory.push({
-      status: "paid",
-      changedAt: new Date(),
-      comment: `El comprador abonó con cripto (${order.payment.token || "USDT"}). Fondos retenidos en el contrato de escrow.`,
-    });
-    // Mapeamos a "paid" para que el vendedor pueda despachar (ya no está pendiente de pago).
-    order.status = "paid";
-    order.paymentVerifiedAt = new Date();
-
-        // Notificamos al vendedor que puede despachar.
-    // EMAIL ÚNICO de venta crypto: acá es cuando el comprador REALMENTE pagó
-    // (escrow fondeado on-chain). Resume qué se vendió + confirmación de pago.
-    // NO se mandó ningún mail al crear la orden (evita avisos de ventas que
-    // nunca se pagan porque el comprador cerró el modal).
-    const seller = await User.findById(order.seller);
-    if (seller?.email) {
-      sendVendorCryptoPaid({
-        vendorEmail: seller.email,
-        orderId: order._id,
-        amount: order.totalAmount,
-        amountUsdt: (
-          order.financials?.sellerNetReleaseUsd ??
-          order.payment?.sellerNetUsd ??
-          order.payment?.amountUsdRetained
-        ),
-        products: order.itemsSnapshot || [],
-        buyerName: "el comprador",
-      }).catch((err) => console.error("Falló email venta crypto al vendedor:", err));
-    }
-    if (seller) {
-      createNotification({
-        recipient: seller._id,
-        type: "payment_confirmed",
-        title: "El comprador pagó la orden",
-        message: `El comprador depositó los USDT en el contrato para la orden #${order._id.toString().slice(-6).toUpperCase()}. Ya podés despachar.`,
-        data: { orderId: order._id, totalAmount: order.totalAmount },
-      }).catch((err) => console.error("Falló notif fondeo a vendedor:", err));
-    }
-
-    await order.save();
-    return res.status(200).json({
-      success: true,
-      message: "Escrow verificado y orden activada. El vendedor puede despachar.",
-      order,
-    });
-  } catch (error) {
-    console.error("Error al confirmar fondeo del escrow:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * Ver el estado on-chain del escrow de una orden (útil para diagnóstico).
- * Cualquier participante (comprador/vendedor) o admin puede consultarlo.
- */
-const getEscrowStatus = async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const userId = req.user._id.toString();
-
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
-
-    const isParticipant =
-      order.buyer.toString() === userId || order.seller.toString() === userId;
-    const isAdmin = isAdminUser(req.user);
-    if (!isParticipant && !isAdmin) {
-      return res.status(403).json({ message: "No tenés permisos para ver esta orden" });
-    }
-
-    // Red del escrow persistida al crear la orden (multichain). Todo verify/
-    // release/cancel debe pegarle a ESTE contrato, no al default.
-    const escrowChainId = order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID;
-    const { getEscrow } = await import("../services/escrowServices.js");
-    const escrow = await getEscrow(order._id.toString(), escrowChainId);
-
-    return res.status(200).json({
-      success: true,
-      order,
-      escrow,
-    });
-  } catch (error) {
-    console.error("Error al obtener estado del escrow:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * CANCELACIÓN CON ESCROW (comprador / vendedor).
- * A diferencia del flujo de transferencia bancaria (que requiere datos bancarios
- * para el reembolso), acá si el escrow ya está fondeado, el admin firma
- * cancelOrder() del contrato y devuelve el 100% de los USDT al comprador.
- *
- * Se distingue por order.payment.method === "crypto" && order.payment.status === "funded".
- */
-const cancelCryptoOrder = async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const userId = req.user._id.toString();
-
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
-
-    const isBuyer = order.buyer.toString() === userId;
-    const isSeller = order.seller.toString() === userId;
-
-    if (!isBuyer && !isSeller) {
-      return res.status(403).json({ message: "No tenés permisos para cancelar esta orden" });
-    }
-
-    // Solo aplica a órdenes de pago crypto y en estados previos a liberar.
-    if (order.payment?.method !== "crypto") {
-      return res.status(400).json({
-        success: false,
-        message: "Esta orden no usa pago en criptomonedas. Usá el flujo de cancelación bancaria.",
-      });
-    }
-
-    const cancellable = ["pending_payment", "verifying_payment", "paid", "funded"].includes(order.status);
-    if (!cancellable) {
-      return res.status(400).json({
-        success: false,
-        message: `No se puede cancelar la orden en estado: ${order.status}`,
-      });
-    }
-
-    if (order.payment?.status === "funded") {
-      // ════════════════════════════════════════════════════════════════════
-      // FASE 1 (liberación 100% MANUAL): el comprador/vendedor NO dispara el
-      // reembolso on-chain del escrow. Registramos una solicitud al admin para
-      // que verifique y ejecute la devolución (adminCancelEscrow). El escrow
-      // sigue retenido hasta entonces (no hay movimiento irreversible).
-      // ════════════════════════════════════════════════════════════════════
-      if (order.releaseRequest?.exists && order.releaseRequest.status === "pending") {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Ya existe una solicitud de cancelación/reembolso en curso. Esperá la resolución del admin.",
-        });
-      }
-
-      order.releaseRequest = {
-        exists: true,
-        requestedBy: isBuyer ? order.buyer : order.seller,
-        reason: `El ${isBuyer ? "comprador" : "vendedor"} solicita cancelar la orden con escrow fondeado. El admin debe devolver los USDT al comprador (cancel-escrow).`,
-        status: "pending",
-        createdAt: new Date(),
-      };
-      order.statusHistory.push({
-        status: order.status,
-        changedAt: new Date(),
-        comment: `El ${isBuyer ? "comprador" : "vendedor"} solicitó cancelar la orden con escrow fondeado. Reembolso pendiente de aprobación del admin.`,
-      });
-      order.orderActions.push({
-        type: "cancel_request",
-        initiator: isBuyer ? "buyer" : "seller",
-        paidStatus: "paid",
-        status: "pending",
-        reason:
-          "Solicitud de cancelación con escrow fondeado. Reembolso on-chain pendiente del admin.",
-        createdBy: isBuyer ? order.buyer : order.seller,
-      });
-      await order.save();
-
-      // Notificar al ADMIN (cola de pendientes).
-      const adminUser = await findAdminUser(User);
-      if (adminUser) {
-        createNotification({
-          recipient: adminUser._id,
-          type: "order_admin_release_request",
-          title: "Cancelación de escrow pendiente",
-          message: `El ${isBuyer ? "comprador" : "vendedor"} solicita cancelar la orden #${order._id
-            .toString()
-            .slice(-6)
-            .toUpperCase()} con escrow fondeado. Revisá y ejecutá el reembolso (cancel-escrow).`,
-          data: { orderId: order._id },
-        }).catch(() => {});
-      }
-
-      // Avisamos a la contraparte.
-      const counterparty = isBuyer ? order.seller : order.buyer;
-      createNotification({
-        recipient: counterparty,
-        type: "order_cancelled",
-        title: "Solicitud de cancelación registrada",
-        message: `Se solicitó cancelar la orden #${order._id
-          .toString()
-          .slice(-6)
-          .toUpperCase()}. Los USDT del escrow quedan retenidos hasta que el admin procese el reembolso.`,
-        data: { orderId: order._id },
-      }).catch(() => {});
-
-      return res.status(200).json({
-        success: true,
-        message:
-          "Solicitud de cancelación registrada. El admin procesará el reembolso del escrow (los fondos quedan retenidos hasta entonces).",
-        order,
-      });
-    }
-
-    // Si el escrow aún NO está fondeado (funding/unpaid), es una cancelación
-    // simple sin reembolso on-chain.
-    order.cancelledBy = isBuyer ? "buyer" : "seller";
-    order.status = "cancelled";
-    order.cancelledAt = new Date();
-    if (order.payment) {
-      order.payment.status = "cancelled_refunded";
-    }
-    order.statusHistory.push({
-      status: "cancelled",
-      changedAt: new Date(),
-      comment: `${isBuyer ? "El comprador" : "El vendedor"} canceló la orden antes de fondear el escrow.`,
-    });
-    order.orderActions.push({
-      type: "cancel_executed",
-      initiator: isBuyer ? "buyer" : "seller",
-      paidStatus: "not_paid",
-      status: "completed",
-      reason: "Cancelación de orden crypto antes de fondear el escrow.",
-      createdBy: order.buyer,
-    });
-    await order.save();
-
-    await User.findByIdAndUpdate(order.buyer, {
-      $inc: { "accounting.cancellationsAsBuyer": 1 },
-    });
-
-    const buyer = await User.findById(order.buyer);
-    if (buyer?.email)
-      sendOrderCancelledToBuyer({
-        buyerEmail: buyer.email,
-        orderId: order._id,
-        amount: order.totalAmount,
-        withRefund: false,
-      }).catch(() => {});
-    const sellerUsr = await User.findById(order.seller);
-    if (sellerUsr?.email)
-      sendOrderCancelledToVendor({
-        vendorEmail: sellerUsr.email,
-        orderId: order._id,
-        amount: order.totalAmount,
-        withRefund: false,
-      }).catch(() => {});
-    createNotification({
-      recipient: order.seller,
-      type: "order_cancelled",
-      title: "Orden cancelada",
-      message: `La orden #${order._id.toString().slice(-6).toUpperCase()} fue cancelada antes del fondeo del escrow.`,
-      data: { orderId: order._id },
-    }).catch(() => {});
-
-    return res.status(200).json({
-      success: true,
-      message: "Orden cancelada (escrow aún no fondeado).",
-      order,
-    });
-  } catch (error) {
-    console.error("Error al cancelar orden crypto:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * ADMIN: LIBERA el escrow manualmente (solo admin).
- * Cuando el comprador confirmó la recepción (o se resolvió un reclamo a favor
- * del vendedor), el admin firma releaseOrder() y el contrato envía el neto al
- * vendedor y el fee (ESCRoy feeBps) a la feeWallet.
- */
-const adminReleaseEscrow = async (req, res) => {
-  try {
-    const { orderId } = req.params;
-
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
-
-    if (order.payment?.method !== "crypto") {
-      return res.status(400).json({
-        success: false,
-        message: "Esta orden no usa pago en criptomonedas (escrow).",
-      });
-    }
-    if (order.payment?.status !== "funded") {
-      return res.status(400).json({
-        success: false,
-        message: `El escrow no está fondeado (estado: ${order.payment?.status}).`,
-      });
-    }
-
-    const { releaseOrderEscrow } = await import("../services/escrowServices.js");
-
-    const result = await releaseOrderEscrow(
-      order._id.toString(),
-      order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
-    );
-    if (!result.success) {
-      return res.status(500).json({
-        success: false,
-        message: "No se pudo liberar el escrow on-chain.",
-        error: result.error,
-      });
-    }
-
-    order.payment.status = "released";
-    order.payment.releaseTxHash = result.txHash;
-    order.payment.releasedAt = new Date();
-    order.status = "completed";
-    order.completedAt = new Date();
-    order.statusHistory.push({
-      status: "completed",
-      changedAt: new Date(),
-      comment: "Escrow liberado manualmente por el admin (fondos enviados al vendedor).",
-    });
-    order.orderActions.push({
-      type: "admin_intervention",
-      initiator: "admin",
-      paidStatus: "paid",
-      status: "completed",
-      reason: "El admin liberó el escrow manualmente.",
-      releaseTxHash: result.txHash,
-      createdBy: req.user?._id,
-    });
-    await order.save();
-
-    // Actualizar métricas de venta completada (paridad con el flujo normal).
-    await User.findByIdAndUpdate(order.seller, {
-      $inc: { "accounting.completedSales": 1, "shop.totalSalesCount": 1 },
-    });
-    await User.findByIdAndUpdate(order.buyer, {
-      $inc: { "accounting.completedPurchases": 1 },
-    });
-    for (const item of order.itemsSnapshot) {
-      const qty = item.quantity || 1;
-      await Product.findByIdAndUpdate(item.productId, {
-        $inc: { sold: qty, stock: -qty },
-      });
-    }
-
-    const buyerThis = await User.findById(order.buyer);
-    if (buyerThis?.email)
-      sendOrderCompletedToBuyer({
-        buyerEmail: buyerThis.email,
-        orderId: order._id,
-        amount: order.totalAmount,
-      }).catch(() => {});
-
-    return res.status(200).json({
-      success: true,
-      message: "Escrow liberado y orden completada por el admin.",
-      order,
-      releaseTxHash: result.txHash,
-    });
-  } catch (error) {
-    console.error("Error al liberar escrow (admin):", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * ADMIN: CANCELA y reembolsa el escrow al comprador (solo admin).
- * El admin firma cancelOrder() del contrato y los USDT vuelven al comprador.
- */
-const adminCancelEscrow = async (req, res) => {
-  try {
-    const { orderId } = req.params;
-
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
-
-    if (order.payment?.method !== "crypto") {
-      return res.status(400).json({
-        success: false,
-        message: "Esta orden no usa pago en criptomonedas (escrow).",
-      });
-    }
-    if (order.payment?.status !== "funded") {
-      return res.status(400).json({
-        success: false,
-        message: `El escrow no está fondeado (estado: ${order.payment?.status}).`,
-      });
-    }
-
-    const { cancelOrderEscrow } = await import("../services/escrowServices.js");
-    const result = await cancelOrderEscrow(
-      order._id.toString(),
-      order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
-    );
-    if (!result.success) {
-      return res.status(500).json({
-        success: false,
-        message: "No se pudo cancelar/dev oler el escrow on-chain.",
-        error: result.error,
-      });
-    }
-
-    order.payment.status = "cancelled_refunded";
-    order.payment.cancelTxHash = result.txHash;
-    order.payment.cancelledRefundedAt = new Date();
-    order.payment.releasedAt = new Date();
-    order.status = "cancelled";
-    order.cancelledAt = new Date();
-    order.cancelledBy = "admin";
-    order.statusHistory.push({
-      status: "cancelled",
-      changedAt: new Date(),
-            comment: "Escrow cancelado y reembolsado al comprador por el admin.",
-    });
-    order.orderActions.push({
-      type: "admin_intervention",
-      initiator: "admin",
-      paidStatus: "paid",
-      status: "completed",
-      reason:
-        "El admin canceló el escrow y devolvió el 100% de los USDT al comprador.",
-      releaseTxHash: result.txHash,
-      createdBy: req.user?._id,
-    });
-    await order.save();
-
-    // Actualizar métricas del comprador (cancelación).
-    await User.findByIdAndUpdate(order.buyer, {
-      $inc: { "accounting.cancellationsAsBuyer": 1 },
-    });
-
-    // Notificar a ambas partes.
-    const buyer = await User.findById(order.buyer);
-    const sellerUsr = await User.findById(order.seller);
-    if (buyer?.email)
-      sendOrderCancelledToBuyer({
-        buyerEmail: buyer.email,
-        orderId: order._id,
-        amount: order.totalAmount,
-        withRefund: true,
-      }).catch(() => {});
-    if (sellerUsr?.email)
-      sendOrderCancelledToVendor({
-        vendorEmail: sellerUsr.email,
-        orderId: order._id,
-        amount: order.totalAmount,
-        withRefund: false,
-      }).catch(() => {});
-    createNotification({
-      recipient: order.buyer,
-      type: "order_cancelled",
-      title: "Tu compra fue cancelada y tu dinero devuelto",
-      message: `El admin canceló la orden #${order._id
-        .toString()
-        .slice(-6)
-        .toUpperCase()} y los USDT del escrow fueron devueltos a tu billetera.`,
-      data: { orderId: order._id },
-    }).catch(() => {});
-    createNotification({
-      recipient: order.seller,
-      type: "order_cancelled",
-      title: "Tu venta fue cancelada (escrow reembolsado)",
-      message: `El admin canceló la orden #${order._id
-        .toString()
-        .slice(-6)
-        .toUpperCase()} y devolvió los USDT al comprador.`,
-      data: { orderId: order._id },
-    }).catch(() => {});
-    // Recordatorio de rating mutuo (cancelación por admin).
-    createNotification({
-      recipient: order.seller,
-      type: "rating_reminder",
-      title: "Calificá al comprador",
-      message: `La orden #${order._id
-        .toString()
-        .slice(-6)
-        .toUpperCase()} se canceló. Dejá tu calificación (👍/👎) sobre el comprador en la página de la orden.`,
-      data: { orderId: order._id, ratingType: "buyer_rating" },
-    }).catch(() => {});
-    createNotification({
-      recipient: order.buyer,
-      type: "rating_reminder",
-      title: "Calificá al vendedor",
-      message: `La orden #${order._id
-        .toString()
-        .slice(-6)
-        .toUpperCase()} se canceló. Dejá tu calificación (👍/👎) sobre el vendedor en la página de la orden.`,
-      data: { orderId: order._id, ratingType: "seller_rating" },
-    }).catch(() => {});
-
-    return res.status(200).json({
-      success: true,
-      message:
-        "Escrow cancelado y orden cancelada por el admin. Los USDT fueron devueltos al comprador.",
-      order,
-      cancelTxHash: result.txHash,
-    });
-  } catch (error) {
-    console.error("Error al cancelar escrow (admin):", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * ADMIN: ACTUALIZA el fee global del escrow en el contrato (solo admin).
- * El fee es GLOBAL y se cobra on-chain al liberar el escrow (releaseOrder).
- * Se expresa en puntos base (bps): 300 = 3%, 100 = 1%, 500 = 5%, máx 5000.
- */
-const adminUpdateEscrowFee = async (req, res) => {
-  try {
-    const { feeBps } = req.body;
-
-    if (
-      typeof feeBps !== "number" ||
-      isNaN(feeBps) ||
-      feeBps < 0 ||
-      feeBps > 5000
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "El fee debe ser un número entero de puntos base entre 0 y 5000 (5000 = 50%).",
-      });
-    }
-
-    const { setEscrowFeeBps } = await import("../services/escrowServices.js");
-
-    const result = await setEscrowFeeBps(
-      Math.round(feeBps),
-      req.body.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
-    );
-    if (!result.success) {
-      return res.status(500).json({
-        success: false,
-        message: "No se pudo actualizar el fee del escrow on-chain.",
-        error: result.error,
-      });
-    }
-
-        return res.status(200).json({
-      success: true,
-      message: `Fee del escrow actualizado a ${result.feeBps} bps (${(result.feeBps / 100).toFixed(2)}%).`,
-      feeBps: result.feeBps,
-      txHash: result.txHash,
-    });
-  } catch (error) {
-    console.error("Error al actualizar fee del escrow (admin):", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * COMPRADOR PREPARA el fondeo del escrow (solo comprador).
- * Devuelve todo lo que el front necesita para firmar el fondeo desde su
- * wallet de Privy: la direccion FIJA del token (USDT), la wallet del vendedor,
- * el monto a fondear (productos + envio) y validacion de saldo USDT + gas drip
- * (BNB) cuando hace falta. De esta forma el comprador no se preocupa ni por el
- * token ni por el gas.
- */
-const prepareEscrowFunding = async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const userId = req.user._id.toString();
-
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
-
-    if (order.buyer.toString() !== userId) {
-      return res
-        .status(403)
-        .json({ message: "Solo el comprador puede preparar el fondeo del escrow" });
-    }
-    if (order.payment?.method !== "crypto") {
-      return res.status(400).json({
-        success: false,
-        message: "Esta orden no usa pago en criptomonedas (escrow).",
-      });
-    }
-
-    const buyer = await User.findById(order.buyer);
-    const seller = await User.findById(order.seller);
-    const buyerWallet = buyer?.walletAddress;
-    if (!buyerWallet) {
-      return res.status(400).json({
-        success: false,
-        needsWallet: true,
-        message:
-          "Necesitas tener una wallet Web3 vinculada para fondear el escrow. Activa tu billetera desde 'Mi Billetera'.",
-      });
-    }
-
-
-    // Red + contrato + modo de fondeo persistidos al crear la orden. En modo
-    // native el "token" es la moneda de red (POL/ETH) → tokenAddress vacío.
-    const escrowChain = getEscrowChainConfig(
-      order.payment?.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
-    );
-    const isNativeFunding = escrowChain.fundingMode === "native";
-    const tokenAddress = isNativeFunding
-      ? ""
-      : order.payment?.tokenAddress ||
-        escrowChain.tokenAddress ||
-        process.env.USDT_TOKEN_ADDRESS ||
-        process.env.USDT_TESTNET_ADDRESS ||
-        "";
-    const tokenSymbol = order.payment?.token || escrowChain.tokenSymbol;
-
-    // Monto total a fondear (productos + envio en USD).
-    const requiredUsd =
-      (order.financials?.totalUsd || 0) +
-      (order.financials?.shippingCostUsd || 0);
-
-    // Validacion de saldo on-chain + gas drip (si hace falta). En modo native
-    // el saldo de "token" ES el saldo nativo de la red, así que el drip valida
-    // contra la moneda de red (usdtAddress vacío).
-    const { prepareFunding } = await import("../services/gasDripService.js");
-    const gas = await prepareFunding({
-      userId,
-      walletAddress: buyerWallet,
-      usdtAddress: tokenAddress,
-      requiredUsd,
-      chainId: escrowChain.chainId,
-      reason: "approve",
-      refId: order._id,
-    });
-    if (!gas.success) {
-      return res.status(400).json({
-        success: false,
-        message: gas.error || "No se pudo preparar el gas/saldo para el fondeo.",
-        insufficientUsdt: !!gas.insufficientUsdt,
-        balance: gas.balanceUsd ?? 0,
-      });
-    }
-
-        // Respuesta APLANADA a nivel raíz (tokenAddress, token, sellerWallet, etc.)
-    // porque el front (CryptoPaymentModal) lee estos campos directamente del
-    // body (prepared.tokenAddress / fund.sellerWallet / fund.tokenAddress). Si
-    // se dejan SOLO dentro de `funding`, el front recibe tokenAddress=undefined
-    // y muestra "No pudimos determinar la moneda de pago". Mantenemos `funding`
-    // por compatibilidad y exponemos gasDripped para el aviso de gas.
-    const fundingPayload = {
-      orderId: order._id.toString(),
-      // Red + contrato + modo de fondeo (lo usa el front para elegir
-      // fundOrder vs fundOrderNative y armar la tx).
-      chainId: escrowChain.chainId,
-      contractAddress: escrowChain.contractAddress,
-      fundingMode: escrowChain.fundingMode,
-      isNativeFunding,
-      tokenAddress,
-      token: tokenSymbol,
-      sellerWallet: seller?.walletAddress || null,
-      buyerWallet,
-      requiredUsd,
-      feeBps: order.payment?.feeBps || undefined,
-    };
-
-    return res.status(200).json({
-      success: true,
-      // Campos aplanados (lo que espera el front).
-      ...fundingPayload,
-      gasDripped: !!gas?.drip?.delivered,
-      // Compatibilidad: mismo objeto anidado.
-      funding: fundingPayload,
-      gas,
-    });
-  } catch (error) {
-    console.error("Error al preparar fondeo del escrow:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * ROLLBACK de una orden crypto PROVISIONAL (solo comprador).
- * Se llama cuando el comprador cerro el modal de pago sin fondear el escrow:
- * la orden quedo creada en 'pending_payment'/'verifying_payment' con el
- * sub-estado de pago 'funding'/'unpaid' pero SIN fondeo on-chain. La
- * eliminamos para no dejar ordenes huerfanas (no hay colateral congelado).
- */
-const rollbackCryptoOrder = async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const userId = req.user._id.toString();
-
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
-
-    if (order.buyer.toString() !== userId) {
-      return res
-        .status(403)
-        .json({ message: "Solo el comprador puede hacer rollback de esta orden" });
-    }
-    if (order.payment?.method !== "crypto") {
-      return res.status(400).json({
-        success: false,
-        message: "El rollback solo aplica a ordenes con pago en criptomonedas.",
-      });
-    }
-    // No permitir rollback si ya se fondeo (o se libero): hay dinero on-chain.
-    if (!["funding", "unpaid"].includes(order.payment?.status)) {
-      return res.status(400).json({
-        success: false,
-        message: `No se puede eliminar la orden: el pago esta en estado "${order.payment?.status}".`,
-      });
-    }
-    if (!["pending_payment", "verifying_payment"].includes(order.status)) {
-      return res.status(400).json({
-        success: false,
-        message: `No se puede eliminar la orden en estado "${order.status}".`,
-      });
-    }
-
-    await Order.findByIdAndDelete(orderId);
-
-    return res.status(200).json({
-      success: true,
-      message: "Orden provisional eliminada correctamente.",
-      orderId,
-    });
-  } catch (error) {
-    console.error("Error al hacer rollback de orden crypto:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * CAMBIAR LA RED DE PAGO de una orden crypto PROVISIONAL (solo comprador).
- * Se usa desde el modal de pago: el comprador ve 3 botones (USDT/BSC,
- * USDC/Base, USDXM/Polygon) con su saldo y puede elegir en qué red pagar
- * DESPUÉS de creada la orden. Solo permitido mientras la orden NO esté fondeada
- * (payment.status en 'funding'/'unpaid'); una vez fondeada, la red queda atada.
- *
- * Actualiza payment.chainId/tokenAddress/fundingMode/token con la config real
- * de la red elegida y devuelve la orden + metadata para que el front arme la tx.
- */
-const updateOrderPaymentChain = async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const { chainId } = req.body;
-    const userId = req.user._id.toString();
-
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
-
-    if (order.buyer.toString() !== userId) {
-      return res
-        .status(403)
-        .json({ message: "Solo el comprador puede cambiar la red de pago." });
-    }
-    if (order.payment?.method !== "crypto") {
-      return res.status(400).json({
-        success: false,
-        message: "Esta orden no usa pago en criptomonedas (escrow).",
-      });
-    }
-    // No se puede cambiar de red si ya hay dinero on-chain.
-    if (!["funding", "unpaid"].includes(order.payment?.status)) {
-      return res.status(400).json({
-        success: false,
-        message: `No se puede cambiar la red: el pago está en estado "${order.payment?.status}".`,
-      });
-    }
-    if (!["pending_payment", "verifying_payment"].includes(order.status)) {
-      return res.status(400).json({
-        success: false,
-        message: `No se puede cambiar la red en estado "${order.status}".`,
-      });
-    }
-    if (chainId == null) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Falta el chainId destino." });
-    }
-
-    const escrowChain = getEscrowChainConfig(Number(chainId));
-
-    // Resolvemos la wallet del vendedor (para devolverla al front).
-    const seller = await User.findById(order.seller);
-
-    order.payment.chainId = escrowChain.chainId;
-    order.payment.fundingMode = escrowChain.fundingMode;
-    order.payment.tokenAddress = escrowChain.tokenAddress || "";
-    order.payment.token = escrowChain.tokenSymbol;
-    order.statusHistory.push({
-      status: order.status,
-      changedAt: new Date(),
-      comment: `El comprador eligió pagar en ${escrowChain.key} (chain ${escrowChain.chainId}, ${escrowChain.tokenSymbol}).`,
-    });
-    await order.save();
-
-    return res.status(200).json({
-      success: true,
-      message: `Red de pago actualizada a ${escrowChain.tokenSymbol} (${escrowChain.key}).`,
-      order,
-      // Metadata aplanada para que el modal re-arme la tx sin re-preparar.
-      chainId: escrowChain.chainId,
-      contractAddress: escrowChain.contractAddress,
-      fundingMode: escrowChain.fundingMode,
-      isNativeFunding: escrowChain.fundingMode === "native",
-      tokenAddress: escrowChain.tokenAddress || "",
-      token: escrowChain.tokenSymbol,
-      sellerWallet: seller?.walletAddress || null,
-    });
-  } catch (error) {
-    console.error("Error al cambiar la red de pago:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * COMPRADOR SOLICITA al admin la liberacion del escrow (solo comprador).
- * Se usa cuando el comprador recibio el producto pero el plazo de inactividad
- * paso. Registra una solicitud de intervencion para que el admin, tras
- * verificar, libere el escrow manualmente (releaseOrder on-chain).
- */
-const buyerRequestEscrowRelease = async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const { reason } = req.body;
-    const userId = req.user._id.toString();
-
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
-
-    if (order.buyer.toString() !== userId) {
-      return res
-        .status(403)
-        .json({ message: "Solo el comprador puede solicitar la liberacion del escrow" });
-    }
-    if (order.payment?.method !== "crypto") {
-      return res.status(400).json({
-        success: false,
-        message: "Esta orden no usa pago en criptomonedas (escrow).",
-      });
-    }
-    if (order.payment?.status !== "funded") {
-      return res.status(400).json({
-        success: false,
-        message: `El escrow no esta fondeado (estado: ${order.payment?.status}). No hay nada que liberar.`,
-      });
-    }
-    if (["cancelled", "completed"].includes(order.status)) {
-      return res.status(400).json({
-        success: false,
-        message: `La orden ya esta ${order.status}.`,
-      });
-    }
-    if (order.dispute?.exists) {
-      return res.status(409).json({
-        success: false,
-        message:
-          "Hay una disputa abierta en esta orden. El admin la resolvera y definira la liberacion.",
-      });
-    }
-
-    if (order.releaseRequest?.exists && order.releaseRequest.status === "pending") {
-      return res.status(400).json({
-        success: false,
-        message: "Ya existe una solicitud de liberacion en curso. Espera la resolucion del admin.",
-      });
-    }
-    order.releaseRequest = {
-      exists: true,
-      requestedBy: order.buyer,
-      reason: reason || "Liberacion solicitada por el comprador (plazo de inactividad).",
-      status: "pending",
-      createdAt: new Date(),
-    };
-    order.orderActions.push({
-      type: "admin_intervention",
-      initiator: "buyer",
-      paidStatus: "paid",
-      status: "pending",
-      reason:
-        "El comprador solicita la liberacion del escrow al admin tras el plazo de inactividad. " +
-        (reason || ""),
-      createdBy: order.buyer,
-    });
-    await order.save();
-
-    // Notificar al admin (in-app + mail) para que lo resuelva.
-    const adminUser = await findAdminUser(User);
-    if (adminUser) {
-      createNotification({
-        recipient: adminUser._id,
-        type: "order_admin_release_request",
-        title: "Solicitud de liberacion de escrow",
-        message: `El comprador solicita liberar el escrow de la orden #${order._id
-          .toString()
-          .slice(-6)
-          .toUpperCase()}. Revisala en el panel de admin (adminReleaseEscrow).`,
-        data: { orderId: order._id },
-      }).catch(() => {});
-      if (adminUser.email) {
-        const [buyerInfo, sellerInfo] = await Promise.all([
-          User.findById(order.buyer),
-          User.findById(order.seller),
-        ]);
-        sendAdminCancellationRequest({
-          adminEmail: adminUser.email,
-          orderId: order._id,
-          amount: order.totalAmount,
-          sellerName:
-            sellerInfo?.username || sellerInfo?.firstName || "El vendedor",
-          buyerName:
-            buyerInfo?.firstName || buyerInfo?.username || "El comprador",
-          reason: reason || "Liberacion de escrow solicitada por el comprador.",
-        }).catch((err) =>
-          console.error("Fallo email de solicitud de liberacion de escrow:", err),
-        );
-      }
-    }
-
-    return res.status(200).json({
-      success: true,
-      message:
-        "Solicitud enviada al admin. El escrow se liberara manualmente luego de verificar la entrega.",
-      order,
-    });
-  } catch (error) {
-    console.error("Error al solicitar liberacion de escrow:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * ADMIN: LEER la configuracion on-chain del escrow (solo admin).
- * Devuelve el fee (bps), la feeWallet y la direccion admin del contrato.
- */
-const adminGetEscrowConfig = async (req, res) => {
-  try {
-    const { getEscrowConfig } = await import("../services/escrowServices.js");
-    const config = await getEscrowConfig(
-      req.query.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
-    );
-    if (!config.success) {
-      return res.status(500).json({
-        success: false,
-        message: "No se pudo leer la configuracion del escrow on-chain.",
-        error: config.error,
-      });
-    }
-    return res.status(200).json({
-      success: true,
-      feeBps: config.feeBps,
-      feeWallet: config.feeWallet,
-      admin: config.admin,
-    });
-  } catch (error) {
-    console.error("Error al leer config del escrow (admin):", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * ADMIN: ACTUALIZAR la feeWallet del escrow en el contrato (solo admin).
- * Permite rotar la wallet que cobra el fee sin redeployar el contrato.
- */
-const adminUpdateEscrowFeeWallet = async (req, res) => {
-  try {
-    const { feeWallet } = req.body;
-
-    if (!feeWallet || typeof feeWallet !== "string") {
-      return res.status(400).json({
-        success: false,
-        message: "Tenes que enviar la nueva direccion de wallet (feeWallet).",
-      });
-    }
-
-    const { setEscrowFeeWallet } = await import("../services/escrowServices.js");
-
-    const result = await setEscrowFeeWallet(
-      feeWallet,
-      req.body.chainId ?? ESCROW_DEFAULT_CHAIN_ID,
-    );
-    if (!result.success) {
-      return res.status(500).json({
-        success: false,
-        message: "No se pudo actualizar la feeWallet del escrow on-chain.",
-        error: result.error,
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "feeWallet del escrow actualizada correctamente.",
-      feeWallet: result.feeWallet,
-      txHash: result.txHash,
-    });
-  } catch (error) {
-    console.error("Error al actualizar feeWallet del escrow (admin):", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * ADMIN: ACTUALIZAR parametros de plataforma del escrow (solo admin).
- * Punto unico de configuracion de plataforma: por ahora, el plazo de
- * liberacion por inactividad del comprador (releaseAfterDays). El fee
- * on-chain se cambia por separado con adminUpdateEscrowFee.
- */
-const adminUpdateEscrowConfig = async (req, res) => {
-  try {
-    const { releaseAfterDays } = req.body;
-
-    if (
-      releaseAfterDays !== undefined &&
-      (typeof releaseAfterDays !== "number" ||
-        isNaN(releaseAfterDays) ||
-        releaseAfterDays < 0)
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "releaseAfterDays debe ser un numero de dias mayor o igual a 0.",
-      });
-    }
-
-    const effectiveReleaseDays =
-      releaseAfterDays !== undefined
-        ? releaseAfterDays
-        : Number(process.env.ESCROW_RELEASE_AFTER_DAYS || 7);
-
-    return res.status(200).json({
-      success: true,
-      message: `Configuracion del escrow actualizada (plazo de liberacion: ${effectiveReleaseDays} dias).`,
-      config: {
-        releaseAfterDays: effectiveReleaseDays,
-      },
-    });
-  } catch (error) {
-    console.error("Error al actualizar config del escrow (admin):", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * ADMIN: LISTAR ordenes con pago cripto (escrow) para gestion (solo admin).
- * Filtra por estado de pago (funding, funded, released, cancelled_refunded) y
- * por estado de la orden. Devuelve datos minimos del comprador/vendedor.
- */
-const adminListCryptoOrders = async (req, res) => {
-  try {
-    const { paymentStatus, status, limit = 100 } = req.query;
-
-    const filter = { "payment.method": "crypto" };
-    if (paymentStatus) filter["payment.status"] = paymentStatus;
-    if (status) filter.status = status;
-
-    const orders = await Order.find(filter)
-      .populate("buyer", "username firstName lastName email walletAddress")
-      .populate("seller", "username firstName lastName shop walletAddress")
-      .sort({ createdAt: -1 })
-      .limit(Math.min(Number(limit) || 100, 500));
-
-    return res.status(200).json({
-      success: true,
-      count: orders.length,
-      orders,
-    });
-  } catch (error) {
-    console.error("Error al listar ordenes crypto (admin):", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * ADMIN: RECORDAR al comprador que confirme la recepcion (solo admin).
- * Se usa con ordenes crypto fondeadas donde el comprador no confirmo: le envia
- * una notificacion (in-app + mail) para que complete la orden y se libere el
- * escrow. No cambia el estado de la orden (solo recuerda).
- */
-const adminNotifyBuyerEscrow = async (req, res) => {
-  try {
-    const { orderId } = req.params;
-
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
-
-    if (order.payment?.method !== "crypto") {
-      return res.status(400).json({
-        success: false,
-        message: "Esta orden no usa pago en criptomonedas (escrow).",
-      });
-    }
-    if (order.payment?.status !== "funded") {
-      return res.status(400).json({
-        success: false,
-        message: `El escrow no esta fondeado (estado: ${order.payment?.status}).`,
-      });
-    }
-
-    const buyer = await User.findById(order.buyer);
-    const shortId = order._id.toString().slice(-6).toUpperCase();
-
-    createNotification({
-      recipient: order.buyer,
-      type: "order_reminder",
-      title: "Confirma la recepcion de tu pedido",
-      message: `Cuando recibas tu pedido de la orden #${shortId}, confirma la recepcion para que se liberen los fondos al vendedor.`,
-      data: { orderId: order._id },
-    }).catch(() => {});
-
-    if (buyer?.email) {
-      sendPaymentConfirmedToVendor({
-        vendorEmail: buyer.email,
-        orderId: order._id,
-        amount: order.totalAmount,
-      }).catch((err) =>
-        console.error("Fallo email de recordatorio de escrow al comprador:", err),
-      );
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Recordatorio enviado al comprador para confirmar la recepcion.",
-      orderId: order._id,
-    });
-  } catch (error) {
-    console.error("Error al notificar al comprador del escrow (admin):", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
 
 /**
  * COMPRADOR REPORTA UN PROBLEMA con su pedido dispachado.
@@ -4259,6 +3072,108 @@ const adminNotifyBuyerEscrow = async (req, res) => {
  * al admin para que lo resuelva manualmente. A partir de acá el comprador NO
  * puede marcar la orden como recibida hasta que el admin intervenga.
  */
+/**
+ * reportOrderIssue
+ * Un USUARIO (comprador o vendedor) reporta un problema desde el detalle de
+ * la orden. A diferencia de openDispute, NO cambia de estado la orden ni
+ * congela colateral on-chain: es un simple aviso dirigido al ADMIN que queda
+ * registrado en orderActions (tipo "claim"), visible en el timeline de la
+ * orden. El admin lo lee y, si corresponde, lo cataloga como disputa y lo
+ * resuelve a mano desde el panel.
+ *
+ * Body: { message }  (texto libre redactado por el usuario)
+ * Disponible en cualquier estado de la orden (mientras participe).
+ */
+const reportOrderIssue = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { message } = req.body;
+    const userId = req.user._id.toString();
+
+    if (!message || !String(message).trim()) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Escribi una descripcion del problema." });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    const isBuyer = order.buyer.toString() === userId;
+    const isSeller = order.seller.toString() === userId;
+    if (!isBuyer && !isSeller) {
+      return res
+        .status(403)
+        .json({ message: "No tenes permisos para reportar un problema en esta orden." });
+    }
+
+    const reporterRole = isSeller ? "seller" : "buyer";
+    const reporterRoleLabel = isSeller ? "vendedor" : "comprador";
+    const cleanMessage = String(message).trim().slice(0, 2000);
+
+    // Registrar el reporte en el timeline de la orden (tipo "claim").
+    order.orderActions.push({
+      type: "claim",
+      initiator: reporterRole,
+      paidStatus: "unknown",
+      status: "completed",
+      reason: "[Reporte de " + reporterRoleLabel + "] " + cleanMessage,
+      createdBy: req.user._id,
+    });
+    await order.save();
+
+    // Datos para el aviso.
+    const buyer = await User.findById(order.buyer);
+    const seller = await User.findById(order.seller);
+    const reporterUser = isSeller ? seller : buyer;
+    const reporterName =
+      [reporterUser?.firstName, reporterUser?.lastName].filter(Boolean).join(" ") ||
+      reporterUser?.username ||
+      reporterUser?.shop?.name ||
+      "";
+
+    const shortId = order._id.toString().slice(-6).toUpperCase();
+
+    // Notificacion in-app al ADMIN.
+    const adminUser = await findAdminUser(User);
+    if (adminUser) {
+      createNotification({
+        recipient: adminUser._id,
+        type: "order_issue_reported",
+        title: "Problema reportado en una orden",
+        message: "El " + reporterRoleLabel + (reporterName ? " " + reporterName : "") +
+          " reporto un problema en la orden #" + shortId + ": \"" +
+          cleanMessage.slice(0, 120) + (cleanMessage.length > 120 ? "..." : "") + "\"",
+        data: { orderId: order._id },
+      }).catch(() => {});
+
+      // Email al ADMIN.
+      if (adminUser.email) {
+        sendAdminOrderIssueReport({
+          adminEmail: adminUser.email,
+          orderId: order._id,
+          reporterRole: reporterRoleLabel,
+          reporterName,
+          orderStatus: order.status,
+          amount: order.totalAmount,
+          message: cleanMessage,
+        }).catch(() => {});
+      }
+    } else {
+      console.warn("[reportOrderIssue] No se encontro un usuario admin para notificar.");
+    }
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Reporte enviado. Nuestro equipo lo revisara y se contactara con vos si necesita mas informacion.",
+    });
+  } catch (error) {
+    console.error("Error al reportar problema de orden:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 const openDispute = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -4608,6 +3523,184 @@ const uploadPaymentProof = async (req, res) => {
  *    A favor del VENDEDOR: se cancela la orden y se le libera su colateral
  *    on-chain. Se suma el contador de cancelaciones como comprador.
  */
+/**
+ * ADMIN ABRE una disputa (solo admin).
+ * El admin, tras leer un reporte de problema (o por iniciativa propia),
+ * cataloga la orden como "en disputa". NO cambia el estado de la orden ni
+ * mueve fondos: solo marca order.dispute como abierta y avisa a ambas partes.
+ * Body: { issueType?, description? }.
+ */
+const adminOpenDispute = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { issueType, description } = req.body || {};
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    if (order.dispute?.exists && order.dispute.status === "open") {
+      return res
+        .status(400)
+        .json({ message: "La orden ya tiene una disputa abierta." });
+    }
+
+    order.dispute = order.dispute || {};
+    order.dispute.exists = true;
+    order.dispute.status = "open";
+    order.dispute.raisedBy = null; // iniciada por el admin
+    order.dispute.issueType = String(issueType || "admin_manual").slice(0, 120);
+    order.dispute.description = String(description || "").slice(0, 2000);
+    order.dispute.createdAt = new Date();
+    order.dispute.resolvedAt = null;
+    order.dispute.resolution = "";
+    order.dispute.resolvedBy = null;
+
+    order.orderActions.push({
+      type: "admin_intervention",
+      initiator: "admin",
+      paidStatus: "unknown",
+      status: "completed",
+      reason: "Admin abrió una disputa" + (order.dispute.description ? ": " + order.dispute.description : ""),
+      createdBy: req.user?._id,
+    });
+    await order.save();
+
+    const shortId = order._id.toString().slice(-6).toUpperCase();
+    const msg =
+      "La orden #" + shortId +
+      " fue puesta en disputa por el equipo de soporte. Se revisará el caso y se resolverá a la brevedad.";
+
+    createNotification({
+      recipient: order.buyer,
+      type: "order_dispute_resolved",
+      title: "Tu orden está en revisión",
+      message: msg,
+      data: { orderId: order._id },
+    }).catch(() => {});
+    createNotification({
+      recipient: order.seller,
+      type: "order_dispute_resolved",
+      title: "Una de tus ventas está en revisión",
+      message: msg,
+      data: { orderId: order._id },
+    }).catch(() => {});
+
+    // Emails a ambas partes avisando que la orden quedó en disputa.
+    const buyer = await User.findById(order.buyer);
+    const seller = await User.findById(order.seller);
+    if (buyer?.email) {
+      sendDisputeOpenedToBuyer({
+        buyerEmail: buyer.email,
+        orderId: order._id,
+        amount: order.totalAmount,
+        description: order.dispute.description,
+      }).catch(() => {});
+    }
+    if (seller?.email) {
+      sendDisputeOpenedToVendor({
+        vendorEmail: seller.email,
+        orderId: order._id,
+        amount: order.totalAmount,
+        description: order.dispute.description,
+      }).catch(() => {});
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Disputa abierta. La orden quedó marcada como en disputa.",
+      order,
+    });
+  } catch (error) {
+    console.error("Error al abrir disputa (admin):", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * ADMIN CIERRA una disputa a favor de una de las partes (solo admin).
+ * SOLO marca la disputa como resuelta y deja registro de a quién favoreció.
+ * NO mueve fondos NI cambia el estado de la orden: el admin usa aparte los
+ * botones de reembolso/completar/liberar para mover el dinero/estado según
+ * corresponda. Body: { favor: 'buyer' | 'seller', note? }.
+ */
+const adminCloseDispute = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { favor, note } = req.body || {};
+
+    if (!["buyer", "seller"].includes(favor)) {
+      return res
+        .status(400)
+        .json({ message: "Indicá a favor de quién se resuelve: 'buyer' o 'seller'." });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Orden no encontrada" });
+
+    if (!order.dispute?.exists || order.dispute.status !== "open") {
+      return res
+        .status(400)
+        .json({ message: "La orden no tiene una disputa abierta para cerrar." });
+    }
+
+    const comment = String(note || "").slice(0, 2000);
+    order.dispute.status = favor === "buyer" ? "resolved_refund" : "resolved_release";
+    order.dispute.resolvedAt = new Date();
+    order.dispute.resolvedBy = req.user?._id || null;
+    order.dispute.resolution =
+      comment ||
+      (favor === "buyer"
+        ? "El admin resolvió la disputa a favor del COMPRADOR."
+        : "El admin resolvió la disputa a favor del VENDEDOR.");
+
+    order.orderActions.push({
+      type: "admin_intervention",
+      initiator: "admin",
+      paidStatus: "unknown",
+      status: "completed",
+      reason:
+        "Admin cerró la disputa a favor del " +
+        (favor === "buyer" ? "COMPRADOR" : "VENDEDOR") +
+        (comment ? ". Nota: " + comment : ""),
+      createdBy: req.user?._id,
+    });
+    await order.save();
+
+    const shortId = order._id.toString().slice(-6).toUpperCase();
+    const msg =
+      "La disputa de la orden #" + shortId + " fue resuelta a favor del " +
+      (favor === "buyer" ? "comprador" : "vendedor") +
+      ". El equipo de soporte coordinará los pasos siguientes.";
+
+    createNotification({
+      recipient: order.buyer,
+      type: "order_dispute_resolved",
+      title: "Disputa resuelta",
+      message: msg,
+      data: { orderId: order._id },
+    }).catch(() => {});
+    createNotification({
+      recipient: order.seller,
+      type: "order_dispute_resolved",
+      title: "Disputa resuelta",
+      message: msg,
+      data: { orderId: order._id },
+    }).catch(() => {});
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Disputa cerrada a favor del " +
+        (favor === "buyer" ? "comprador" : "vendedor") +
+        ". Recordá mover los fondos/estado con los botones correspondientes.",
+      order,
+    });
+  } catch (error) {
+    console.error("Error al cerrar disputa (admin):", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 const adminResolvePaymentDispute = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -4948,22 +4041,10 @@ export {
   adminCancelOrder,
   retryCollateral,
   cancelCollateralHold,
-  confirmEscrowFunding,
-  getEscrowStatus,
-  cancelCryptoOrder,
-    adminReleaseEscrow,
-  adminCancelEscrow,
-  adminUpdateEscrowFee,
-  prepareEscrowFunding,
-  updateOrderPaymentChain,
-  rollbackCryptoOrder,
-  buyerRequestEscrowRelease,
-  adminGetEscrowConfig,
-  adminUpdateEscrowFeeWallet,
-  adminUpdateEscrowConfig,
-  adminListCryptoOrders,
-  adminNotifyBuyerEscrow,
   openDispute,
+  reportOrderIssue,
   uploadPaymentProof,
   adminResolvePaymentDispute,
+  adminOpenDispute,
+  adminCloseDispute,
 };

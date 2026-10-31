@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ArrowUpDown,
+  ShieldAlert,
 } from 'lucide-react';
 import axios from 'axios';
 import { usePrivy } from "../Utils/authClient";
@@ -179,7 +180,14 @@ const AdminUsersTable = () => {
                             <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200 group-hover:text-[#F26722] transition-colors">
                               {user.fullName || user.username || 'Sin nombre'}
                             </p>
-                            <p className="text-xs text-zinc-500 font-mono">@{user.username || '—'}</p>
+                            <p className="text-xs text-zinc-500 font-mono flex items-center gap-1">
+                              @{user.username || '—'}
+                              {user.accountStatus === 'suspended' && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-rose-500/10 text-rose-600 text-[9px] font-black uppercase">
+                                  <ShieldAlert size={9} /> Suspendido
+                                </span>
+                              )}
+                            </p>
                           </div>
                         </button>
                       </td>
@@ -241,6 +249,7 @@ const AdminUsersTable = () => {
         user={selectedUser}
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
+        onStatusChange={fetchUsers}
       />
     </div>
   );

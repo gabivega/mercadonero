@@ -16,13 +16,13 @@ export default function HelpSeller() {
       content: (
         <>
           <p className="mb-2">
-          Actualmente contamos con 2 formas de pago: Transferencia bancaria y Criptomonedas (USDT).
+          Actualmente contamos con 2 formas de pago: Transferencia bancaria y Criptomonedas (USDT o USDC).
           </p>
           <p className="mb-2">
             En el caso de transerencia bancaria, recibís el dinero en tu cuenta por adelantado (debes tener saldo en tu wallet como garantía).
           </p>
           <p>
-            En el caso de pago con criptomonedas, el comprador deposita los USDT en un contrato inteligente, y una vez que confirma la recepcion de tu producto, se libera automáticamente el saldo hacia tu wallet, descontando la comisión de la plataforma.
+            En el caso de pago con criptomonedas, el comprador deposita los USDT o USDC en un contrato inteligente, y una vez que confirma la recepcion de tu producto, se libera automáticamente el saldo hacia tu wallet, descontando la comisión de la plataforma.
           </p>
         </>
       ),
@@ -42,16 +42,16 @@ export default function HelpSeller() {
       ),
     },   
     {
-      question: "¿Cómo puedo depositar USDT en mi billetera?",
+      question: "¿Cómo puedo depositar saldo en mi billetera?",
       icon: Shield,
       content: (
         <>
           <p className="mb-2">
-            Para depositar USDT, vas a la sección de "billetera", y si no tienes una, la puedes crear con un solo click. Tu billetera tiene una direccion única, puedes copiarla para transferir saldo desde otras billeteras.
+            Para depositar USDT o USDC, vas a la sección de "billetera", y si no tienes una, la puedes crear con un solo click. Tu billetera tiene una direccion única, puedes copiarla para transferir saldo desde otras billeteras.
             Alguna de las apps o plataformas mas populares para comprar USDT son Binance, Belo, Bitso, Ripio, Lemon, Arq, entre otros. 
           </p>
           <p>
-            Recuerda que por el momento sólo estamos trabajando con la red BSC (Binance Smart Chain), por lo que debes asegurarte de enviar USDT a tu billetera desde la misma red. En caso de enviar desde otra red, los fondos se perderán y no podremos recuperarlos.
+            Actualmente podes recibir pagos en USDT o USDC, en las redes BSC, Polygon y Base. Asegurate de enviar el token correcto en la red correcta, de lo contrario perderás los fondos.
           </p>        
         </>
       ),
@@ -105,12 +105,14 @@ export default function HelpSeller() {
       ),
     },
     {
-      question: "No tengo saldo en garantía, ¿puedo vender igual?",
+      question: "¿Si no tengo saldo en garantía, puedo vender igual?",
       icon: Wallet,
       content: (
         <p>
           Si, tus productos son visibles y los compradores pueden generar ordenes. La diferencia es que se te otorgan 15 minutos para depositar el saldo en garantía o la orden expira automaticamente.
           El comprador tambien puede decidir cancelar la orden si no quiere esperar, sin ser penalizado. Si te ingresan varias ordenes y no depositas el colateral, tu reputación se verá afectada y podés ser suspendido de la plataforma por no poder cumplir la demanda de los compradores.
+        <br /> 
+        Por eso recomendamos siempre tener saldo disponible para cubrir las ordenes que ingresan, asi no perdés ventas y evitás ser suspendido de la plataforma. 
         </p>
       ),
     },

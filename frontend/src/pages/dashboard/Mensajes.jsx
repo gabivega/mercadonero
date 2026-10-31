@@ -73,6 +73,16 @@ export default function Mensajes() {
     (c) => c._id === activeConversationId,
   );
 
+  // Si abrimos una conversación por id (ej. desde una notificación) que todavía
+  // no está en la lista cargada, no queremos mostrar "seleccioná una
+  // conversación". Construimos una conversación mínima con lo que tengamos para
+  // poder renderizar el hilo igual.
+  const activeConversationData =
+    activeConversation ||
+    (activeConversationId
+      ? { _id: activeConversationId, kind: "order_chat", participants: [] }
+      : null);
+
   // Determina el otro participante (el que no soy yo)
   const otherParticipant = (conversation) =>
     conversation?.participants?.find((p) => p._id !== meId) || null;
@@ -221,7 +231,7 @@ export default function Mensajes() {
 
           {/* HILO DE MENSAJES */}
           <div className="md:col-span-8 flex flex-col">
-            {!activeConversation ? (
+            {!activeConversationData ? (
               <div className="flex-1 flex flex-col items-center justify-center p-10 text-center">
                 <MessageSquare className="mb-3 text-gray-300 dark:text-gray-600" size={48} />
                 <p className="text-gray-400 text-sm">
@@ -239,14 +249,14 @@ export default function Mensajes() {
                     <ChevronLeft size={20} />
                   </button>
                   <div className="w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center overflow-hidden flex-shrink-0">
-                    {(activeConversation.kind !== "product_question"
-                      ? activeConversation.order?.image
-                      : activeConversation.product?.image) || activeOther?.avatar ? (
+                    {(activeConversationData.kind !== "product_question"
+                      ? activeConversationData.order?.image
+                      : activeConversationData.product?.image) || activeOther?.avatar ? (
                       <img
                         src={
-                          (activeConversation.kind !== "product_question"
-                            ? activeConversation.order?.image
-                            : activeConversation.product?.image) || activeOther?.avatar
+                          (activeConversationData.kind !== "product_question"
+                            ? activeConversationData.order?.image
+                            : activeConversationData.product?.image) || activeOther?.avatar
                         }
                         className="w-full h-full object-cover"
                         alt=""
@@ -257,18 +267,18 @@ export default function Mensajes() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">
-                      {activeConversation.kind === "product_question"
-                        ? activeConversation.product?.name
-                        : activeConversation.order?.title ||
+                      {activeConversationData.kind === "product_question"
+                        ? activeConversationData.product?.name
+                        : activeConversationData.order?.title ||
                           activeOther?.name ||
                           activeOther?.username ||
                           "Usuario"}
                     </p>
                     <p className="text-[11px] text-gray-400">
-                      {activeConversation.kind === "product_question"
+                      {activeConversationData.kind === "product_question"
                         ? "Pregunta pública"
-                        : activeConversation.order?.code
-                          ? `Compra/venta activa · Orden #${activeConversation.order.code}`
+                        : activeConversationData.order?.code
+                          ? `Compra/venta activa · Orden #${activeConversationData.order.code}`
                           : "Compra/venta activa"}
                     </p>
                   </div>
@@ -285,8 +295,8 @@ export default function Mensajes() {
                     </div>
                   )}
 
-                  {activeConversation.kind === "product_question" &&
-                    !activeConversation.answered && (
+                  {activeConversationData.kind === "product_question" &&
+                    !activeConversationData.answered && (
                       <div className="text-[11px] text-center text-gray-400 text-amber-600 dark:text-amber-400">
                         Pregunta pública: el vendedor puede responderla desde la publicación.
                       </div>

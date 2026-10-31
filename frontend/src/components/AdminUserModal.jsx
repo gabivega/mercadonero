@@ -12,8 +12,11 @@ import {
   Hash,
   CreditCard,
   Clock,
+  ShieldAlert,
+  Loader2,
 } from 'lucide-react';
 import axios from 'axios';
+import Swal from 'sweetalert2';
 import { usePrivy } from "../Utils/authClient";
 import LoadingSpinner from './LoadingSpinner';
 
@@ -21,11 +24,12 @@ import LoadingSpinner from './LoadingSpinner';
  * Modal de detalle de un usuario del panel de admin.
  * Carga la info completa desde el backend y deja espacio para acciones de moderación.
  */
-const AdminUserModal = ({ user, isOpen, onClose }) => {
+const AdminUserModal = ({ user, isOpen, onClose, onStatusChange }) => {
   const { getAccessToken } = usePrivy();
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [statusLoading, setStatusLoading] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !user?._id) {
@@ -56,6 +60,69 @@ const AdminUserModal = ({ user, isOpen, onClose }) => {
   if (!isOpen || !user) return null;
 
   const data = detail || user;
+  const isSuspended = data.accountStatus === 'suspended';
+
+  // Suspender / Reactivar la cuenta.
+  const handleToggleStatus = async () => {
+    const suspend = !isSuspended;
+
+    // Motivo obligatorio al suspender (prompt).
+    let reason = '';
+    if (suspend) {
+      const res = await Swal.fire({
+        title: 'Suspender cuenta',
+        input: 'textarea',
+        inputLabel: 'Motivo de la suspensión (obligatorio)',
+        inputPlaceholder: 'Ej: incumplimiento de entrega, fraude, etc.',
+        showCancelButton: true,
+        confirmButtonText: 'Suspender',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#e11d48',
+        inputValidator: (v) => (!v || !v.trim() ? 'Ingresá un motivo.' : null),
+      });
+      if (!res.isConfirmed) return;
+      reason = res.value.trim();
+    } else {
+      const res = await Swal.fire({
+        title: 'Reactivar cuenta',
+        text: 'La cuenta volverá a estar operativa. Sus publicaciones seguirán pausadas hasta que el vendedor las reactive.',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Reactivar',
+        cancelButtonText: 'Cancelar',
+      });
+      if (!res.isConfirmed) return;
+    }
+
+    try {
+      setStatusLoading(true);
+      const token = await getAccessToken();
+      const res = await axios.patch(
+        `${import.meta.env.VITE_SERVER_URL}/api/admin/users/${data._id}/status`,
+        { status: suspend ? 'suspended' : 'active', reason },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      // Refrescamos el detalle con el nuevo estado.
+      setDetail((prev) => ({ ...(prev || data), accountStatus: res.data?.user?.accountStatus }));
+      // Refrescamos la tabla de usuarios para reflejar el nuevo estado.
+      if (onStatusChange) onStatusChange();
+      Swal.fire({
+        icon: 'success',
+        title: res.data?.message || 'Estado actualizado',
+        timer: 1800,
+        showConfirmButton: false,
+      });
+    } catch (err) {
+      console.error(err);
+      Swal.fire({
+        icon: 'error',
+        title: 'No se pudo actualizar',
+        text: err?.response?.data?.message || 'Intentá de nuevo.',
+      });
+    } finally {
+      setStatusLoading(false);
+    }
+  };
 
   const InfoItem = ({ icon: Icon, label, value, mono }) => (
     <div className="flex items-start gap-3 p-3 bg-zinc-50 dark:bg-zinc-800/40 rounded-2xl">
@@ -109,6 +176,19 @@ const AdminUserModal = ({ user, isOpen, onClose }) => {
 
           {!loading && (
             <>
+              {/* Estado de la cuenta (suspendida) */}
+              {isSuspended && (
+                <div className="p-4 rounded-2xl bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400 text-sm font-bold flex items-start gap-2">
+                  <ShieldAlert size={18} className="mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p>Cuenta SUSPENDIDA</p>
+                    {data.accountStatusReason && (
+                      <p className="font-normal text-xs mt-1">Motivo: {data.accountStatusReason}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Métricas */}
               <div className="grid grid-cols-3 gap-4">
                 <div className="p-4 bg-[#F26722]/10 rounded-3xl text-center">
@@ -223,11 +303,28 @@ const AdminUserModal = ({ user, isOpen, onClose }) => {
           )}
         </div>
 
-        {/* FOOTER ACCIONES (listo para moderación) */}
+        {/* FOOTER ACCIONES */}
         <div className="p-6 bg-zinc-50 dark:bg-zinc-800/30 border-t border-zinc-100 dark:border-zinc-800 flex flex-wrap gap-3">
-          <p className="text-[11px] text-zinc-400 self-center">
-            Acciones de moderación próximamente.
-          </p>
+          {data.role !== 'admin' && (
+            <button
+              onClick={handleToggleStatus}
+              disabled={statusLoading || loading}
+              className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-bold text-xs transition-colors disabled:opacity-50 ${
+                isSuspended
+                  ? 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20'
+                  : 'bg-rose-500/10 text-rose-600 hover:bg-rose-500/20'
+              }`}
+            >
+              {statusLoading ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : isSuspended ? (
+                <ShieldCheck size={16} />
+              ) : (
+                <ShieldAlert size={16} />
+              )}
+              {isSuspended ? 'Reactivar cuenta' : 'Suspender cuenta'}
+            </button>
+          )}
           <button
             onClick={onClose}
             className="ml-auto px-5 py-3 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-2xl font-bold text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"

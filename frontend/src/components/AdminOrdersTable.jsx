@@ -220,6 +220,86 @@ const handleOpenModal = (order) => {
       return;
     }
 
+    if (action === 'open_dispute') {
+      // El admin cataloga la orden como "en disputa". NO cambia el estado ni
+      // mueve fondos: solo marca dispute.exists y avisa a ambas partes.
+      const { value: description } = await Swal.fire({
+        title: `<span class="font-black uppercase italic">Abrir disputa</span>`,
+        input: 'textarea',
+        inputLabel: 'Motivo / detalle de la disputa (opcional)',
+        inputPlaceholder: 'Ej: el comprador reportó que el producto llegó dañado...',
+        inputAttributes: { maxlength: 2000 },
+        showCancelButton: true,
+        confirmButtonColor: '#F26722',
+        cancelButtonColor: '#18181b',
+        confirmButtonText: 'ABRIR DISPUTA',
+        cancelButtonText: 'CANCELAR',
+        ...confirmTheme,
+      });
+      if (!description && description !== '') return; // canceló
+      try {
+        await axios.patch(
+          `${import.meta.env.VITE_SERVER_URL}/api/admin/orders/${orderId}/open-dispute`,
+          { issueType: 'admin_manual', description: description || '' },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        await okMsg('DISPUTA ABIERTA', 'La orden quedó marcada como en disputa y se notificó a ambas partes.');
+        setSelectedOrder(null);
+        setIsModalOpen(false);
+        await refreshOrders(token);
+      } catch (err) {
+        await errMsg(err?.response?.data?.message || 'No se pudo abrir la disputa.');
+      }
+      return;
+    }
+
+    if (action === 'close_dispute_buyer' || action === 'close_dispute_seller') {
+      // Cerrar la disputa a favor de una de las partes. Solo registra la
+      // resolución: el admin mueve fondos/estado con los botones de
+      // reembolso/completar/liberar según corresponda.
+      const favorBuyer = action === 'close_dispute_buyer';
+      const c = await askConfirm(
+        favorBuyer ? '¿Resolver a favor del COMPRADOR?' : '¿Resolver a favor del VENDEDOR?',
+        favorBuyer
+          ? 'Se cierra la disputa a favor del comprador. Después usá "Reembolsar Comprador" para devolverle el dinero.'
+          : 'Se cierra la disputa a favor del vendedor. Después usá "Completar Orden" o "Liberar Garantía" para mover los fondos.',
+        favorBuyer ? 'SÍ, A FAVOR DEL COMPRADOR' : 'SÍ, A FAVOR DEL VENDEDOR',
+      );
+      if (!c.isConfirmed) return;
+      const { value: note } = await Swal.fire({
+        title: 'Nota de resolución (opcional)',
+        input: 'textarea',
+        inputPlaceholder: 'Detalle de la resolución...',
+        inputAttributes: { maxlength: 2000 },
+        showCancelButton: true,
+        confirmButtonColor: '#F26722',
+        cancelButtonColor: '#18181b',
+        confirmButtonText: 'GUARDAR Y CERRAR',
+        cancelButtonText: 'CANCELAR',
+        ...confirmTheme,
+      });
+      if (note === undefined) return; // canceló
+      try {
+        await axios.patch(
+          `${import.meta.env.VITE_SERVER_URL}/api/admin/orders/${orderId}/close-dispute`,
+          { favor: favorBuyer ? 'buyer' : 'seller', note: note || '' },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        await okMsg(
+          'DISPUTA CERRADA',
+          favorBuyer
+            ? 'Resuelta a favor del comprador. Ahora reembolsá al comprador.'
+            : 'Resuelta a favor del vendedor. Ahora completá/liberá la orden.',
+        );
+        setSelectedOrder(null);
+        setIsModalOpen(false);
+        await refreshOrders(token);
+      } catch (err) {
+        await errMsg(err?.response?.data?.message || 'No se pudo cerrar la disputa.');
+      }
+      return;
+    }
+
     if (action === 'check_collateral') {
       // Consulta el estado real del colateral on-chain para discernir entre:
       //  - lock activo (está congelado de verdad) → toca liberar

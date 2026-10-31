@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { allCategories } from "../data/allCategories.js";
 import axios from "axios";
+import { getUsdRate } from "../Utils/cashbackUtils";
 import { usePrivy } from "../Utils/authClient";
 import {
   Package,
@@ -103,6 +104,20 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
   // Referidos). Se muestra de forma visible para que el vendedor NO active
   // combinaciones que rompen el modelo de negocio.
   const [exclusionError, setExclusionError] = useState("");
+
+  // Cotización ARS→USDT (misma fuente cacheada que el cashback). La usamos en
+  // el preview de referidos: la recompensa real es SIEMPRE en USDT, así que
+  // mostramos el monto en USD (y el ARS como referencia secundaria).
+  const [usdRate, setUsdRate] = useState(null);
+  useEffect(() => {
+    let active = true;
+    getUsdRate()
+      .then((rate) => active && setUsdRate(rate))
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // ── PUNTOS DE RETIRO DEL VENDEDOR ──
   // Se traen del perfil del vendedor logueado para que pueda elegir cuáles
@@ -360,20 +375,27 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
     !product.referral?.enabled ||
     (referralPercent > 0 && referralPercent <= REFERRAL_MAX_PERCENT);
 
-  // ── PREVIEW EN VIVO DEL REFERIDO (mientras se ajusta el %) ──
+    // ── PREVIEW EN VIVO DEL REFERIDO (mientras se ajusta el %) ──
   // Calculamos sobre el precio EFECTIVO en ARS (oferta si está activa, si no
-  // el precio normal). Sirve para que el vendedor vea, sin scrollear, cuánto
-  // "pierde" de su margen al mover el % (los márgenes suelen ser ajustados).
+  // el precio normal). La recompensa REAL se acredita en USDT: la mostramos
+  // en USD (fuente de verdad) y, si tenemos cotización, el ARS como referencia.
   const referralBasePriceArs = Number(
     product.sale?.price && Number(product.sale.price) > 0
       ? product.sale.price
       : product.price,
   ) || 0;
+  const hasUsdRate = Number(usdRate) > 0;
+  // Base en USD (precio / cotización). 0 si no hay cotización aún.
+  const referralBasePriceUsd = hasUsdRate ? referralBasePriceArs / usdRate : 0;
   // Monto total que se reparte (equivale al % ofrecido sobre el precio).
-  const referralTotalRewardArs =
-    referralBasePriceArs * (referralPercent / 100);
+  const referralTotalRewardUsd = referralBasePriceUsd * (referralPercent / 100);
   // Reparto 50/50: mitad referidor, mitad comprador.
-  const referralEachArs = referralTotalRewardArs / 2;
+  const referralEachUsd = referralTotalRewardUsd / 2;
+  // Equivalente en ARS (referencia) del total/reparto.
+  const referralTotalRewardArs = referralTotalRewardUsd * (usdRate || 0);
+  const referralEachArs = referralEachUsd * (usdRate || 0);
+  // Gramaje/formato en USD.
+  const usd = (n) => `US$ ${Number(n).toFixed(2)}`;
 
   // Validaciones de negocio para el bloque de social selling.
   const socialSellingErrors = (() => {
@@ -1391,16 +1413,20 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                 )}
               </div>
 
-                            {/* ── PREVIEW EN VIVO (dinero real, sin scrollear) ──
-                  Muestra, en el momento, cuánto representa el % de recompensa
-                  sobre el precio cargado, y cómo se reparte 50/50. Ayuda a
-                  decidir con márgenes ajustados sin sacar la calculadora. */}
+                                                        {/* ── PREVIEW EN VIVO (dinero real, sin scrollear) ──
+                  La recompensa se acredita SIEMPRE en USDT. Mostramos el monto
+                  en USD (fuente de verdad) y el ARS como referencia. */}
               {referralBasePriceArs > 0 && referralPercent > 0 && (
                 <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-3">
                   <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
                     <span>Precio sobre el que se calcula</span>
                     <span className="font-bold text-gray-700 dark:text-gray-200">
                       ${formatMoney(referralBasePriceArs)}
+                      {hasUsdRate && (
+                        <span className="ml-1 text-gray-400 font-normal">
+                          ({usd(referralBasePriceUsd)})
+                        </span>
+                      )}
                       {product.sale?.price > 0 && (
                         <span className="ml-1.5 text-[10px] font-black uppercase text-amber-500">
                           oferta
@@ -1414,7 +1440,12 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                       Reintegro total ({referralPercent}%)
                     </span>
                     <span className="text-base font-black text-emerald-600 dark:text-emerald-400">
-                      ${formatMoney(Math.round(referralTotalRewardArs))}
+                      {hasUsdRate ? usd(referralTotalRewardUsd) : "—"}
+                      {hasUsdRate && (
+                        <span className="ml-1.5 text-[11px] font-normal text-gray-400">
+                          ≈ ${formatMoney(Math.round(referralTotalRewardArs))}
+                        </span>
+                      )}
                     </span>
                   </div>
 
@@ -1424,25 +1455,42 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                         Para quien comparte
                       </p>
                       <p className="text-sm font-black text-emerald-500">
-                        ${formatMoney(Math.round(referralEachArs))}
+                        {hasUsdRate ? usd(referralEachUsd) : "—"}
                       </p>
+                      {hasUsdRate && (
+                        <p className="text-[10px] text-gray-400">
+                          ≈ ${formatMoney(Math.round(referralEachArs))}
+                        </p>
+                      )}
                     </div>
                     <div className="p-3 rounded-xl bg-white dark:bg-[#252525] border border-gray-100 dark:border-gray-800">
                       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
                         Para el comprador
                       </p>
                       <p className="text-sm font-black text-emerald-500">
-                        ${formatMoney(Math.round(referralEachArs))}
+                        {hasUsdRate ? usd(referralEachUsd) : "—"}
                       </p>
+                      {hasUsdRate && (
+                        <p className="text-[10px] text-gray-400">
+                          ≈ ${formatMoney(Math.round(referralEachArs))}
+                        </p>
+                      )}
                     </div>
                   </div>
 
                   <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
-                    De cada venta, <b>${formatMoney(Math.round(referralTotalRewardArs))}</b>{" "}
-                    salen de tu margen y se reparten 50/50. Se descuenta de tu
-                    garantía (colateral) al liberarse la orden.
+                    De cada venta,{" "}
+                    <b>{hasUsdRate ? usd(referralTotalRewardUsd) : "ese %"}</b>{" "}
+                    salen de tu margen y se reparten 50/50 en USDT. Se descuenta
+                    de tu garantía (colateral) al liberarse la orden.
                   </p>
                 </div>
+              )}
+
+              {!hasUsdRate && referralBasePriceArs > 0 && referralPercent > 0 && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                  Calculando cotización del dólar para mostrar el monto en USDT…
+                </p>
               )}
 
               {referralBasePriceArs === 0 && referralPercent > 0 && (

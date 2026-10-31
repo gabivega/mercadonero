@@ -347,6 +347,85 @@ export async function cancelOrderEscrow(orderId, chainId = ESCROW_DEFAULT_CHAIN_
 }
 
 /**
+ * ACCIÓN ADMIN: SETTLE FLEXIBLE del escrow (poder absoluto del admin).
+ *
+ * Cierra la orden repartiendo el monto retenido entre vendedor, feeWallet y
+ * comprador (refund) según montos explícitos. Regla de integridad on-chain:
+ *   sellerAmount + feeAmount + refundAmount === amount (en unidades comunes).
+ *
+ * Los montos se reciben en UNIDADES HUMANAS (USD-equivalentes) y se convierten
+ * a la unidad común de la red con parseEscrowAmount(). El refund SIEMPRE va al
+ * buyer y el fee SIEMPRE a la feeWallet (el contrato lo garantiza).
+ */
+export async function settleOrderEscrow(
+  orderId,
+  { sellerAmount, feeAmount, refundAmount },
+  chainId = ESCROW_DEFAULT_CHAIN_ID,
+) {
+  try {
+    const { contract } = getRuntime(chainId);
+    console.log(
+      "[Escrow] Solicitando SETTLE de la Orden: " + orderId + " (chain " + chainId + ") " +
+        "seller=" + sellerAmount + " fee=" + feeAmount + " refund=" + refundAmount + "...",
+    );
+
+    const escrow = await getEscrow(orderId, chainId);
+    if (!escrow.success) {
+      return { success: false, error: escrow.error };
+    }
+    if (!escrow.deposited) {
+      return { success: false, error: "La orden no está fondeada en el contrato." };
+    }
+    if (escrow.released) {
+      return {
+        success: true,
+        alreadySettled: true,
+        message: "La orden ya estaba cerrada on-chain.",
+      };
+    }
+
+    const sellerUnits = parseEscrowAmount(sellerAmount, chainId);
+    const feeUnits = parseEscrowAmount(feeAmount, chainId);
+    const refundUnits = parseEscrowAmount(refundAmount, chainId);
+    const totalUnits = sellerUnits + feeUnits + refundUnits;
+
+    if (totalUnits !== escrow.amountUnits) {
+      const cfg = getEscrowChainConfig(chainId);
+      return {
+        success: false,
+        error:
+          "La suma (seller+fee+refund=" + ethers.formatUnits(totalUnits, getCommonDecimals(cfg)) + ") " +
+          "no coincide con el monto retenido on-chain (" + escrow.amount + ").",
+      };
+    }
+
+    const tx = await contract.settle(orderId, sellerUnits, feeUnits, refundUnits);
+    console.log("[Escrow] Tx de settle enviada: " + tx.hash);
+    const receipt = await tx.wait();
+    console.log("[Escrow] Settle confirmado en bloque: " + receipt.blockNumber);
+
+    const verification = await verifyOrderClosed(orderId, chainId);
+    if (!verification.success || !verification.closed) {
+      console.warn(
+        "[Escrow] La tx " + tx.hash + " se minó pero la orden " + orderId + " SIGUE abierta on-chain.",
+      );
+      return {
+        success: false,
+        txHash: tx.hash,
+        error:
+          "La transacción se minó pero el escrow sigue abierto on-chain. No se registra el settle; se requiere intervención manual.",
+        verifiedSettled: false,
+      };
+    }
+
+    return { success: true, txHash: tx.hash, verifiedSettled: true };
+  } catch (error) {
+    console.error("[Escrow Error] Fallo al hacer settle del escrow:", error.reason || error.message);
+    return { success: false, error: error.reason || error.message };
+  }
+}
+
+/**
  * ACCIÓN ADMIN: ACTUALIZAR EL FEE GLOBAL DEL CONTRATO (puntos base) en una red.
  */
 export async function setEscrowFeeBps(newFeeBps, chainId = ESCROW_DEFAULT_CHAIN_ID) {

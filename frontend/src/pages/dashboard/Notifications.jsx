@@ -73,14 +73,30 @@ export default function Notifications() {
     fetchNotifications();
   }, [fetchNotifications]);
 
-  const handleClick = async (notification) => {
+      const handleClick = async (notification) => {
     if (!notification.read) {
       await markAsRead(notification._id);
+    }
+    // Chats / preguntas: la notificación trae el id de la conversación.
+    if (notification.data?.conversationId) {
+      navigate(`/mensajes?c=${notification.data.conversationId}`);
+      return;
     }
     // Si la notificación está vinculada a una orden, navegamos a su detalle.
     if (notification.data?.orderId) {
       navigate(`/order/${notification.data.orderId}`);
     }
+  };
+
+  // Destino y texto del CTA según el tipo de notificación.
+  const getNotificationTarget = (notification) => {
+    if (notification.data?.conversationId) {
+      return { href: `/mensajes?c=${notification.data.conversationId}`, label: "Ver chat" };
+    }
+    if (notification.data?.orderId) {
+      return { href: `/order/${notification.data.orderId}`, label: "Ver orden" };
+    }
+    return null;
   };
 
   return (
@@ -119,9 +135,10 @@ export default function Notifications() {
         </div>
       ) : (
         <div className="grid gap-3">
-          {notifications.map((notification) => {
+                    {notifications.map((notification) => {
             const meta = getTypeMeta(notification.type);
             const Icon = meta.icon;
+            const target = getNotificationTarget(notification);
             return (
               <button
                 key={notification._id}
@@ -149,15 +166,15 @@ export default function Notifications() {
                                         <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
                       {notification.message}
                     </p>
-                    {notification.data?.orderId && (
+                                        {target && (
                       <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#F26722] mt-2">
-                        Ver orden
+                        {target.label}
                         <ChevronRight size={14} />
                       </span>
                     )}
                   </div>
 
-                  {notification.data?.orderId && (
+                  {target && (
                     <ChevronRight className="shrink-0 text-zinc-300 group-hover:text-[#F26722] group-hover:translate-x-0.5 transition-all mt-1" size={18} />
                   )}
                 </div>

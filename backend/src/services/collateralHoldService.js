@@ -22,6 +22,8 @@ import User from "../models/User.js";
 import { lockVendorCollateral, getVendorCollateral } from "./blockchainServices.js";
 import { DEFAULT_CHAIN_ID } from "../config/chains.js";
 import { transitionToStatus } from "./orderHelpers.js";
+import { createNotification } from "./notificationService.js";
+import { sendOrderCancelledToBuyer } from "./sendEmail.js";
 
 // ─────────────────────────────────────────────────────────────
 // CONFIGURACIÓN / POLÍTICA (parametrizable)
@@ -315,6 +317,12 @@ export async function resolveCollateralHold(orderId) {
  * deposite). Registra la penalización en el accounting del vendedor.
  */
 export async function expireCollateralHold(order, { penalize = true } = {}) {
+  // El documento puede llegar con seller/buyer POPULADOS (objetos) desde
+  // getOrderById/getMyOrders, o como ObjectId crudo desde el cron. Normalizamos
+  // a ObjectId para que findById/notificaciones funcionen en ambos casos.
+  const sellerId = order.seller?._id || order.seller;
+  const buyerId = order.buyer?._id || order.buyer;
+
   order.collateralHold.status = "expired";
   order.collateralHold.expiredAt = new Date();
 
@@ -328,10 +336,71 @@ export async function expireCollateralHold(order, { penalize = true } = {}) {
     // El vendedor "venció" la oportunidad de cubrir su garantía. Esto alimenta
     // el futuro sistema de reputación/cobertura y disciplina a quien no puede
     // cumplir la demanda. (No se penaliza al comprador, que no cometió falta).
-    await User.findByIdAndUpdate(order.seller, {
+    await User.findByIdAndUpdate(sellerId, {
       $inc: { "accounting.expiredCollateralHolds": 1 },
     });
   }
 
+  // Avisamos al COMPRADOR que la espera terminó (la orden venció sin depósito).
+  // Sin esta notificación el comprador quedaba viendo "En espera de garantía"
+  // sin saber que el plazo ya había vencido.
+  const shortId = order._id.toString().slice(-6).toUpperCase();
+  createNotification({
+    recipient: buyerId,
+    type: "order_expired",
+    title: "La espera de garantía venció",
+    message: `El vendedor no depositó la garantía a tiempo y la orden #${shortId} expiró. Podés buscar este producto en otro vendedor.`,
+    data: { orderId: order._id },
+  }).catch((err) => console.error("Falló notif de expiración al comprador:", err));
+
+  // Email opcional al comprador (reusa el template de cancelación, sin reembolso).
+  try {
+    const buyer = await User.findById(buyerId);
+    if (buyer?.email) {
+      sendOrderCancelledToBuyer({
+        buyerEmail: buyer.email,
+        orderId: order._id,
+        amount: order.totalAmount,
+        withRefund: false,
+      }).catch(() => {});
+    }
+  } catch (mailErr) {
+    console.error("Falló email de expiración al comprador:", mailErr?.message || mailErr);
+  }
+
   return { success: true, order };
+}
+
+/**
+ * EXPIRACIÓN "LAZY": expira un hold vencido si corresponde, en el momento en
+ * que se consulta la orden (lectura). Idempotente y silenciosa: si el hold ya
+ * fue resuelto, expirado o no está vencido, no hace nada.
+ *
+ * Sirve como red de seguridad para que el estado se corrija aunque el cron
+ * (ENABLE_ORDER_CLEANUP_CRON) no esté corriendo (p. ej. en dev o si el server
+ * de cron está caído). Devuelve true si efectivamente expiró la orden.
+ *
+ * @param {import("mongoose").Document} order Documento de orden (se mutará si expira).
+ * @returns {Promise<boolean>}
+ */
+export async function expireCollateralHoldIfDue(order) {
+  try {
+    if (
+      !order ||
+      order.status !== "awaiting_collateral" ||
+      order.collateralHold?.status !== "pending" ||
+      !order.collateralHold?.expiresAt ||
+      new Date(order.collateralHold.expiresAt) >= new Date()
+    ) {
+      return false;
+    }
+    await expireCollateralHold(order);
+    return true;
+  } catch (err) {
+    console.error(
+      `[expireCollateralHoldIfDue] Falló para la orden ${order?._id}:`,
+      err?.message || err,
+    );
+    return false;
+  }
 }

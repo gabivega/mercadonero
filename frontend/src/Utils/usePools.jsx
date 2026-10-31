@@ -105,12 +105,15 @@ export const usePools = () => {
 
   /**
    * Crea un pool para un producto. Requiere sesión.
+   * Devuelve `{ pool, order }`: la orden crypto PROVISIONAL del creador, que
+   * el front usa para abrir `CryptoPaymentModal` y fondear el escrow.
    * @param {string} productId
    * @param {number} [units]  cantidad de unidades que pide el creador
-   * @returns {Promise<object>} el pool creado (lanza si falla).
+   * @param {number} [chainId] red del escrow (Polygon Amoy / Base Sepolia)
+   * @returns {Promise<{ pool: object, order: object }>} (lanza si falla).
    */
   const createPool = useCallback(
-    async (productId, units = 1) => {
+    async (productId, units = 1, chainId) => {
       if (!ready || !authenticated) {
         throw new Error("Necesitás iniciar sesión para crear un grupo.");
       }
@@ -118,19 +121,15 @@ export const usePools = () => {
       try {
         const { data } = await axios.post(
           `${BASE}/create`,
-          { productId, units },
+          { productId, units, ...(chainId ? { chainId } : {}) },
           { headers },
         );
-        return data.pool;
+        return { pool: data.pool, order: data.order };
       } catch (e) {
         const msg = e?.response?.data?.message || "No se pudo crear el grupo";
         setError(msg);
         const err = new Error(msg);
         err.needsWallet = !!e?.response?.data?.needsWallet;
-        // Saldo insuficiente: el backend NO creó nada (validación previa).
-        err.insufficientUsdt = !!e?.response?.data?.insufficientUsdt;
-        err.required = e?.response?.data?.required;
-        err.balance = e?.response?.data?.balance;
         throw err;
       }
     },
@@ -139,12 +138,14 @@ export const usePools = () => {
 
   /**
    * Une al usuario logueado a un pool. Requiere sesión.
+   * Devuelve `{ pool, order }`: la orden crypto PROVISIONAL del nuevo member.
    * @param {string} poolId
    * @param {number} [units]  cantidad de unidades a sumar
-   * @returns {Promise<object>} el pool actualizado.
+   * @param {number} [chainId] red del escrow (Polygon Amoy / Base Sepolia)
+   * @returns {Promise<{ pool: object, order: object }>}
    */
   const joinPool = useCallback(
-    async (poolId, units = 1) => {
+    async (poolId, units = 1, chainId) => {
       if (!ready || !authenticated) {
         throw new Error("Necesitás iniciar sesión para unirte a un grupo.");
       }
@@ -152,10 +153,10 @@ export const usePools = () => {
       try {
         const { data } = await axios.post(
           `${BASE}/${poolId}/join`,
-          { units },
+          { units, ...(chainId ? { chainId } : {}) },
           { headers },
         );
-        return data.pool;
+        return { pool: data.pool, order: data.order };
       } catch (e) {
         const msg = e?.response?.data?.message || "No se pudo unir al grupo";
         setError(msg);
@@ -383,6 +384,64 @@ export const usePools = () => {
     [getAuthHeaders],
   );
 
+  /**
+   * Crea una ORDEN crypto normal marcada como compra grupal. NO crea el Pool:
+   * el backend materializa el grupo recién cuando el escrow se fondea on-chain.
+   *
+   * Es el mismo endpoint que una compra crypto común (/api/order/create), pero
+   * con `groupBuy` en el body:
+   *   - crear grupo: groupBuy = { createPool: { productId, units } }
+   *   - unirse:      groupBuy = { joinPoolId }
+   *
+   * Devuelve la orden para abrir el CryptoPaymentModal (igual que el checkout).
+   *
+   * @param {object} args
+   * @param {object} [args.createPool]  { productId, units }
+   * @param {string} [args.joinPoolId]
+   * @param {number} [args.units]
+   * @param {string} args.sellerId
+   * @param {string} [args.token]       token elegido (USDT/USDC/USDXM/...)
+   * @param {number} [args.chainId]
+   * @returns {Promise<{ order: object }>}
+   */
+  const createGroupOrder = useCallback(
+    async ({ createPool, joinPoolId, units = 1, sellerId, token, chainId, shippingAddress }) => {
+      if (!ready || !authenticated) {
+        throw new Error("Necesitás iniciar sesión para participar de un grupo.");
+      }
+      const headers = await getAuthHeaders();
+      const groupBuy = createPool
+        ? { createPool: { productId: createPool.productId, units }, units }
+        : { joinPoolId, units };
+
+      const productId = createPool?.productId;
+      try {
+        const { data } = await axios.post(
+          `${import.meta.env.VITE_SERVER_URL}/api/order/create`,
+          {
+            sellerId,
+            items: [{ productId, quantity: units }],
+            shippingAddress: shippingAddress || {},
+            paymentMethod: "crypto",
+            token,
+            chainId,
+            deliveryMethod: "pickup", // el grupo no define envío aún; pickup = $0
+            groupBuy,
+          },
+          { headers },
+        );
+        return { order: data.order, sellerWallet: data.sellerWallet, escrowContract: data.escrowContract };
+      } catch (e) {
+        const msg = e?.response?.data?.message || "No se pudo iniciar el pago del grupo";
+        setError(msg);
+        const err = new Error(msg);
+        err.needsWallet = !!e?.response?.data?.needsWallet;
+        throw err;
+      }
+    },
+    [ready, authenticated, getAuthHeaders],
+  );
+
   return {
     loading,
     error,
@@ -392,6 +451,7 @@ export const usePools = () => {
     fetchActivePools,
     fetchSellerPools,
     fetchMyPools,
+    createGroupOrder,
     createPool,
     joinPool,
     leavePool,

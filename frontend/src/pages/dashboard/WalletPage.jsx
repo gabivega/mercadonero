@@ -13,6 +13,7 @@ import LoadingSpinner from '../../components/LoadingSpinner';
 import { useUserStore } from '../../store/useUserStore';
 import { useSyncUser } from '../../Utils/userSync';
 import { ensureUserWallet, sendToken, activateForChains, APP_EVM_CHAINS, isDeviceActivatedForAll } from '../../Utils/crossmintWallet';
+import { isJwtExpiredError, handleUnauthorized } from '../../Utils/axiosAuth';
 
 /**
  * Redes soportadas por la billetera, agrupadas por red.
@@ -33,6 +34,21 @@ const RPC_BY_CHAIN = {
   [baseSepolia.id]: 'https://sepolia.base.org',
 };
 
+/**
+ * Solo mostramos STABLECOINS. La plataforma absorbe el gas de todas las
+ * transacciones (paymaster), así que el usuario NO necesita ni debe depositar
+ * la moneda nativa de la red. Mostrar saldos de POL/tBNB/ETH solo generaba
+ * confusión ("no tengo gas, ¿puedo operar?"), así que se ocultaron.
+ *
+ * Tokens vigentes (uno por red):
+ *   · USDC  → Polygon (testnet hoy usa USDXM; migraremos a USDC)
+ *   · USDT  → BSC
+ *   · USDC  → Base
+ *
+ * Si en el futuro se necesitara volver a exponer el saldo nativo, alcanza con
+ * reincorporar el token con `native: true` (la lógica de lectura/envío ya lo
+ * soporta). Lo dejamos documentado abajo.
+ */
 const WALLET_NETWORKS = [
   {
     chainId: polygonAmoy.id,
@@ -48,13 +64,7 @@ const WALLET_NETWORKS = [
         decimals: 6,
         locator: 'usdxm',
       },
-      {
-        symbol: 'POL',
-        name: 'Polygon (Testnet)',
-        address: null,
-        native: true,
-        decimals: 18,
-      },
+      // { symbol: 'POL', name: 'Polygon (Testnet)', address: null, native: true, decimals: 18 },
     ],
   },
   {
@@ -70,13 +80,7 @@ const WALLET_NETWORKS = [
         address: '0x337610d27c682E347C9cD60BD4b3b107C9d34dDd',
         decimals: 18,
       },
-      {
-        symbol: 'tBNB',
-        name: 'BNB (Testnet)',
-        address: null,
-        native: true,
-        decimals: 18,
-      },
+      // { symbol: 'tBNB', name: 'BNB (Testnet)', address: null, native: true, decimals: 18 },
     ],
   },
   {
@@ -92,13 +96,7 @@ const WALLET_NETWORKS = [
         address: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
         decimals: 6,
       },
-      {
-        symbol: 'ETH',
-        name: 'Ethereum (Base Sepolia)',
-        address: null,
-        native: true,
-        decimals: 18,
-      },
+      // { symbol: 'ETH', name: 'Ethereum (Base Sepolia)', address: null, native: true, decimals: 18 },
     ],
   },
 ];
@@ -503,7 +501,14 @@ export default function WalletPage() {
             if (source === "cashback") await fetchCashback();
             else await fetchReferral();
             if (isHistoryOpen) fetchHistory();
-    } catch (err) {
+        } catch (err) {
+            // Si el JWT de la sesión venció, cerramos sesión y redirigimos en
+            // vez de mostrar un error genérico y dejar la UI "viva" pero muerta.
+            if (isJwtExpiredError(err)) {
+              setWithdrawModal(null);
+              handleUnauthorized();
+              return;
+            }
             const message =
               err?.response?.data?.error ||
               err?.response?.data?.message ||
@@ -737,8 +742,11 @@ export default function WalletPage() {
               <Copy size={14} className="text-blue-600 dark:text-blue-400" />
             </button>
           </div>
-                    <p className="text-[11px] text-blue-600/70 dark:text-blue-400/70 mt-1">
-            Podés recibir POL/USDXM (Polygon Amoy), tBNB/USDT (BSC) y ETH/USDC (Base) en esta misma dirección.
+                              <p className="text-[11px] text-blue-600/70 dark:text-blue-400/70 mt-1">
+            Podés recibir USDXM/USDC (Polygon Amoy), USDT (BSC) y USDC (Base) en esta misma dirección.
+          </p>
+          <p className="text-[11px] text-blue-600/70 dark:text-blue-400/70 mt-1">
+            No necesitás cargar cripto nativo para el gas: las comisiones de red las cubre la plataforma.
           </p>
         </div>
       </div>    
@@ -759,7 +767,9 @@ export default function WalletPage() {
                 ver en explorer
               </a>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {/* Un solo token (stablecoin) por red: una única tarjeta de ancho
+                tope (max-w) para que no quede un hueco vacío al lado. */}
+            <div className="flex flex-col gap-4">
               {net.tokens.map((token) => {
                 const key = balanceKey({ ...token, chainId: net.chainId });
                 const tokenWithChain = {
@@ -767,10 +777,10 @@ export default function WalletPage() {
                   chainId: net.chainId,
                   chain: net.chain,
                 };
-                                return (
+                return (
                   <div
                     key={key}
-                    className="group px-4 py-3 bg-white dark:bg-[#252525] rounded-xl border border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700 transition-colors flex items-center justify-between"
+                    className="group w-full sm:max-w-sm px-5 py-4 bg-white dark:bg-[#252525] rounded-xl border border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700 transition-colors flex items-center justify-between"
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <TokenIcon symbol={token.symbol} size={34} />
@@ -889,7 +899,7 @@ export default function WalletPage() {
             </p>
           </div>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-[16rem]">
-            Es un único fondo: podés retirarlo desde cualquiera de las dos fuentes.
+            Es un único fondo: podés retirarlo desde cualquiera de las dos fuentes. <br /> *Retiros habilitados a partir de 5 usd
           </p>
         </div>
 
@@ -1051,8 +1061,21 @@ export default function WalletPage() {
                                   {tx.source === "referral" ? "Referidos" : "Cashback"}
                                 </span>
                               </td>
-                              <td className="px-4 py-2.5">
-                                {tx.description || (isEarned ? "Reintegro" : "Movimiento")}
+                                                            <td className="px-4 py-2.5">
+                                <span className="block">
+                                  {tx.description || (isEarned ? "Reintegro" : "Movimiento")}
+                                </span>
+                                {tx.source === "referral" && (tx.productTitle || tx.role) && (
+                                  <span className="block text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5">
+                                    {tx.role === "referrer"
+                                      ? "Como referidor"
+                                      : tx.role === "buyer"
+                                        ? "Como comprador (reintegro)"
+                                        : ""}
+                                    {tx.role && tx.productTitle ? " · " : ""}
+                                    {tx.productTitle || ""}
+                                  </span>
+                                )}
                               </td>
                               <td className={`px-4 py-2.5 text-right font-bold whitespace-nowrap ${
                                 Number(tx.amount) >= 0
