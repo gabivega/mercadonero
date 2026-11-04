@@ -128,13 +128,18 @@ export const completeSellerOnboarding = async (req, res) => {
     updates["shop.bankAccounts"] = [];
     updates.isSeller = true;
 
-    const updatedUser = await User.findByIdAndUpdate(userId, { $set: updates }, { new: true, runValidators: true });
+        const updatedUser = await User.findByIdAndUpdate(userId, { $set: updates }, { new: true, runValidators: true });
 
     res.status(200).json({
       success: true,
-      message: "¡Onboarding completado! Ya podés publicar tus productos.",
+      // El onboarding quedó completo, pero la tienda debe ser APROBADA por un
+      // admin antes de poder publicar productos de pago.
+      message:
+        "¡Datos guardados! Tu tienda quedó pendiente de aprobación. Te avisaremos cuando un administrador la habilite.",
       user: updatedUser,
       shopActive: true,
+      shopApproved: false,
+      pendingApproval: true,
     });
   } catch (error) {
     console.error("Error en completeSellerOnboarding:", error);
@@ -147,9 +152,9 @@ export const completeSellerOnboarding = async (req, res) => {
 // ────────────────────────────────────────────────────────────────────────
 export const getSellerOnboardingStatus = async (req, res) => {
   try {
-    const userId = req.user._id;
+        const userId = req.user._id;
     const user = await User.findById(userId).select(
-      "shop.active shop.name firstName lastName dni phone shop.taxCondition",
+      "shop.active shop.approved shop.approvalReason shop.name firstName lastName dni phone shop.taxCondition",
     );
 
     if (!user) {
@@ -157,11 +162,17 @@ export const getSellerOnboardingStatus = async (req, res) => {
     }
 
     const shopActive = Boolean(user.shop?.active);
+    const shopApproved = Boolean(user.shop?.approved);
     const hasBasicData = Boolean(user.firstName && user.lastName && user.dni && user.phone);
 
     res.status(200).json({
       success: true,
+      // `onboardingComplete` = completó los datos. Para poder publicar además
+      // necesita `shopApproved` (aprobación manual del admin).
       onboardingComplete: shopActive,
+      shopApproved,
+      pendingApproval: shopActive && !shopApproved,
+      approvalReason: user.shop?.approvalReason || "",
       prefill: {
         firstName: user.firstName || "",
         lastName: user.lastName || "",

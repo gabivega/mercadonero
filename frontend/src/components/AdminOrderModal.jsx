@@ -93,33 +93,54 @@ const AdminOrderModal = ({ order, isOpen, onClose, onAction }) => {
                 {/* SCROLLABLE CONTENT */}
         <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-8 custom-scrollbar">
           
-          {/* ALERTA: SOLICITUD DE CANCELACIÓN PENDIENTE */}
+                    {/* ALERTA: SOLICITUD DE CANCELACIÓN PENDIENTE */}
           {(() => {
             const pendingRelease =
               order.releaseRequest?.exists && order.releaseRequest.status === 'pending';
             const pendingRefund =
               order.pendingRequest?.exists && order.pendingRequest.status === 'pending';
-            if (pendingRelease || pendingRefund) {
-              return (
-                <div className="p-5 bg-rose-50 dark:bg-rose-950/30 border-2 border-rose-300 dark:border-rose-800/60 rounded-3xl flex items-start gap-3">
-                  <AlertCircle className="text-rose-500 mt-0.5 flex-shrink-0" size={20} />
-                  <div>
-                    <p className="font-black uppercase tracking-wide text-sm text-rose-700 dark:text-rose-300">
-                      {pendingRelease ? 'Solicitud de cancelación del vendedor' : 'Reembolso en proceso'}
-                    </p>
-                    <p className="text-sm text-rose-600 dark:text-rose-400 mt-1">
-                      {pendingRelease
-                        ? 'El vendedor pidió cancelar la orden y liberar la garantía. Resolución manual: primero cancelá la orden y, tras verificar con el comprador que no abonó (o que recibió su reintegro), liberá la garantía.'
-                        : 'El comprador pidió cancelar habiendo pagado. El vendedor debe reembolsarle; cuando confirme, liberá la garantía manualmente.'}
-                      {order.releaseRequest?.reason && (
-                        <span className="block mt-1 font-medium">Motivo: {order.releaseRequest.reason}</span>
-                      )}
-                    </p>
-                  </div>
+            if (!pendingRelease && !pendingRefund) return null;
+
+            // ¿Orden con escrow CRIPTO fondeado? En ese caso los fondos NO
+            // están en el colateral bancario: hay que reembolsar el ESCROW
+            // on-chain al comprador (cancel-escrow), no "liberar la garantía".
+            const isCryptoFunded =
+              order.payment?.method === 'crypto' && order.payment?.status === 'funded';
+            const initiatedBySeller = order.pendingRequest?.initiator === 'seller';
+
+            const title = pendingRelease
+              ? 'Solicitud de cancelación del vendedor'
+              : isCryptoFunded
+                ? initiatedBySeller
+                  ? 'El vendedor pidió cancelar (escrow cripto)'
+                  : 'El comprador pidió cancelar (escrow cripto)'
+                : 'Reembolso en proceso';
+
+            const body = pendingRelease
+              ? 'El vendedor pidió cancelar la orden. Resolución manual: primero cancelá la orden y, tras verificar con el comprador que no abonó (o que recibió su reintegro), liberá la garantía.'
+              : isCryptoFunded
+                ? 'Los USDT están retenidos en el escrow. Usá "Reembolsar Comprador (Escrow)" para devolverle el 100% on-chain: la orden quedará cancelada y la garantía del vendedor se libera en el proceso.'
+                : 'El comprador pidió cancelar habiendo pagado. El vendedor debe reembolsarle; cuando confirme, liberá la garantía manualmente.';
+
+            return (
+              <div className="p-5 bg-rose-50 dark:bg-rose-950/30 border-2 border-rose-300 dark:border-rose-800/60 rounded-3xl flex items-start gap-3">
+                <AlertCircle className="text-rose-500 mt-0.5 flex-shrink-0" size={20} />
+                <div>
+                  <p className="font-black uppercase tracking-wide text-sm text-rose-700 dark:text-rose-300">
+                    {title}
+                  </p>
+                  <p className="text-sm text-rose-600 dark:text-rose-400 mt-1">
+                    {body}
+                    {order.pendingRequest?.reason && (
+                      <span className="block mt-1 font-medium">Motivo: {order.pendingRequest.reason}</span>
+                    )}
+                    {order.releaseRequest?.reason && (
+                      <span className="block mt-1 font-medium">Motivo: {order.releaseRequest.reason}</span>
+                    )}
+                  </p>
                 </div>
-              );
-            }
-            return null;
+              </div>
+            );
           })()}
 
           {/* METADATA & CRYPTO TRACKING */}

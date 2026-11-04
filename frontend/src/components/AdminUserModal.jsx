@@ -30,6 +30,10 @@ const AdminUserModal = ({ user, isOpen, onClose, onStatusChange }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [statusLoading, setStatusLoading] = useState(false);
+  // Loading de la acción Aprobar/Desactivar tienda. Debe declararse acá arriba,
+  // junto al resto de hooks, ANTES del `return null` (Reglas de Hooks: no se
+  // puede llamar un hook después de un return condicional).
+  const [shopLoading, setShopLoading] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !user?._id) {
@@ -61,6 +65,10 @@ const AdminUserModal = ({ user, isOpen, onClose, onStatusChange }) => {
 
   const data = detail || user;
   const isSuspended = data.accountStatus === 'suspended';
+  // Estado de la tienda: aprobada (puede publicar) o pendiente de aprobación.
+  const shopActive = Boolean(data.shop?.active ?? data.shopActive);
+  const shopApproved = Boolean(data.shop?.approved ?? data.shopApproved);
+  const shopApprovalReason = data.shop?.approvalReason ?? data.shopApprovalReason ?? '';
 
   // Suspender / Reactivar la cuenta.
   const handleToggleStatus = async () => {
@@ -124,6 +132,72 @@ const AdminUserModal = ({ user, isOpen, onClose, onStatusChange }) => {
     }
   };
 
+  // Aprobar / Desactivar la TIENDA (publicación sujeta a aprobación manual).
+  const handleToggleShop = async () => {
+    // Al desactivar pedimos motivo (opcional) para mostrárselo al vendedor.
+    let reason = '';
+
+    if (shopApproved) {
+      // ── DESACTIVAR ──
+      const res = await Swal.fire({
+        title: 'Desactivar tienda',
+        input: 'textarea',
+        inputLabel: 'Motivo (se mostrará al vendedor)',
+        inputPlaceholder: 'Ej: datos incompletos, verificación pendiente...',
+        showCancelButton: true,
+        confirmButtonText: 'Desactivar',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#e11d48',
+      });
+      if (!res.isConfirmed) return;
+      reason = (res.value || '').trim();
+    } else {
+      // ── APROBAR ──
+      const res = await Swal.fire({
+        title: 'Aprobar tienda',
+        text: 'El vendedor quedará habilitado para publicar productos de pago.',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Aprobar',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#10b981',
+      });
+      if (!res.isConfirmed) return;
+    }
+
+    const approve = !shopApproved;
+    try {
+      setShopLoading(true);
+      const token = await getAccessToken();
+      const response = await axios.patch(
+        `${import.meta.env.VITE_SERVER_URL}/api/admin/users/${data._id}/shop`,
+        { approved: approve, reason },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setDetail((prev) => ({
+        ...(prev || data),
+        shopApproved: response.data?.user?.shopApproved ?? approve,
+        shopApprovalReason: response.data?.user?.shopApprovalReason ?? (approve ? '' : reason),
+      }));
+      if (onStatusChange) onStatusChange();
+      Swal.fire({
+        icon: 'success',
+        title: response.data?.message || 'Tienda actualizada',
+        timer: 1800,
+        showConfirmButton: false,
+      });
+    } catch (err) {
+      console.error(err);
+      Swal.fire({
+        icon: 'error',
+        title: approve ? 'No se pudo aprobar' : 'No se pudo desactivar',
+        text: err?.response?.data?.message || 'Intentá de nuevo.',
+      });
+    } finally {
+      setShopLoading(false);
+    }
+  };
+
   const InfoItem = ({ icon: Icon, label, value, mono }) => (
     <div className="flex items-start gap-3 p-3 bg-zinc-50 dark:bg-zinc-800/40 rounded-2xl">
       <Icon size={16} className="text-[#F26722] mt-0.5 flex-shrink-0" />
@@ -184,6 +258,22 @@ const AdminUserModal = ({ user, isOpen, onClose, onStatusChange }) => {
                     <p>Cuenta SUSPENDIDA</p>
                     {data.accountStatusReason && (
                       <p className="font-normal text-xs mt-1">Motivo: {data.accountStatusReason}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Aviso: tienda pendiente de aprobación */}
+              {shopActive && !shopApproved && (
+                <div className="p-4 rounded-2xl bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 text-sm font-bold flex items-start gap-2">
+                  <Clock size={18} className="mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p>Tienda PENDIENTE de aprobación</p>
+                    <p className="font-normal text-xs mt-1">
+                      El vendedor completó sus datos pero todavía no puede publicar productos de pago.
+                    </p>
+                    {shopApprovalReason && (
+                      <p className="font-normal text-xs mt-1">Motivo: {shopApprovalReason}</p>
                     )}
                   </div>
                 </div>
@@ -266,6 +356,18 @@ const AdminUserModal = ({ user, isOpen, onClose, onStatusChange }) => {
                       <Store size={12} /> Tienda activa
                     </span>
                   )}
+                  {shopActive && (
+                    <span
+                      className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1 ${
+                        shopApproved
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                          : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                      }`}
+                    >
+                      {shopApproved ? <ShieldCheck size={12} /> : <Clock size={12} />}
+                      {shopApproved ? 'Tienda aprobada' : 'Aprobación pendiente'}
+                    </span>
+                  )}
                   <span className="px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 flex items-center gap-1">
                     <Star size={12} /> Rating {data.rating ?? 0}
                   </span>
@@ -305,6 +407,28 @@ const AdminUserModal = ({ user, isOpen, onClose, onStatusChange }) => {
 
         {/* FOOTER ACCIONES */}
         <div className="p-6 bg-zinc-50 dark:bg-zinc-800/30 border-t border-zinc-100 dark:border-zinc-800 flex flex-wrap gap-3">
+          {/* Aprobar / Desactivar TIENDA (solo si el vendedor completó onboarding) */}
+          {data.role !== 'admin' && shopActive && (
+            <button
+              onClick={handleToggleShop}
+              disabled={shopLoading || loading}
+              className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-bold text-xs transition-colors disabled:opacity-50 ${
+                shopApproved
+                  ? 'bg-amber-500/10 text-amber-600 hover:bg-amber-500/20'
+                  : 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20'
+              }`}
+            >
+              {shopLoading ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : shopApproved ? (
+                <ShieldAlert size={16} />
+              ) : (
+                <ShieldCheck size={16} />
+              )}
+              {shopApproved ? 'Desactivar tienda' : 'Aprobar tienda'}
+            </button>
+          )}
+
           {data.role !== 'admin' && (
             <button
               onClick={handleToggleStatus}

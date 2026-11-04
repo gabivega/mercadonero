@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { XCircle, RotateCcw, Star, Mail, CheckCheck, ShieldAlert, MoreVertical } from 'lucide-react';
+import { XCircle, RotateCcw, Star, Mail, CheckCheck, ShieldAlert, MoreVertical, Lock } from 'lucide-react';
 import axios from 'axios';
 import { usePrivy } from "../Utils/authClient";
 import Swal from 'sweetalert2';
@@ -443,6 +443,62 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
   };
 
   // ══════════════════════════════════════════════
+  // VENDEDOR: cancela una orden PAGADA con CRIPTO (escrow fondeado).
+  // El escrow solo puede devolverlo el admin on-chain, así que el vendedor NO
+  // libera su garantía por sí mismo: registra una solicitud (pendingRequest con
+  // initiator 'seller'). El admin reembolsa el escrow al comprador y el
+  // vendedor recupera su colateral recién entonces.
+  // ══════════════════════════════════════════════
+  const handleVendorInitiateCryptoCancel = async () => {
+    const confirm = await Swal.fire({
+      ...swalBase,
+      icon: 'warning',
+      title: '¿Cancelar esta venta?',
+      html: `
+        <p style="text-align:left; font-size:14px; font-weight:600; margin:0 0 10px;
+             color:${isDark ? '#a1a1aa' : '#52525b'}">
+          La orden está <b>pagada con cripto</b> (escrow fondeado). Para cancelarla:
+        </p>
+        <ol style="text-align:left; font-size:13px; margin:0 0 8px 18px;
+            color:${isDark ? '#a1a1aa' : '#52525b'}; line-height:1.6;">
+          <li>Enviás la solicitud de cancelación.</li>
+          <li>Un administrador devuelve los USDT del escrow al comprador.</li>
+        </ol>
+        <p style="text-align:left; font-size:13px; margin:0; color:#ef4444; font-weight:600;">
+          Tu garantía queda retenida hasta que el admin resuelva el reembolso.
+        </p>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'SÍ, SOLICITAR CANCELACIÓN',
+      cancelButtonText: 'VOLVER',
+    });
+    if (!confirm.isConfirmed) return;
+
+    setLoading(true);
+    showProcessing('Enviando la solicitud...');
+    try {
+      const data = await callApi(`/api/order/${order._id}/cancel`, {
+        paidStatus: 'paid',
+        reason:
+          'Cancelación iniciada por el vendedor con la orden pagada (escrow cripto)',
+      });
+      closeProcessing();
+      await Swal.fire({
+        ...swalBase,
+        icon: 'success',
+        title: 'Solicitud enviada',
+        text: 'El admin recibió tu solicitud. Cuando reembolse el escrow al comprador, tu garantía quedará liberada.',
+      });
+      onUpdate(data.order);
+    } catch (err) {
+      closeProcessing();
+      handleApiError(err, 'No se pudo iniciar la cancelación.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ══════════════════════════════════════════════
   // RENDER según estados
   // ══════════════════════════════════════════════
 
@@ -452,13 +508,25 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
     if (iAmBuyer) {
       const compradorEspera = pendingStatus === 'pending';
       const vendedorReembolso = pendingStatus === 'refunded_by_vendor';
+      // En órdenes con escrow cripto el reembolso lo ejecuta el admin on-chain:
+      // el vendedor no confirma el reembolso y el comprador no puede confirmar
+      // la recepción de un reintegro que todavía no se movió.
+      const isCryptoEscrowCancel =
+        order.payment?.method === 'crypto' &&
+        order.payment?.status === 'funded';
       return (
         <div className="bg-amber-500/10 border-2 border-amber-500/60 p-6 rounded-[2.5rem]">
           <div className="flex items-center gap-3 mb-3">
             <div className="bg-amber-500 p-2 rounded-xl text-white"><Star size={20} /></div>
             <h3 className="font-black uppercase italic dark:text-white">Cancelación en proceso</h3>
           </div>
-          {compradorEspera ? (
+          {isCryptoEscrowCancel && compradorEspera ? (
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              Solicitaste la cancelación. Un administrador va a devolver los USDT
+              retenidos en el escrow directamente a tu billetera. La orden se
+              cerrará cuando se complete el reembolso on-chain.
+            </p>
+          ) : compradorEspera ? (
             <p className="text-sm text-zinc-600 dark:text-zinc-400">
               Solicitaste la cancelación. La garantía está retenida y el vendedor
               debe reembolsarte. Cuando lo haga, se te habilitará la confirmación
@@ -486,6 +554,11 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
 
     // --- VENDEDOR con reembolso en curso ---
     const vendorEsperaComprador = pendingStatus === 'refunded_by_vendor';
+    // Cancelación con escrow cripto: la resuelve el admin on-chain. El vendedor
+    // NO tiene un botón para "confirmar reembolso" (no controla el escrow).
+    const isCryptoEscrowCancel =
+      order.payment?.method === 'crypto' &&
+      order.payment?.status === 'funded';
     // La cancelación puede haber sido iniciada por el COMPRADOR o por el
     // VENDEDOR. El mensaje debe reflejar quién la inició para que sea claro.
     const iniciadaPorVendedor = order.pendingRequest?.initiator === 'seller';
@@ -495,28 +568,51 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
           <div className="bg-amber-500 p-2 rounded-xl text-white"><Star size={20} /></div>
           <h3 className="font-black uppercase italic dark:text-white">Reembolso pendiente</h3>
         </div>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          {iniciadaPorVendedor ? (
-            <>Iniciaste la cancelación de esta venta porque está pagada. Devolvele
-            el dinero al comprador y confirmá que lo reembolsaste para continuar.</>
-          ) : (
-            <>El comprador solicitó cancelar con pago. Devolvele el dinero y confirmá
-            que lo reembolsaste para continuar.</>
-          )}
-        </p>
-        {order.pendingRequest?.refundBankAccount && (
-          <div className="bg-white dark:bg-zinc-900 rounded-2xl p-4 border border-zinc-100 dark:border-zinc-800 my-4">
-            <h4 className="text-xs font-black uppercase tracking-widest text-[#F26722] mb-3">Datos bancarios del comprador</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-              <p><span className="text-zinc-400">Titular:</span> {order.pendingRequest.refundBankAccount.holderName || '-'}</p>
-              <p><span className="text-zinc-400">Banco:</span> {order.pendingRequest.refundBankAccount.bankName || '-'}</p>
-              <p className="font-mono"><span className="text-zinc-400">CBU/CVU:</span> {order.pendingRequest.refundBankAccount.cbuCvu}</p>
-              <p><span className="text-zinc-400">Alias:</span> {order.pendingRequest.refundBankAccount.alias || '-'}</p>
-              <p><span className="text-zinc-400">CUIT:</span> {order.pendingRequest.refundBankAccount.cuitCuil || '-'}</p>
-            </div>
-          </div>
+
+        {isCryptoEscrowCancel ? (
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            {iniciadaPorVendedor ? (
+              <>Solicitaste la cancelación de esta venta pagada con cripto. Un
+              administrador devolverá los USDT del escrow al comprador; recién
+              entonces tu garantía quedará liberada.</>
+            ) : (
+              <>El comprador solicitó cancelar esta orden pagada con cripto. Un
+              administrador devolverá los USDT del escrow a su billetera y tu
+              garantía quedará liberada al resolverse.</>
+            )}
+          </p>
+        ) : (
+          <>
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              {iniciadaPorVendedor ? (
+                <>Iniciaste la cancelación de esta venta porque está pagada. Devolvele
+                el dinero al comprador y confirmá que lo reembolsaste para continuar.</>
+              ) : (
+                <>El comprador solicitó cancelar con pago. Devolvele el dinero y confirmá
+                que lo reembolsaste para continuar.</>
+              )}
+            </p>
+            {order.pendingRequest?.refundBankAccount && (
+              <div className="bg-white dark:bg-zinc-900 rounded-2xl p-4 border border-zinc-100 dark:border-zinc-800 my-4">
+                <h4 className="text-xs font-black uppercase tracking-widest text-[#F26722] mb-3">Datos bancarios del comprador</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                  <p><span className="text-zinc-400">Titular:</span> {order.pendingRequest.refundBankAccount.holderName || '-'}</p>
+                  <p><span className="text-zinc-400">Banco:</span> {order.pendingRequest.refundBankAccount.bankName || '-'}</p>
+                  <p className="font-mono"><span className="text-zinc-400">CBU/CVU:</span> {order.pendingRequest.refundBankAccount.cbuCvu}</p>
+                  <p><span className="text-zinc-400">Alias:</span> {order.pendingRequest.refundBankAccount.alias || '-'}</p>
+                  <p><span className="text-zinc-400">CUIT:</span> {order.pendingRequest.refundBankAccount.cuitCuil || '-'}</p>
+                </div>
+              </div>
+            )}
+          </>
         )}
-        {vendorEsperaComprador ? (
+
+        {isCryptoEscrowCancel ? (
+          <div className="p-3 rounded-2xl bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-sm font-semibold">
+            El reembolso del escrow lo ejecuta el administrador. Te avisaremos
+            cuando se complete.
+          </div>
+        ) : vendorEsperaComprador ? (
           <div className="p-3 rounded-2xl bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-sm font-semibold">
             Confirmaste el reembolso. Ahora esperamos que el comprador confirme
             haberlo recibido para liberar tu garantía.
@@ -615,11 +711,20 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
     );
   }
 
-  // Vendedor con la orden YA PAGADA (transferencia bancaria): mostramos los
-  // "3 puntitos" discretos (como el comprador) para que pueda cancelar la venta
-  // y reembolsar. Las órdenes cripto se cancelan devolviendo el escrow, por lo
-  // que acá solo consideramos el flujo bancario.
-  if (!iAmBuyer && status === 'paid' && order.payment?.method !== 'crypto') {
+  // Vendedor con la orden YA PAGADA: mostramos los "3 puntitos" discretos
+  // (como el comprador) para que pueda cancelar la venta.
+  //   - Transferencia bancaria → cancela y reembolsa (flujo bancario).
+  //   - Cripto con escrow fondeado → registra solicitud; el admin reembolsa
+  //     on-chain y recién entonces se libera su garantía.
+  // Si el escrow todavía NO está fondeado (pending/funding) no corresponde: la
+  // orden todavía no tiene dinero retenido.
+  const isCryptoEscrowPaid =
+    order.payment?.method === 'crypto' && order.payment?.status === 'funded';
+  const sellerCanInitiatePaidCancel =
+    status === 'paid' &&
+    (order.payment?.method !== 'crypto' || isCryptoEscrowPaid);
+
+  if (!iAmBuyer && sellerCanInitiatePaidCancel) {
     return (
       <div className="flex justify-end">
         <div className="relative">
@@ -643,7 +748,11 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
                 <button
                   onClick={async () => {
                     setMenuOpen(false);
-                    await handleVendorInitiateCancel();
+                    if (isCryptoEscrowPaid) {
+                      await handleVendorInitiateCryptoCancel();
+                    } else {
+                      await handleVendorInitiateCancel();
+                    }
                   }}
                   disabled={loading}
                   className="w-full flex items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
@@ -653,12 +762,38 @@ const CancelOrderAction = ({ order, role, onUpdate }) => {
                   ) : (
                     <XCircle size={16} />
                   )}
-                  Cancelar venta y reembolsar
+                  {isCryptoEscrowPaid
+                    ? 'Solicitar cancelación de la venta'
+                    : 'Cancelar venta y reembolsar'}
                 </button>
               </div>
             </>
           )}
         </div>
+      </div>
+    );
+  }
+
+  // Vendedor con orden pagada por CRIPTO (escrow fondeado): su colateral lo
+  // libera únicamente el ADMIN. Mostramos una tarjeta informativa (sin botón
+  // que le permita liberar la garantía por sí mismo).
+  if (!iAmBuyer && isCryptoEscrowPaid) {
+    return (
+      <div className="bg-amber-500/5 border-2 border-amber-500/50 p-6 rounded-[2.5rem]">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="bg-amber-500 p-2 rounded-xl text-white shadow-lg shadow-amber-500/20">
+            <Lock size={20} />
+          </div>
+          <h3 className="font-black uppercase tracking-tight italic dark:text-white">
+            Garantía retenida en el escrow
+          </h3>
+        </div>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400 font-medium">
+          Tu garantía (colateral) está retenida por la plataforma. La liberación
+          la resuelve un administrador una vez que el comprador confirma la
+          recepción del pedido. Si necesitás cancelar la venta, usá el menú de
+          opciones de la orden.
+        </p>
       </div>
     );
   }

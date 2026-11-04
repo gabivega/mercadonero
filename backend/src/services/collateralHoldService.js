@@ -341,6 +341,24 @@ export async function expireCollateralHold(order, { penalize = true } = {}) {
     });
   }
 
+  // LIBERAR la reserva de recompensas: la orden venció sin completarse, así que
+  // el saldo que el comprador había reservado al crear la orden vuelve a
+  // "disponible". Dynamic import para evitar un ciclo de imports con el
+  // controller (orderController → collateralHoldService → orderController).
+  try {
+    const { releaseOrderRewardsReservation } = await import(
+      "../controllers/orderController.js"
+    );
+    await releaseOrderRewardsReservation(order, {
+      reason: "hold de colateral expirado",
+    });
+  } catch (rewardsErr) {
+    console.error(
+      `[expireCollateralHold] No se pudo liberar reserva de recompensas de la orden ${order?._id}:`,
+      rewardsErr?.message || rewardsErr,
+    );
+  }
+
   // Avisamos al COMPRADOR que la espera terminó (la orden venció sin depósito).
   // Sin esta notificación el comprador quedaba viendo "En espera de garantía"
   // sin saber que el plazo ya había vencido.

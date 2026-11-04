@@ -59,6 +59,9 @@ import {
 // Helper centralizado de permisos admin (role en DB | email en ADMIN_EMAILS | ADMIN_PRIVY_ID).
 import { isAdminUser, findAdminUser } from "../middleware/isAdmin.js";
 import { makeCreateCryptoOrder } from "./orderCryptoController.js";
+// Interruptor maestro del uso de recompensas en checkout (se sigue acumulando,
+// pero no se gasta hasta habilitarlo). Ver config/rewards.js.
+import { REWARDS_CHECKOUT_ENABLED } from "../config/rewards.js";
 
 // ─────────────────────────────────────────────────────────────
 // BUFFER DE SEGURIDAD ANTES DE LIBERAR LA GARANTÍA (FASE 1 - MANUAL)
@@ -204,9 +207,238 @@ const resolveOrderPaymentToken = (token, escrowChain) => {
   );
 };
 
-const createOrder = async (req, res) => {
+/**
+ * RESERVA (bloquea) el saldo de recompensas al CREAR la orden, SIN consumirlo.
+ *
+ * Cambio de modelo (fix de integridad): antes acá se gastaba el saldo del
+ * comprador y se acreditaba el SellerCredit al persistir la orden. Eso tenía
+ * dos fallas graves:
+ *   1) Si la orden fallaba/cancelaba/expiraba, el saldo YA se había consumido y
+ *      no se revertía → la plata "desaparecía" de la plataforma.
+ *   2) El saldo podía reutilizarse en otra orden simultánea (doble uso).
+ *
+ * Ahora, al crear la orden solo RESERVAMOS (reservedUsd) el saldo comprometido:
+ *   - No puede usarse en otra orden (bloqueo anti-abuso).
+ *   - No se descuenta del balance ni se acredita al vendedor todavía.
+ * El CONSUMO real (descontar balance + SellerCredit) ocurre SOLO cuando el admin
+ * completa la orden (ver commitRewardsOnComplete en adminCompleteOrder). Si la
+ * orden no se completa, se libera la reserva (releaseOrderRewardsReservation).
+ *
+ * Persistimos en la orden cuánto quedó reservado (financials.rewardsReserved)
+ * para poder liberar/consumir exactamente ese monto de forma idempotente.
+ *
+ * @param {Object} order           documento de orden YA guardado (con _id)
+ * @param {Object|null} pendingRewards  { buyerId, sellerId, rewardsUsedUsd, breakdown }
+ */
+const applyPendingRewards = async (order, pendingRewards) => {
+  if (!pendingRewards || !order?._id) return;
+  if (Number(pendingRewards.rewardsUsedUsd) <= 0) return;
   try {
-                                const { sellerId, items, shippingAddress, paymentMethod = "bank_transfer", token = "USDT", deliveryMethod = "shipping", pickupLocation = null, referrerId = null, shippingQuote = null } = req.body;
+    const { reserveRewardsForOrder } = await import(
+      "../services/rewardsService.js"
+    );
+
+    const res = await reserveRewardsForOrder({
+      userId: pendingRewards.buyerId,
+      cashbackUsd: pendingRewards.breakdown.cashbackUsd,
+      referralUsd: pendingRewards.breakdown.referralUsd,
+      orderId: order._id,
+    });
+
+    // Persistimos la reserva efectiva en la orden (para liberar/consumir luego).
+    // Si la reserva aplicó menos de lo pedido (saldo insuficiente por carrera),
+    // ajustamos también el monto efectivo a pagar para que el cuadre sea real.
+    if (res.success) {
+      await Order.updateOne(
+        { _id: order._id },
+        {
+          $set: {
+            "financials.rewardsReservedUsd": res.applied,
+            "financials.rewardsReservedBreakdown": res.breakdown,
+          },
+        },
+      );
+      order.financials = order.financials || {};
+      order.financials.rewardsReservedUsd = res.applied;
+      order.financials.rewardsReservedBreakdown = res.breakdown;
+      console.log(
+        `[Rewards] Reservado US$ ${res.applied} en orden ${order._id} ` +
+          `(cashback ${res.breakdown.cashbackUsd} + ref ${res.breakdown.referralUsd}). ` +
+          `Se consumirá recién al completar; si no, se libera.`,
+      );
+    } else {
+      console.error(
+        `[Rewards] No se pudo reservar saldo en orden ${order._id}: ${res.error}`,
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[Rewards] Fallo al reservar descuento en orden ${order?._id}:`,
+      err.message,
+    );
+  }
+};
+
+/**
+ * CONSUME el saldo de recompensas reservado y acredita el SellerCredit al
+ * vendedor, al COMPLETARSE la orden (solo se llama desde adminCompleteOrder).
+ *
+ * Es idempotente respecto a la orden:
+ *   - El consumo del comprador se dispara UNA sola vez (guard por
+ *     `financials.rewardsCommitted` en la orden).
+ *   - El SellerCredit usa índice único por `order` (recordSellerCredit).
+ *
+ * Reparto de monto del SellerCredit:
+ *   - BANK: el fee ya se descuenta del colateral del vendedor → crédito = 100%
+ *     de las recompensas usadas (rewardsUsedUsd).
+ *   - CRYPTO: parte del monto lo cubre el escrow y parte el crédito. El crédito
+ *     lo deja el flujo crypto en `financials.sellerCreditUsd`. Si no está, se
+ *     usa rewardsUsedUsd como respaldo.
+ *
+ * @param {Object} order  documento de orden (ya con _id, buyer, seller)
+ */
+const commitRewardsOnComplete = async (order) => {
+  if (!order?._id) return;
+  const rewardsReserved =
+    Number(order.financials?.rewardsReservedUsd) ||
+    Number(order.financials?.rewardsUsedUsd) ||
+    0;
+  if (rewardsReserved <= 0) return; // la orden no usó recompensas
+  if (order.financials?.rewardsCommitted === true) return; // idempotencia
+
+  const breakdown =
+    order.financials?.rewardsReservedBreakdown ||
+    order.financials?.rewardsBreakdown || {
+      cashbackUsd: 0,
+      referralUsd: 0,
+    };
+
+  try {
+    const { commitReservedRewardsForOrder, recordSellerCredit } = await import(
+      "../services/rewardsService.js"
+    );
+
+    // 1) Descontar definitivamente el saldo reservado del comprador.
+    await commitReservedRewardsForOrder({
+      userId: order.buyer,
+      cashbackUsd: breakdown.cashbackUsd,
+      referralUsd: breakdown.referralUsd,
+      orderId: order._id,
+    });
+
+    // 2) Acreditar al vendedor el crédito (pasivo que reclama aparte).
+    const isCrypto = order.payment?.method === "crypto";
+    const sellerCreditUsd = isCrypto
+      ? Number(order.financials?.sellerCreditUsd) || rewardsReserved
+      : rewardsReserved; // BANK: crédito = 100% de recompensas usadas
+
+    await recordSellerCredit({
+      sellerId: order.seller,
+      orderId: order._id,
+      amountUsd: sellerCreditUsd,
+      breakdown,
+    });
+
+    // 3) Marcar en la orden que ya se consumió (idempotencia).
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { "financials.rewardsCommitted": true } },
+    );
+    if (order.financials) order.financials.rewardsCommitted = true;
+
+    console.log(
+      `[Rewards] Orden ${order._id} COMPLETADA: saldo del comprador consumido ` +
+        `(US$ ${rewardsReserved}) y SellerCredit US$ ${sellerCreditUsd} acreditado al vendedor.`,
+    );
+  } catch (err) {
+    // No bloqueante: la orden ya se completó on-chain. Se puede reintentar
+    // manualmente; dejamos traza del monto para auditoría.
+    console.error(
+      `[Rewards] Fallo al consumir recompensas al completar la orden ${order?._id}:`,
+      err.message,
+    );
+  }
+};
+
+/**
+ * LIBERA la reserva de recompensas de una orden que NO se completó
+ * (cancelada / expirada / reembolsada / hold cancelado). Devuelve el saldo
+ * comprometido a "disponible".
+ *
+ * Idempotente respecto a la orden: si ya se liberó (o ya se consumió al
+ * completar) no hace nada, gracias al flag `financials.rewardsReservationReleased`.
+ *
+ * @param {Object} order  documento de orden (con buyer y financials)
+ * @param {Object} [opts]  { reason }
+ */
+const releaseOrderRewardsReservation = async (order, opts = {}) => {
+  if (!order?._id) return;
+  const rewardsReserved =
+    Number(order.financials?.rewardsReservedUsd) ||
+    Number(order.financials?.rewardsUsedUsd) ||
+    0;
+  if (rewardsReserved <= 0) return;
+  // Si ya se consumió al completar, no liberamos.
+  if (order.financials?.rewardsCommitted === true) return;
+  // Si ya se liberó, no repetimos.
+  if (order.financials?.rewardsReservationReleased === true) return;
+
+  const breakdown =
+    order.financials?.rewardsReservedBreakdown ||
+    order.financials?.rewardsBreakdown || {
+      cashbackUsd: 0,
+      referralUsd: 0,
+    };
+
+  try {
+    const { releaseReservedRewardsForOrder, recordSellerCredit } = await import(
+      "../services/rewardsService.js"
+    );
+
+    // 1) Devolver el saldo reservado a "disponible" del comprador.
+    await releaseReservedRewardsForOrder({
+      userId: order.buyer,
+      cashbackUsd: breakdown.cashbackUsd,
+      referralUsd: breakdown.referralUsd,
+      orderId: order._id,
+    });
+
+    // 2) Cancelar el SellerCredit si se hubiera creado (no debería, pero por
+    //    si quedó de un flujo viejo que lo acreditaba al crear).
+    try {
+      const SellerCredit = (await import("../models/SellerCredit.js")).default;
+      await SellerCredit.updateOne(
+        { order: order._id, status: "pending" },
+        { $set: { status: "cancelled" } },
+      );
+    } catch (creditErr) {
+      console.warn(
+        `[Rewards] No se pudo cancelar SellerCredit de orden ${order._id}:`,
+        creditErr.message,
+      );
+    }
+
+    // 3) Marcar en la orden que la reserva ya se liberó (idempotencia).
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { "financials.rewardsReservationReleased": true } },
+    );
+    if (order.financials) order.financials.rewardsReservationReleased = true;
+
+    console.log(
+      `[Rewards] Orden ${order._id} NO completada (${opts.reason || "cancelada"}): ` +
+        `reserva de US$ ${rewardsReserved} liberada al comprador.`,
+    );
+  } catch (err) {
+    console.error(
+      `[Rewards] Fallo al liberar reserva de recompensas de orden ${order?._id}:`,
+      err.message,
+    );
+  }
+};
+
+const createOrder = async (req, res) => {
+  try {                                const { sellerId, items, shippingAddress, paymentMethod = "bank_transfer", token = "USDT", deliveryMethod = "shipping", pickupLocation = null, referrerId = null, shippingQuote = null } = req.body;
     const buyerId = req.user._id;
 
     // Método de entrega efectivo: "shipping" (default) o "pickup" (retiro en
@@ -517,6 +749,96 @@ const createOrder = async (req, res) => {
     console.log("[Server] Financials:", financials);
 
     // ─────────────────────────────────────────────────────────────
+    // DESCUENTO POR SALDO DE RECOMPENSAS (cashback + referral-buyer)
+    // Opcional (el comprador lo elige en el checkout con `useRewards`).
+    //
+    // Reglas (definidas con el negocio):
+    //  • Se aplica SOLO sobre el subtotal de PRODUCTOS (financials.totalUsd),
+    //    NUNCA sobre el envío. Puede cubrir hasta el 100% del producto (0).
+    //  • El fee de la plataforma se calcula y cobra SIEMPRE sobre el total
+    //    (productos + envío), SIN descontarse por las recompensas.
+    //  • El seller NO pierde plata: lo que no le llega en el pago directo (o
+    //    en escrow) se le compensa vía SellerCredit (= rewardsUsed), que reclama
+    //    aparte. Ver rewardsService.recordSellerCredit / claimSellerCredit.
+    //  • El saldo se RESERVA (bloquea) del comprador AL PERSISTIR la orden
+    //    (ver applyPendingRewards más abajo), para que no pueda reutilizarse en
+    //    otra compra. NO se consume todavía: el consumo real + el SellerCredit
+    //    al vendedor se hacen SOLO cuando el admin COMPLETA la orden
+    //    (ver commitRewardsOnComplete en adminCompleteOrder). Si la orden no se
+    //    completa, la reserva se libera (releaseOrderRewardsReservation).
+    //
+    // Financiamiento: el saldo (asiento contable off-chain) ya lo tiene la
+    // plataforma; el comprador paga menos "dinero nuevo". El fee intacto +
+    // el SellerCredit mantienen al seller entero.
+    // ─────────────────────────────────────────────────────────────
+    // `pendingRewards` viaja por el pipeline y se RESERVA al guardar la
+    // orden (crypto y bank) vía applyPendingRewards(order). El consumo real
+    // ocurre recién al completar la orden.
+    let pendingRewards = null;
+    // ⚠️ INTERRUPTOR MAESTRO: uso de recompensas en checkout DESHABILITADO.
+    // Por decisión de negocio, el saldo de recompensas (cashback + referral-buyer)
+    // NO se puede gastar en el checkout por ahora. Se sigue ACUMULANDO y
+    // mostrando en la wallet, pero no se descuenta de ninguna orden.
+    // Esto es la fuente de verdad: aunque el front mande `useRewards: true`
+    // (o se haga un bypass del cliente), acá NO se aplica ningún descuento ni se
+    // reserva saldo. El flag se controla en config/rewards.js.
+    const useRewards = REWARDS_CHECKOUT_ENABLED && req.body?.useRewards === true;
+    // PENDIENTE: las compras GRUPALES (crypto) tienen su propio reparto
+    // escalonado (settle: seller + fee + reintegro) que asume escrow = totalUsd.
+    // Mezclar recompensas romperia ese cuadre, asi que por ahora NO se aplican
+    // ahi. Cuando habilitemos compras grupales, integrar el descuento al settle.
+    const rewardsAllowedForOrder = !(paymentMethod === 'crypto' && req.body?.groupBuy);
+    if (useRewards && rewardsAllowedForOrder) {
+      try {
+        const { quoteRewardsForOrder } = await import(
+          "../services/rewardsService.js"
+        );
+
+        const quote = quoteRewardsForOrder({
+          user: buyer,
+          productsTotalUsd: financials.totalUsd,
+          shippingUsd: financials.shippingCostUsd,
+          platformFeeUsd: financials.platformFeeUsd,
+        });
+
+        if (quote.rewardsUsedUsd > 0) {
+          // Persistimos el desglose en financials (auditoría + settle).
+          financials.rewardsUsedUsd = quote.rewardsUsedUsd;
+          financials.rewardsBreakdown = quote.breakdown;
+          // Monto efectivo que pone el comprador en "dinero nuevo":
+          // productos - recompensas + envío (el envío SIEMPRE se paga).
+          financials.escrowAmountUsd = quote.cashAmountUsd;
+          // Crédito REAL a favor del seller (= lo que no cobró del escrow).
+          financials.sellerCreditUsd = quote.sellerCreditUsd;
+
+          pendingRewards = {
+            buyerId,
+            sellerId,
+            rewardsUsedUsd: quote.rewardsUsedUsd,
+            sellerCreditUsd: quote.sellerCreditUsd,
+            breakdown: quote.breakdown,
+          };
+
+          console.log(
+            `[Rewards] Descuento a aplicar al persistir: US$ ${quote.rewardsUsedUsd} ` +
+              `(cashback ${quote.breakdown.cashbackUsd} + ref ${quote.breakdown.referralUsd}). ` +
+              `Efectivo/escrow comprador: US$ ${quote.cashAmountUsd}. ` +
+              `SellerCredit: US$ ${quote.sellerCreditUsd}. Fee intacto US$ ${quote.feeUsd}.`,
+          );
+        }
+      } catch (rewardsErr) {
+        // No bloqueamos la compra si falla el cálculo: se sigue sin aplicar.
+        console.error(
+          "[Rewards] Fallo al cotizar descuento (se ignora):",
+          rewardsErr.message,
+        );
+        delete financials.rewardsUsedUsd;
+        delete financials.rewardsBreakdown;
+        delete financials.escrowAmountUsd;
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────
     // DIRECCIÓN EN LA ORDEN
     // Si es RETIRO EN SUCURSAL, guardamos los datos del punto como
     // `shippingAddress` (para que los mails/paneles existentes lo muestren) y
@@ -575,6 +897,9 @@ const createOrder = async (req, res) => {
         // marcada como grupo y, al fondearse, el backend crea/actualiza el
         // Pool correspondiente (ver confirmEscrowFunding).
         groupBuy: req.body.groupBuy || null,
+        // Descuento por recompensas (opcional). El handler crypto lo
+        // materializa tras guardar la orden.
+        pendingRewards,
       };
       return createCryptoOrderHandler(req, res, cryptoCtx);
     }
@@ -613,8 +938,22 @@ const createOrder = async (req, res) => {
         shippingQuote,
         req._shippingQuoteMeta,
       ),
-      totalAmount: calculatedTotal + maxShippingCost,
-      productsAmount: calculatedTotal,
+      // Monto REAL a transferir = productos (netos de recompensas) + envío.
+      // Si el comprador usó saldo de recompensas, `financials.escrowAmountUsd`
+      // trae el efectivo a pagar; si no, es null y se paga el total completo.
+      totalAmount:
+        financials.rewardsUsedUsd > 0 && financials.escrowAmountUsd != null
+          ? financials.escrowAmountUsd
+          : calculatedTotal + maxShippingCost,
+      productsAmount:
+        financials.rewardsUsedUsd > 0 && financials.escrowAmountUsd != null
+          ? Math.max(
+              0,
+              Number(
+                (financials.escrowAmountUsd - maxShippingCost).toFixed(2),
+              ),
+            )
+          : calculatedTotal,
       shippingAmount: maxShippingCost,
             status: "pending_payment", // Se ajusta más abajo si pasa a "awaiting_collateral"
       financials,
@@ -729,6 +1068,11 @@ const createOrder = async (req, res) => {
 
       const savedOrder = await newOrder.save();
 
+      // RESERVAR el descuento por recompensas (si el comprador lo usó):
+      // bloquea su saldo para esta orden (sin consumirlo). Se consumirá al
+      // completar; si la orden se cancela/expira, se libera.
+      await applyPendingRewards(savedOrder, pendingRewards);
+
       // Notificaciones (normal)
       sendOrderCreatedToBuyer({
         buyerEmail: buyer.email,
@@ -795,6 +1139,12 @@ const createOrder = async (req, res) => {
     };
 
     const holdOrder = await newOrder.save();
+
+    // RESERVAR el descuento por recompensas también en el flujo de espera de
+    // colateral (la orden existe; el comprador ya comprometió su saldo). Se
+    // liberará si el hold expira/cancela (ver releaseReservationForOrder en
+    // expireCollateralHold y cancelCollateralHold).
+    await applyPendingRewards(holdOrder, pendingRewards);
 
         // Notificar al VENDEDOR: necesita depositar colateral para no perder la venta
     createNotification({
@@ -1538,11 +1888,18 @@ const cancelOrder = async (req, res) => {
     // reembolso y el comprador confirme haberlo recibido (recién ahí se libera).
     // ════════════════════════════════════════════════════════════════
     if (isSeller && !isBuyer) {
-      if (order.payment?.method === "crypto") {
+      // Órdenes con escrow CRIPTO: el vendedor puede solicitar la cancelación
+      // de una orden YA PAGADA, pero los USDT no los puede devolver él (están
+      // retenidos on-chain). Registramos la misma solicitud (pendingRequest con
+      // initiator 'seller') y el ADMIN reembolsa el escrow con cancel-escrow.
+      // Al reembolsarse, la orden se cancela y el colateral del vendedor queda
+      // libre. Solo se permite si el escrow está fondeado (hay dinero real).
+      const isCryptoOrder = order.payment?.method === "crypto";
+      if (isCryptoOrder && order.payment?.status !== "funded") {
         return res.status(400).json({
           success: false,
           message:
-            "Esta orden usa criptomonedas. La cancelación se gestiona devolviendo los USDT del escrow (cancel-crypto).",
+            "El escrow todavía no está fondeado. No hay fondos retenidos que reembolsar en esta orden.",
         });
       }
       if (order.status === "cancelled" || order.status === "completed") {
@@ -1598,7 +1955,9 @@ const cancelOrder = async (req, res) => {
         paidStatus: "paid",
         status: "pending",
         reason:
-          "El vendedor inició la cancelación de una orden pagada. Debe reembolsar al comprador para que su garantía sea liberada.",
+          order.payment?.method === "crypto"
+            ? "El vendedor solicitó cancelar una orden pagada con cripto. El admin debe reembolsar el escrow al comprador; al hacerlo, la garantía del vendedor queda liberada."
+            : "El vendedor inició la cancelación de una orden pagada. Debe reembolsar al comprador para que su garantía sea liberada.",
         createdBy: order.seller,
       });
       await order.save();
@@ -1609,10 +1968,16 @@ const cancelOrder = async (req, res) => {
         recipient: order.buyer,
         type: "order_refund_requested",
         title: "El vendedor canceló tu compra",
-        message: `El vendedor canceló la orden #${order._id
-          .toString()
-          .slice(-6)
-          .toUpperCase()} y te devolverá el dinero. Verificá que te llegue la transferencia y confirmá la recepción para cerrar el proceso.`,
+        message:
+          order.payment?.method === "crypto"
+            ? `El vendedor solicitó cancelar la orden #${order._id
+                .toString()
+                .slice(-6)
+                .toUpperCase()} pagada con cripto. Un administrador te devolverá los USDT del escrow a tu billetera.`
+            : `El vendedor canceló la orden #${order._id
+                .toString()
+                .slice(-6)
+                .toUpperCase()} y te devolverá el dinero. Verificá que te llegue la transferencia y confirmá la recepción para cerrar el proceso.`,
         data: { orderId: order._id },
       }).catch(() => {});
       if (buyerUsr?.email) {
@@ -1638,7 +2003,9 @@ const cancelOrder = async (req, res) => {
       return res.status(200).json({
         success: true,
         message:
-          "Cancelación registrada. Deberás devolver el dinero al comprador y él lo confirmará para liberar tu garantía.",
+          order.payment?.method === "crypto"
+            ? "Solicitud registrada. Un administrador reembolsará el escrow al comprador; al completarse, tu garantía quedará liberada."
+            : "Cancelación registrada. Deberás devolver el dinero al comprador y él lo confirmará para liberar tu garantía.",
         order,
       });
     }
@@ -1741,6 +2108,9 @@ const cancelOrder = async (req, res) => {
         });
         await order.save();
 
+        // LIBERAR la reserva de recompensas (orden cancelada sin completarse).
+        await releaseOrderRewardsReservation(order, { reason: "cancelada sin pago" });
+
         await User.findByIdAndUpdate(order.buyer, {
           $inc: { "accounting.cancellationsAsBuyer": 1 },
         });
@@ -1807,6 +2177,11 @@ const cancelOrder = async (req, res) => {
         createdBy: order.buyer,
       });
       await order.save();
+
+      // LIBERAR la reserva de recompensas (orden cancelada sin completarse).
+      // El saldo del comprador vuelve a estar disponible (no se descuenta hasta
+      // que efectivamente se complete una compra).
+      await releaseOrderRewardsReservation(order, { reason: "cancelada por comprador" });
 
       // Contadores
       await User.findByIdAndUpdate(order.buyer, {
@@ -2446,6 +2821,14 @@ const adminCompleteOrder = async (req, res) => {
       );
     }
 
+    // RECOMPENSAS (idempotente; no bloquea si falla).
+    // ACÁ se materializa el consumo del saldo de recompensas que se había
+    // RESERVADO al crear la orden, y se acredita el SellerCredit al vendedor.
+    // Este es el ÚNICO punto donde se mueve el saldo de recompensas del
+    // comprador (antes se hacía al crear la orden, lo que causaba pérdida de
+    // saldo en órdenes fallidas y permitía doble uso).
+    await commitRewardsOnComplete(order);
+
     await order.save();
 
     // ── Métricas de venta/compras + stock (una sola vez) ──
@@ -2645,6 +3028,11 @@ const adminReleaseGuarantee = async (req, res) => {
     });
     await order.save();
 
+    // LIBERAR la reserva de recompensas: el admin cierra la orden como
+    // cancelada (venta no completada), así que el saldo del comprador vuelve a
+    // estar disponible.
+    await releaseOrderRewardsReservation(order, { reason: "garantía liberada por admin" });
+
     // Notificar a ambas partes
     const buyer = await User.findById(order.buyer);
     const sellerUsr = await User.findById(order.seller);
@@ -2811,6 +3199,9 @@ const adminCancelOrder = async (req, res) => {
       createdBy: req.user?._id,
     });
     await order.save();
+
+    // LIBERAR la reserva de recompensas (orden cancelada sin completarse).
+    await releaseOrderRewardsReservation(order, { reason: "cancelada por admin" });
 
     // Notificar a ambas partes
     const buyer = await User.findById(order.buyer);
@@ -3008,6 +3399,12 @@ const cancelCollateralHold = async (req, res) => {
         ? "El comprador canceló la espera de colateral y buscará este producto en otro vendedor."
         : "El vendedor no pudo cubrir la garantía de esta orden.",
     );
+
+    // LIBERAR la reserva de recompensas (orden cerrada sin completarse). El
+    // comprador recupera el saldo que había comprometido al crear la orden.
+    await releaseOrderRewardsReservation(order, {
+      reason: "hold de colateral cancelado",
+    });
 
     // ══ CONTABILIZACIÓN (no penaliza; solo lleva la cuenta para que el admin
     //    decida qué hacer). Órdenes que no se concretan por falta de colateral
@@ -3834,6 +4231,9 @@ const adminResolvePaymentDispute = async (req, res) => {
     });
     await order.save();
 
+    // LIBERAR la reserva de recompensas (orden cancelada sin completarse).
+    await releaseOrderRewardsReservation(order, { reason: "disputa resuelta sin pago" });
+
     // Contador anti-abuso (MVP): el comprador notificó un pago que nunca se
     // acreditó → se cuenta como cancelación del comprador.
     await User.findByIdAndUpdate(order.buyer, {
@@ -4047,4 +4447,8 @@ export {
   adminResolvePaymentDispute,
   adminOpenDispute,
   adminCloseDispute,
+  // Helpers de recompensas (reserva/consumo) reutilizados por el flujo crypto
+  // (orderCryptoController) y por el servicio de holds de colateral.
+  commitRewardsOnComplete,
+  releaseOrderRewardsReservation,
 };

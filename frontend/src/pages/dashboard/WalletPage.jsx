@@ -150,6 +150,9 @@ export default function WalletPage() {
   const [hasProducts, setHasProducts] = useState(false);
   const [isCollateralOpen, setIsCollateralOpen] = useState(false);
   const isSeller = Boolean(dbUser?.isSeller) || hasProducts;
+  // ¿El usuario está habilitado como referidor? Si NO, la tarjeta de referidos
+  // solo muestra su saldo usable en checkout (sin retiro ni textos de referidor).
+  const isApprovedReferrer = dbUser?.referralStatus === "approved";
 
   const [balances, setBalances] = useState({});
     const [isLoading, setIsLoading] = useState(false);
@@ -173,6 +176,9 @@ export default function WalletPage() {
   // el total combinado es la suma de ambos saldos.
   const [referral, setReferral] = useState(null);
   const [referralLoading, setReferralLoading] = useState(false);
+
+  // Saldo retirable real (ganancia como referidor) + saldo usable en checkout.
+  const [rewardsSummary, setRewardsSummary] = useState(null);
 
   // Historial unificado (cashback + referidos): se consulta bajo demanda al
   // desplegar la tabla, para no traer movimientos que el usuario no va a ver.
@@ -416,6 +422,21 @@ export default function WalletPage() {
     }
   };
 
+  // Resumen de recompensas (usable en checkout + retirable como referidor).
+  const fetchRewardsSummary = async () => {
+    try {
+      const token = await getAccessToken();
+      const res = await axios.get(
+        `${import.meta.env.VITE_SERVER_URL}/api/rewards/summary`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (res.data?.success) setRewardsSummary(res.data);
+    } catch (err) {
+      console.error("Error cargando resumen de recompensas:", err);
+      setRewardsSummary(null);
+    }
+  };
+
   // Consulta el historial unificado al desplegar la tabla. Trae ambos
   // endpoints en paralelo y mergea las transacciones por fecha desc.
   const fetchHistory = async () => {
@@ -454,8 +475,8 @@ export default function WalletPage() {
   const openWithdrawModal = (source) => {
     const info =
             source === "cashback"
-              ? { balance: cashback?.balance ?? 0, minUsd: cashback?.minWithdrawalUsd ?? 5, allow: cashback?.allowWithdraw !== false }
-              : { balance: referral?.balance ?? 0, minUsd: referral?.minWithdrawalUsd ?? 5, allow: referral?.allowWithdraw !== false };
+              ? { balance: cashback?.available ?? cashback?.balance ?? 0, minUsd: cashback?.minWithdrawalUsd ?? 5, allow: cashback?.allowWithdraw !== false }
+              : { balance: rewardsSummary?.referrerWithdrawableUsd ?? 0, minUsd: referral?.minWithdrawalUsd ?? 5, allow: referral?.allowWithdraw !== false };
     setWithdrawAmount("");
     setWithdrawModal({ source, ...info });
   };
@@ -604,6 +625,7 @@ export default function WalletPage() {
       fetchCashback();
       // El saldo de referidos también vive en la BD: se carga siempre.
       fetchReferral();
+      fetchRewardsSummary();
       // Verificamos si el usuario es vendedor (tiene publicaciones creadas).
       checkSellerByProducts();
       if (hasWallet) {
@@ -682,19 +704,17 @@ export default function WalletPage() {
           ) : (
             <>
               <p className="text-sm text-zinc-600 dark:text-zinc-300">
-                Total disponible (cashback + referidos):{" "}
+                Saldo de recompensas (para usar en checkout):{" "}
                 <b className="text-emerald-600 dark:text-emerald-400">
-                  US$ {(((cashback?.balance ?? 0) + (referral?.balance ?? 0))).toFixed(2)} USDT
+
+                  US$ {(rewardsSummary?.usable?.totalUsableUsd ?? (((cashback?.available ?? cashback?.balance ?? 0) + (referral?.balance ?? 0)))).toFixed(2)} USDT
                 </b>
               </p>
               <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
-                Cashback: US$ {(cashback?.balance ?? 0).toFixed(2)} · Referidos: US$ {(referral?.balance ?? 0).toFixed(2)}
+                Cashback: US$ {(cashback?.available ?? cashback?.balance ?? 0).toFixed(2)} · Reintegro por referidos: US$ {(rewardsSummary?.usable?.referralUsd ?? 0).toFixed(2)}
               </p>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">
-                Activá tu wallet para poder usarlas o retirarlas.
-              </p>
-              <p className="text-xs text-zinc-500 italic dark:text-zinc-400 mt-2">
-                *Uso habilitado a partir de 5 USDT.
+                Activá tu wallet para poder usar tus recompensas al comprar.
               </p>
             </>
           )}
@@ -875,7 +895,7 @@ export default function WalletPage() {
             Billetera de Recompensas
           </h3>
           <button
-            onClick={() => { fetchCashback(); fetchReferral(); if (isHistoryOpen) fetchHistory(); }}
+            onClick={() => { fetchCashback(); fetchReferral(); fetchRewardsSummary(); if (isHistoryOpen) fetchHistory(); }}
             disabled={cashbackLoading || referralLoading}
             className="flex items-center gap-1.5 text-xs text-[#F26722] font-medium hover:underline disabled:opacity-50"
           >
@@ -895,12 +915,25 @@ export default function WalletPage() {
               Total disponible en recompensas
             </p>
             <p className="text-3xl font-black text-[#F26722] mt-1">
-              US$ {(((cashback?.balance ?? 0) + (referral?.balance ?? 0))).toFixed(2)}
+              US$ {(rewardsSummary?.usable?.totalUsableUsd ?? (((cashback?.available ?? cashback?.balance ?? 0) + (referral?.balance ?? 0)))).toFixed(2)}
             </p>
           </div>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-[16rem]">
-            Es un único fondo: podés retirarlo desde cualquiera de las dos fuentes. <br /> *Retiros habilitados a partir de 5 usd
-          </p>
+          <div className="max-w-[18rem] text-xs text-zinc-500 dark:text-zinc-400 space-y-1">
+            <p>
+              <b className="text-emerald-600 dark:text-emerald-400">
+                US$ {(rewardsSummary?.usable?.totalUsableUsd ?? 0).toFixed(2)}
+              </b>{" "}
+              para usar en el checkout (cashback + reintegros).
+            </p>
+            {isApprovedReferrer && (
+              <p>
+                <b className="text-[#F26722]">
+                  US$ {(rewardsSummary?.referrerWithdrawableUsd ?? 0).toFixed(2)}
+                </b>{" "}
+                retirables a tu wallet (ganancia como referidor).
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Dos tarjetas: Cashback y Referidos */}
@@ -916,20 +949,17 @@ export default function WalletPage() {
             <div>
               <p className="text-xs text-emerald-700 dark:text-emerald-300 font-medium uppercase tracking-wide">Saldo disponible</p>
               <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
-                US$ {(cashback?.balance ?? 0).toFixed(2)}
+                US$ {(cashback?.available ?? cashback?.balance ?? 0).toFixed(2)}
               </p>
               <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
                 Reintegrado histórico: US$ {(cashback?.earned ?? 0).toFixed(2)}
               </p>
             </div>
-            <button
-              onClick={() => openWithdrawModal("cashback")}
-              disabled={(cashback?.balance ?? 0) < (cashback?.minWithdrawalUsd ?? 5)}
-              className="mt-auto w-full py-2.5 rounded-xl font-bold text-sm transition-all bg-emerald-600 hover:brightness-110 text-white disabled:opacity-40 disabled:cursor-not-allowed"
-              title={(cashback?.balance ?? 0) < (cashback?.minWithdrawalUsd ?? 5) ? `Mínimo US$ ${cashback?.minWithdrawalUsd ?? 5}` : "Retirar cashback"}
-            >
-              Retirar
-            </button>
+            <div className="mt-auto pt-2 rounded-xl bg-emerald-600/10 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-900/30 px-3 py-2 text-center">
+              <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
+                Se usa como saldo de recompensas en el checkout
+              </p>
+            </div>
           </div>
 
           {/* TARJETA REFERIDOS */}
@@ -938,32 +968,58 @@ export default function WalletPage() {
               <div className="p-2 bg-white dark:bg-zinc-900 rounded-xl shrink-0">
                 <Users className="text-[#F26722]" size={18} />
               </div>
-              <span className="font-bold text-sm dark:text-white">Recompensas por Referidos</span>
+              <span className="font-bold text-sm dark:text-white">
+                {isApprovedReferrer
+                  ? "Recompensas por Referidos"
+                  : "Recompensas por enlace de referidos"}
+              </span>
             </div>
-            <div>
-              <p className="text-xs text-orange-700 dark:text-orange-300 font-medium uppercase tracking-wide">Saldo disponible</p>
-              <p className="text-2xl font-black text-[#F26722]">
-                US$ {(referral?.balance ?? 0).toFixed(2)}
-              </p>
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
-                Ganado histórico: US$ {(referral?.earned ?? 0).toFixed(2)}
-                {referral?.referralsCount ? ` · ${referral.referralsCount} referido(s)` : ""}
-              </p>
-            </div>
-            <button
-              onClick={() => openWithdrawModal("referral")}
-              disabled={referral?.allowWithdraw === false || (referral?.balance ?? 0) < (referral?.minWithdrawalUsd ?? 5)}
-              className="mt-auto w-full py-2.5 rounded-xl font-bold text-sm transition-all bg-[#F26722] hover:brightness-110 text-white disabled:opacity-40 disabled:cursor-not-allowed"
-              title={
-                referral?.allowWithdraw === false
-                  ? "Retiro de referidos deshabilitado"
-                  : (referral?.balance ?? 0) < (referral?.minWithdrawalUsd ?? 5)
-                    ? `Mínimo US$ ${referral?.minWithdrawalUsd ?? 5}`
-                    : "Retirar referidos"
-              }
-            >
-              Retirar
-            </button>
+            {isApprovedReferrer ? (
+              <>
+                <div>
+                  <p className="text-xs text-orange-700 dark:text-orange-300 font-medium uppercase tracking-wide">Retirable (como referidor)</p>
+                  <p className="text-2xl font-black text-[#F26722]">
+                    US$ {(rewardsSummary?.referrerWithdrawableUsd ?? 0).toFixed(2)}
+                  </p>
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
+                    Ganado histórico: US$ {(referral?.earned ?? 0).toFixed(2)}
+                    {referral?.referralsCount ? ` · ${referral.referralsCount} referido(s)` : ""}
+                  </p>
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
+                    Tu reintegro como comprador se usa en el checkout, no se retira.
+                  </p>
+                </div>
+                <button
+                  onClick={() => openWithdrawModal("referral")}
+                  disabled={(rewardsSummary?.referrerWithdrawableUsd ?? 0) < (referral?.minWithdrawalUsd ?? 5)}
+                  className="mt-auto w-full py-2.5 rounded-xl font-bold text-sm transition-all bg-[#F26722] hover:brightness-110 text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                  title={
+                    (rewardsSummary?.referrerWithdrawableUsd ?? 0) < (referral?.minWithdrawalUsd ?? 5)
+                      ? `Mínimo US$ ${referral?.minWithdrawalUsd ?? 5}`
+                      : "Retirar ganancia como referidor"
+                  }
+                >
+                  Retirar
+                </button>
+              </>
+            ) : (
+              <>
+                <div>
+                  <p className="text-xs text-orange-700 dark:text-orange-300 font-medium uppercase tracking-wide">Saldo disponible</p>
+                  <p className="text-2xl font-black text-[#F26722]">
+                    US$ {(rewardsSummary?.usable?.referralUsd ?? 0).toFixed(2)}
+                  </p>
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
+                    Reintegro por comprar con enlaces de referidos.
+                  </p>
+                </div>
+                <div className="mt-auto pt-2 rounded-xl bg-[#F26722]/10 border border-[#F26722]/20 px-3 py-2 text-center">
+                  <p className="text-[11px] font-bold text-[#F26722]">
+                    Se usa como saldo de recompensas en el checkout
+                  </p>
+                </div>
+              </>
+            )}
           </div>
         </div>
 

@@ -28,16 +28,15 @@ export default function HelpSeller() {
       ),
     },
     {
-      question: "¿Qué es el colateral en garantía y por qué debo dejarlo?",
+      question: "¿Puedo cobrar mis ventas por adelantado?",
       icon: Shield,
       content: (
         <>
           <p className="mb-2">
-            El colateral es un depósito de respaldo que realizás en la blockchain para garantizar que vas a cumplir con el envío y las condiciones del producto publicado. 
-          </p>
-          <p>
-            Cuando vendes un producto mediante transferencia bancaria, al no haber intermediarios centralizados que retengan el dinero, este colateral funciona como un seguro de protección al comprador. Se congela temporalmente en el contrato inteligente y se libera de forma automática en tu wallet una vez que el comprador confirma que recibió el producto en perfectas condiciones.
-          </p>
+            Mercado Nero es el unico marketplace que permite cobrar tus ventas por adelantado mediante transferencia bancaria, mientras se protege al comprador. Como vendedor debes tener saldo en tu billetera depositado en tu fondo de garantía.
+            Cuando ingresa una orden, se congela el monto equivalente a la venta dentro de un contrato inteligente hasta que se concrete la entrega.
+            Luego se libera y se descuenta la comision de la plataforma 
+          </p>         
         </>
       ),
     },   
@@ -184,11 +183,11 @@ export default function HelpSeller() {
         </div>
 
         {/* Nota de pie informativa */}
-        <div className="mt-8 p-4 bg-orange-50/60 dark:bg-orange-950/10 rounded-xl border border-orange-100/50 dark:border-orange-900/20 text-center">
+        {/* <div className="mt-8 p-4 bg-orange-50/60 dark:bg-orange-950/10 rounded-xl border border-orange-100/50 dark:border-orange-900/20 text-center">
           <p className="text-xs text-gray-500 dark:text-zinc-400">
             ¿Tenés dudas adicionales sobre el funcionamiento de los Smart Contracts? Revisá la documentación técnica o contactá a nuestra comunidad de soporte.
           </p>
-        </div>
+        </div> */}
 
       </div>
     </section>

@@ -11,6 +11,7 @@
 //
 // Todo se expresa en USDT (la recompensa vive en USD). Acá convertimos el
 // precio en ARS a USD con la cotización cripto (misma fuente que el cashback).
+import axios from "axios";
 import { getUsdRate } from "./cashbackUtils";
 
 /**
@@ -43,11 +44,13 @@ export function calcReferralSplit(priceArs, percent, usdRate) {
  */
 export function formatUsdt(amount) {
   const n = Number(amount) || 0;
-  return `${n.toFixed(2)} USDT`;
+  return `${n.toFixed(2)} USD`;
 }
 
 /**
  * Construye el enlace compartible del producto con el `?ref=` del referidor.
+ * (Enlace LARGO. Preferí `fetchReferralShortUrl` para compartir: es más corto
+ * y trackea clics. Este queda como fallback si el corto falla.)
  *
  * @param {object} product    el producto (para armar la ruta SEO)
  * @param {string} referrerId id del usuario que comparte (dbUser._id)
@@ -66,6 +69,37 @@ export function buildReferralUrl(product, referrerId, baseUrl) {
   // Preservamos un posible query ya existente y agregamos ref.
   const sep = path.includes("?") ? "&" : "?";
   return `${path}${sep}ref=${encodeURIComponent(referrerId)}`;
+}
+
+/**
+ * Pide al backend el ENLACE CORTO reutilizable (/r/<code>) para un producto.
+ * Única fuente de verdad para "compartir": la usan tanto ProductDetail
+ * (ReferralShareBox) como la grilla de /referidos (ReferralProductItem), así
+ * el enlace es idéntico en ambos lugares.
+ *
+ * Si por algún motivo falla (sin token, error de red), cae al enlace largo
+ * (`buildReferralUrl`) para no romper el flujo de compartir.
+ *
+ * @param {object}   product
+ * @param {function} getAccessToken  token de sesión (para el header Authorization)
+ * @param {string}   referrerId      id del referidor (para el fallback largo)
+ * @returns {Promise<string>} URL lista para compartir
+ */
+export async function fetchReferralShortUrl(product, getAccessToken, referrerId) {
+  try {
+    const token = await getAccessToken?.();
+    if (!token) throw new Error("no-token");
+    const { data } = await axios.post(
+      `${import.meta.env.VITE_SERVER_URL}/api/referral/link`,
+      { productId: product?._id },
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (data?.shortUrl) return data.shortUrl;
+    throw new Error("no-short-url");
+  } catch {
+    // Fallback: enlace largo (sigue funcionando aunque no trackee clics).
+    return buildReferralUrl(product, referrerId);
+  }
 }
 
 // Re-export para que los componentes no importen dos archivos.

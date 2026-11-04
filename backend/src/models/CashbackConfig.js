@@ -39,7 +39,9 @@ const cashbackConfigSchema = new Schema(
     allowUseInCheckout: { type: Boolean, default: true },
 
     // Si el cashback se puede retirar fuera de la plataforma (extracción a wallet).
-    allowWithdraw: { type: Boolean, default: true },
+    // POLÍTICA ACTUAL: el cashback NO es retirable; solo se usa en checkout.
+    // (Ver withdrawCashback, que además lo bloquea por política de negocio.)
+    allowWithdraw: { type: Boolean, default: false },
 
     updatedBy: { type: Schema.Types.ObjectId, ref: "User" },
   },

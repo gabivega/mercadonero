@@ -45,8 +45,11 @@ export default function CreateProduct() {
   const { syncUser } = useSyncUser(setDbUser);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [pendingProduct, setPendingProduct] = useState(null);
-  // ¿El usuario ya completó el onboarding del vendedor (tienda activa)?
+    // ¿El usuario ya completó el onboarding del vendedor (tienda activa)?
   const onboardingComplete = Boolean(dbUser?.shop?.active);
+  // ¿La tienda está aprobada por un admin? En esta etapa, para publicar
+  // productos de pago se requieren AMBOS: onboarding completo + aprobación.
+  const shopApproved = Boolean(dbUser?.shop?.approved);
   // Prefilleo con datos que ya tengamos del perfil
   const onboardingPrefill = {
     firstName: dbUser?.firstName || "",
@@ -87,7 +90,7 @@ export default function CreateProduct() {
       // (producto con escrow). Los clasificados (vehículos, servicios, inmuebles)
       // no intervienen en el pago y NO piden estos datos en el MVP
       // (eso será para cuentas verificadas premium).
-      const isPaidListing = productData.listingType !== "classified";
+            const isPaidListing = productData.listingType !== "classified";
 
       if (isPaidListing && !onboardingComplete && !force) {
         // Guardamos el draft para reintentar el submit al terminar el onboarding
@@ -95,6 +98,22 @@ export default function CreateProduct() {
         setPendingProduct(productData);
         setIsOnboardingOpen(true);
         return;
+      }
+
+      // Si ya completó el onboarding pero la tienda aún no fue aprobada por un
+      // admin, avisamos y NO enviamos la publicación (el backend la rechazaría).
+      if (isPaidListing && onboardingComplete && !shopApproved) {
+        return Swal.fire({
+          title: "Tu tienda está en revisión",
+          text:
+            "Completaste tus datos. Un administrador está revisando tu tienda; cuando la habilite vas a poder publicar productos. Te avisaremos.",
+          icon: "info",
+          background: "#1A1A1A",
+          color: "#ffffff",
+          confirmButtonColor: "#2563eb",
+          confirmButtonText: "Entendido",
+          customClass: { popup: "rounded-3xl border border-gray-800" },
+        });
       }
 
     // 1. Validación de imágenes (Universal)
@@ -167,6 +186,22 @@ export default function CreateProduct() {
       const data = error.response?.data;
       const errorMsg = data?.message || error.message;
 
+      // Si el backend bloquea porque la tienda aún no está aprobada por un admin.
+      if (data?.blocked === "approval") {
+        Swal.fire({
+          title: "Tu tienda está en revisión",
+          text: errorMsg,
+          icon: "info",
+          background: "#1A1A1A",
+          color: "#ffffff",
+          confirmButtonColor: "#2563eb",
+          confirmButtonText: "Entendido",
+          customClass: { popup: "rounded-3xl border border-gray-800" },
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
       // Si el backend bloquea la publicación porque el vendedor no tiene wallet
       // Web3, lo invitamos a crear/activar su billetera en "Mi Billetera".
       if (data?.blocked === "wallet") {
@@ -223,7 +258,7 @@ export default function CreateProduct() {
           </button>
           
           <p className="text-sm text-zinc-400 dark:text-zinc-500">
-            ¿No tienes cuenta? Se crea automáticamente al iniciar sesión
+            ¿No tienes cuenta? Se crea automáticamente al iniciar sesión. Sin contraseña ni datos biométricos.
           </p>
         </div>
         <SupabaseLogin
@@ -240,6 +275,21 @@ export default function CreateProduct() {
     return (
       <DashboardLayout>
         <div className="max-w-4xl mx-auto p-6 space-y-6">
+          {/* 🔒 AVISO: TIENDA EN REVISIÓN (onboarding completo, sin aprobación) */}
+          {dbUser?.shop?.active && !shopApproved && (
+            <div className="flex items-start gap-3 p-4 rounded-2xl border border-amber-300/60 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10">
+              <AlertTriangle className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" size={20} />
+              <div>
+                <p className="font-bold text-sm text-amber-800 dark:text-amber-300">
+                  Tu tienda está en revisión
+                </p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5 leading-relaxed">
+                  Completaste tus datos. Un administrador está verificando tu tienda; cuando la habilite vas a poder publicar <b>Productos</b>. Mientras tanto podés publicar clasificados (vehículos, inmuebles, servicios).
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* 🔒 AVISO: SIN WALLET NO PUEDE PUBLICAR PRODUCTOS DE PAGO */}
           {dbUser && !dbUser.walletAddress && (
             <div className="flex items-start gap-3 p-4 rounded-2xl border border-amber-300/60 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10">

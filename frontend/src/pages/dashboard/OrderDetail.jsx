@@ -415,6 +415,81 @@ export default function OrderDetail() {
       order.payment?.method !== 'crypto' &&
       !order.pendingRequest?.exists;
 
+    // ACCION PRINCIPAL (visible arriba, sin scroll)
+    // La accion que el usuario necesita ejecutar AHORA se renderiza en un
+    // bloque destacado justo debajo del encabezado, para no obligarlo a
+    // scrollear hasta el fondo. El resto de tarjetas informativas quedan
+    // abajo en el flujo normal. Se arma una sola vez segun rol y estado.
+    let primaryAction = null;
+    if (role === "buyer" && order.status === "pending_payment") {
+      primaryAction =
+        order.payment?.method === "crypto" ? (
+          <EscrowPaymentStatus
+            order={order}
+            onUpdate={fetchOrder}
+            onPayClick={() => setShowPayModal(true)}
+          />
+        ) : (
+          <PaymentAction
+            orderId={order._id}
+            onUpdate={() => fetchOrder()}
+            sellerId={order.seller._id}
+          />
+        );
+    } else if (
+      role === "seller" &&
+      (order.status === "verifying_payment" || order.status === "pending_payment")
+    ) {
+      primaryAction = (
+        <ConfirmPaymentAction
+          order={order}
+          orderId={order._id}
+          onUpdate={() => fetchOrder()}
+        />
+      );
+    } else if (
+      role === "buyer" &&
+      (order.status === "paid" || order.status === "shipped")
+    ) {
+      primaryAction =
+        order.deliveryMethod === "pickup" ? (
+          <PickupActionCard
+            order={order}
+            role={role}
+            onUpdate={() => {
+              fetchOrder();
+              setJustConfirmed(true);
+              scrollToRatings();
+            }}
+          />
+        ) : (
+          <ShippingStatusCard
+            order={order}
+            role={role}
+            onUpdate={() => {
+              fetchOrder();
+              setJustConfirmed(true);
+              scrollToRatings();
+            }}
+          />
+        );
+    } else if (
+      role === "seller" &&
+      order.status === "paid" &&
+      !order.pendingRequest?.exists
+    ) {
+      primaryAction =
+        order.deliveryMethod === "pickup" ? (
+          <PickupActionCard
+            order={order}
+            role={role}
+            onUpdate={() => fetchOrder()}
+          />
+        ) : (
+          <ShippingForm orderId={order._id} onUpdate={() => fetchOrder()} />
+        );
+    }
+
     return (
     <div className="max-w-5xl mx-auto p-4 md:p-8 space-y-8">
             {/* Indicador global de actualización de la orden + botón de recargar.
@@ -558,6 +633,24 @@ export default function OrderDetail() {
         </div>
       </section>
 
+      {/* ACCION REQUERIDA: bloque destacado arriba para que el usuario la
+          encuentre apenas entra (pagar, confirmar pago, despachar o confirmar
+          recepcion), sin tener que scrollear al fondo de la pagina. */}
+      {primaryAction && (
+        <section className="bg-white dark:bg-[#121212] p-1 rounded-2xl">
+          <div className="flex items-center gap-2 px-5 pt-4">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#3483fa] opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#3483fa]" />
+            </span>
+            <h3 className="text-xs font-black uppercase tracking-widest text-[#3483fa]">
+              Accion requerida
+            </h3>
+          </div>
+          <div className="p-5">{primaryAction}</div>
+        </section>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-1 gap-8">
         {/* Columna Izquierda: Productos y Datos */}
         <div className="lg:col-span-1 space-y-6">
@@ -617,26 +710,6 @@ export default function OrderDetail() {
               )}
           </section>
 
-                                        {role === "buyer" && order.status === "pending_payment" && (
-            <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
-                            {order.payment?.method === "crypto" ? (
-                <EscrowPaymentStatus
-                  order={order}
-                  onUpdate={fetchOrder}
-                  onPayClick={() => setShowPayModal(true)}
-                />
-              ) : (
-                <PaymentAction
-                  orderId={order._id}
-                  onUpdate={() => {
-                    // Refrescar la orden
-                    fetchOrder();
-                  }}
-                  sellerId={order.seller._id}
-                />
-              )}
-            </section>
-          )}
 
           {/* PRUEBA DE PAGO CRIPTO (para el VENDEDOR y para el comprador cuando
               su orden ya está fondeada). Muestra el detalle del escrow y el hash
@@ -683,18 +756,6 @@ export default function OrderDetail() {
               <EscrowClosedSummary order={order} role={role} totalUsdt={orderTotalUsdt} />
             </section>
           )}
-                                                                                {role === "seller" && (order.status === "verifying_payment" || order.status === "pending_payment") && (
-            <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
-              <ConfirmPaymentAction
-                order={order}
-                orderId={order._id}
-                onUpdate={() => {
-                  // Refrescar la orden
-                  fetchOrder();
-                }}
-              />
-            </section>
-        )}
 
         {/* REPORTAR PROBLEMA AL ADMIN (comprador o vendedor, cualquier estado activo).
             No cambia el estado ni el colateral: sólo envía un mensaje al admin, que
@@ -811,34 +872,6 @@ export default function OrderDetail() {
               />
             </section>
           )}
-                                                                                {/* ACCIONES DE COMPRA (confirmar recepción / disputar).
-              Se muestran al comprador mientras la orden está 'paid' o 'shipped'.
-              Una vez que confirma la recepción ('reception_confirmed') se
-              reemplaza por el banner informativo de más abajo. */}
-          {(role === "buyer" &&
-            (order.status === "paid" || order.status === "shipped")) && (
-            order.deliveryMethod === "pickup" ? (
-              <PickupActionCard
-                order={order}
-                role={role}
-                onUpdate={() => {
-                  fetchOrder();
-                  setJustConfirmed(true);
-                  scrollToRatings();
-                }}
-              />
-            ) : (
-              <ShippingStatusCard
-                order={order}
-                role={role}
-                onUpdate={() => {
-                  fetchOrder();
-                  setJustConfirmed(true);
-                  scrollToRatings();
-                }}
-              />
-            )
-          )}
 
           {/* BANNER COMPRADOR: el comprador ya confirmó la recepción. La garantía
               (o el escrow) todavía NO se liberó: corre un período de seguridad
@@ -879,27 +912,6 @@ export default function OrderDetail() {
             </section>
           )}
 
-                                        {role === "seller" && order.status === "paid" && !order.pendingRequest?.exists && (
-            <section className="bg-white dark:bg-[#121212] p-6 rounded-2xl border dark:border-zinc-800">
-              {order.deliveryMethod === "pickup" ? (
-                <PickupActionCard
-                  order={order}
-                  role={role}
-                  onUpdate={() => {
-                    fetchOrder();
-                  }}
-                />
-              ) : (
-                <ShippingForm
-                  orderId={order._id}
-                  onUpdate={() => {
-                    // Refrescar la orden
-                    fetchOrder();
-                  }}
-                />
-              )}
-            </section>
-          )}
                     <OrderInfoAccordion 
             order={order} 
             role={role === 'seller' ? 'seller' : 'buyer'}/>

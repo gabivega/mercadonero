@@ -18,6 +18,8 @@ import {
   BadgeCheck,
   Send,
   BarChart3,
+  Wallet,
+  Loader2,
 } from "lucide-react";
 
 import { usePrivy } from "../../Utils/authClient";
@@ -64,6 +66,14 @@ export default function Referrals() {
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
 
+  // Resumen de recompensas (saldo retirable como referidor + crédito seller).
+  const [rewards, setRewards] = useState(null);
+  // Estado del retiro (modal + loading).
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [withdrawError, setWithdrawError] = useState("");
+
   useEffect(() => {
     let active = true;
     getUsdRate()
@@ -100,6 +110,28 @@ export default function Referrals() {
   useEffect(() => {
     fetchStatus();
   }, [fetchStatus]);
+
+  // Carga el resumen de recompensas (se usa en el panel del referidor).
+  const fetchRewards = useCallback(async () => {
+    if (!authenticated) {
+      setRewards(null);
+      return;
+    }
+    try {
+      const token = await getAccessToken();
+      const { data } = await axios.get(
+        `${import.meta.env.VITE_SERVER_URL}/api/rewards/summary`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (data?.success) setRewards(data);
+    } catch {
+      /* noop */
+    }
+  }, [authenticated, getAccessToken]);
+
+  useEffect(() => {
+    fetchRewards();
+  }, [fetchRewards]);
 
   const isApproved = refStatus?.referralStatus === "approved";
   const profileCompleted =
@@ -164,6 +196,41 @@ export default function Referrals() {
       }
     } finally {
       setRequesting(false);
+    }
+  };
+
+  // Ejecuta el retiro de la GANANCIA como referidor (única retirable).
+  const handleWithdraw = async () => {
+    setWithdrawError("");
+    const amount = Number(String(withdrawAmount).replace(",", "."));
+    const withdrawable = rewards?.referrerWithdrawableUsd || 0;
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setWithdrawError("Ingresá un monto válido.");
+      return;
+    }
+    if (amount > withdrawable + 1e-9) {
+      setWithdrawError("El monto supera tu saldo retirable.");
+      return;
+    }
+    setWithdrawing(true);
+    try {
+      const token = await getAccessToken();
+      await axios.post(
+        `${import.meta.env.VITE_SERVER_URL}/api/referral/withdraw`,
+        { amountUsd: amount },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setWithdrawOpen(false);
+      setWithdrawAmount("");
+      await Promise.all([fetchRewards(), fetchStatus()]);
+    } catch (err) {
+      setWithdrawError(
+        err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          "No pudimos procesar el retiro. Probá de nuevo.",
+      );
+    } finally {
+      setWithdrawing(false);
     }
   };
 
@@ -533,35 +600,66 @@ export default function Referrals() {
                   <p className="text-xs text-gray-500 dark:text-zinc-400 mb-4">
                     Resumen de las órdenes que ingresaron mediante tus enlaces.
                   </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    {[
-                      { label: "Ganado histórico", value: "—" },
-                      { label: "Saldo disponible", value: "—" },
-                      { label: "Ventas referidas", value: "—" },
-                    ].map(({ label, value }) => (
-                      <div
-                        key={label}
-                        className="p-4 rounded-xl border border-gray-100 dark:border-zinc-800 bg-white dark:bg-zinc-900"
-                      >
-                        <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
-                          {label}
-                        </p>
-                        <p className="text-2xl font-black text-gray-900 dark:text-white mt-1">
-                          {value}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-3 p-5 rounded-xl border border-dashed border-gray-200 dark:border-zinc-800 text-center">
-                    <BarChart3
-                      size={26}
-                      className="mx-auto text-gray-300 dark:text-zinc-600"
-                    />
-                    <p className="text-xs text-gray-400 dark:text-zinc-500 mt-2">
-                      Próximamente: historial de órdenes, comisiones por producto
-                      y detalle de tus enlaces.
-                    </p>
-                  </div>
+                  {(() => {
+                    const withdrawable = rewards?.referrerWithdrawableUsd || 0;
+                    const usable = rewards?.usable?.totalUsableUsd || 0;
+                    const sellerCredit = rewards?.sellerCreditPendingUsd || 0;
+                    return (
+                      <>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                          {/* Saldo RETIRABLE (ganancia como referidor). */}
+                          <div className="p-4 rounded-xl border border-[#F26722]/40 bg-orange-50/60 dark:bg-orange-950/20">
+                            <p className="text-[11px] font-bold uppercase tracking-wide text-[#F26722]">
+                              Saldo retirable
+                            </p>
+                            <p className="text-2xl font-black text-gray-900 dark:text-white mt-1">
+                              {formatUsdt(withdrawable)}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setWithdrawAmount(withdrawable.toFixed(2));
+                                setWithdrawError("");
+                                setWithdrawOpen(true);
+                              }}
+                              disabled={withdrawable <= 0}
+                              className="mt-3 w-full inline-flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[#F26722] text-white text-xs font-bold transition-all hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <Wallet size={14} /> Retirar a mi wallet
+                            </button>
+                          </div>
+
+                          {/* Saldo USABLE por el comprador (checkout). */}
+                          <div className="p-4 rounded-xl border border-gray-100 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+                            <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
+                              Saldo de recompensas
+                            </p>
+                            <p className="text-2xl font-black text-gray-900 dark:text-white mt-1">
+                              {formatUsdt(usable)}
+                            </p>
+                            <p className="text-[11px] text-gray-400 dark:text-zinc-500 mt-2">
+                              Cashback + reintegros. Se usa para pagar en el
+                              checkout.
+                            </p>
+                          </div>
+
+                          {/* Crédito a favor del seller. */}
+                          <div className="p-4 rounded-xl border border-gray-100 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+                            <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
+                              A favor (ventas)
+                            </p>
+                            <p className="text-2xl font-black text-gray-900 dark:text-white mt-1">
+                              {formatUsdt(sellerCredit)}
+                            </p>
+                            <p className="text-[11px] text-gray-400 dark:text-zinc-500 mt-2">
+                              Compras pagadas con saldo. La plataforma te lo
+                              transfiere.
+                            </p>
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
 
                 {/* ── PRODUCTOS PARA REFERIR ── */}
@@ -709,6 +807,60 @@ export default function Referrals() {
           </>
         )}
       </div>
+
+      {/* ── Modal de retiro a wallet (ganancia como referidor) ── */}
+      {withdrawOpen && (
+        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center px-4">
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-xl w-full max-w-sm p-6 border border-gray-100 dark:border-zinc-800">
+            <h3 className="text-lg font-black text-gray-900 dark:text-white flex items-center gap-2">
+              <Wallet size={18} className="text-[#F26722]" /> Retirar a mi wallet
+            </h3>
+            <p className="text-xs text-gray-500 dark:text-zinc-400 mt-1">
+              Retirás tu ganancia como referidor. Disponible:{" "}
+              <b className="text-gray-800 dark:text-zinc-200">
+                {formatUsdt(rewards?.referrerWithdrawableUsd || 0)}
+              </b>
+              .
+            </p>
+            <label className="block text-[11px] font-bold uppercase tracking-wide text-gray-400 mt-4 mb-1">
+              Monto (USD)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={withdrawAmount}
+              onChange={(e) => setWithdrawAmount(e.target.value)}
+              className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-[#F26722] dark:text-white"
+            />
+            {withdrawError && (
+              <p className="text-xs text-red-500 mt-2">{withdrawError}</p>
+            )}
+            <div className="flex gap-2 mt-5">
+              <button
+                type="button"
+                onClick={() => setWithdrawOpen(false)}
+                disabled={withdrawing}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-zinc-700 text-sm font-bold text-gray-600 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-all disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleWithdraw}
+                disabled={withdrawing}
+                className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[#F26722] text-white text-sm font-bold hover:brightness-110 transition-all disabled:opacity-60"
+              >
+                {withdrawing ? <Loader2 size={16} className="animate-spin" /> : <Wallet size={16} />}
+                {withdrawing ? "Procesando..." : "Retirar"}
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-400 dark:text-zinc-500 mt-3 text-center">
+              La transferencia a tu wallet se procesa manualmente y puede demorar.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ── Modal de onboarding/registro ── */}
       {onboardingOpen && (

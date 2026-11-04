@@ -1,4 +1,4 @@
-import express from 'express';
+﻿import express from 'express';
 const router = express.Router();
 import {
   getAllOrders,
@@ -10,6 +10,7 @@ import {
     adminModerateProductsBulk,
   auditCollateralHandler,
   adminSetUserStatus,
+  adminSetShopStatus,
 } from '../controllers/adminController.js';
 import {
   adminCompleteOrder,
@@ -57,27 +58,31 @@ router.get('/users/:id', verifyAuth, attachUser, isAdmin, getUserById);
 // (pausa) sus publicaciones y bloquea el acceso del usuario.
 router.patch('/users/:id/status', verifyAuth, attachUser, isAdmin, adminSetUserStatus);
 
-// Estadísticas globales del panel (KPIs, GMV, ganancias, tops).
+// Aprobar o desactivar la TIENDA de un vendedor (solo admin).
+// Body: { approved: true|false, reason? }. Requiere onboarding completo para aprobar.
+router.patch('/users/:id/shop', verifyAuth, attachUser, isAdmin, adminSetShopStatus);
+
+// EstadÃ­sticas globales del panel (KPIs, GMV, ganancias, tops).
 router.get('/stats', verifyAuth, attachUser, isAdmin, getStats);
 
-// ── MODERACIÓN DE PUBLICACIONES (solo admin) ──
-// Lista publicaciones por estado de revisión (default: pending).
+// â”€â”€ MODERACIÃ“N DE PUBLICACIONES (solo admin) â”€â”€
+// Lista publicaciones por estado de revisiÃ³n (default: pending).
 // Query: ?moderation=pending|approved|rejected|all&search=&page=&limit=
 router.get('/products', verifyAuth, attachUser, isAdmin, adminGetProducts);
-// Aprobar o rechazar una publicación. Body: { action: 'approve'|'reject', reason? }.
+// Aprobar o rechazar una publicaciÃ³n. Body: { action: 'approve'|'reject', reason? }.
 router.patch('/products/:id/moderate', verifyAuth, attachUser, isAdmin, adminModerateProduct);
 // Aprobar o rechazar EN BLOQUE. Body: { ids: [...], action, reason? }
 // o { selectAll: true, moderation, search, action, reason? } para todo lo filtrado.
 router.post('/products/moderate-bulk', verifyAuth, attachUser, isAdmin, adminModerateProductsBulk);
 
-// Cancelación manual de la orden (solo admin). NO libera la garantía:
+// CancelaciÃ³n manual de la orden (solo admin). NO libera la garantÃ­a:
 // eso se resuelve aparte de forma manual con release-guarantee.
 router.patch('/orders/:orderId/cancel', verifyAuth, attachUser, isAdmin, adminCancelOrder);
 
 // COMPLETAR la orden tras el buffer de seguridad (FASE 1 - MANUAL).
-// Libera la garantía (transferencia) o el escrow (crypto) de una orden en
-// 'reception_confirmed'. Body: { note?, force? }. Es el ÚNICO camino que libera
-// la garantía de una orden dada por recibida por el comprador.
+// Libera la garantÃ­a (transferencia) o el escrow (crypto) de una orden en
+// 'reception_confirmed'. Body: { note?, force? }. Es el ÃšNICO camino que libera
+// la garantÃ­a de una orden dada por recibida por el comprador.
 router.patch('/orders/:orderId/complete', verifyAuth, attachUser, isAdmin, adminCompleteOrder);
 
 // Resolver una disputa de PAGO NO RECIBIDO (abierta por el vendedor en
@@ -91,25 +96,25 @@ router.patch('/orders/:orderId/resolve-payment-dispute', verifyAuth, attachUser,
 router.patch('/orders/:orderId/open-dispute', verifyAuth, attachUser, isAdmin, adminOpenDispute);
 
 // CERRAR una disputa a favor de una de las partes (solo admin). Solo registra
-// la resolución; el admin mueve fondos/estado con los botones de reembolso/
+// la resoluciÃ³n; el admin mueve fondos/estado con los botones de reembolso/
 // completar/liberar. Body: { favor: 'buyer' | 'seller', note? }.
 router.patch('/orders/:orderId/close-dispute', verifyAuth, attachUser, isAdmin, adminCloseDispute);
 
 
-// Liberación manual de garantía del vendedor (solo admin)
+// LiberaciÃ³n manual de garantÃ­a del vendedor (solo admin)
 router.patch('/orders/:orderId/release-guarantee', verifyAuth, attachUser, isAdmin, adminReleaseGuarantee);
 
-// Verificar estado real del colateral on-chain (solo admin) — PRIMER paso ante
-// una orden cancelada con garantía presuntamente congelada.
+// Verificar estado real del colateral on-chain (solo admin) â€” PRIMER paso ante
+// una orden cancelada con garantÃ­a presuntamente congelada.
 router.get('/orders/:orderId/collateral-status', verifyAuth, attachUser, isAdmin, adminGetCollateralStatus);
 
-// AUDITORÍA GLOBAL del colateral (solo admin, solo lectura). Contrasta la DB
-// con la blockchain y lista las órdenes que necesitan acción (liberar,
-// completar tras el buffer o reconciliar). Query: ?since=<días|ISO>&attention=true.
+// AUDITORÃA GLOBAL del colateral (solo admin, solo lectura). Contrasta la DB
+// con la blockchain y lista las Ã³rdenes que necesitan acciÃ³n (liberar,
+// completar tras el buffer o reconciliar). Query: ?since=<dÃ­as|ISO>&attention=true.
 // Va ANTES de las rutas con `:orderId` para no colisionar con ellas.
 router.get('/collateral/audit', verifyAuth, attachUser, isAdmin, auditCollateralHandler);
 
-// ── GESTIÓN DEL ESCROW DE PAGOS CRIPTO (solo admin) ──
+// â”€â”€ GESTIÃ“N DEL ESCROW DE PAGOS CRIPTO (solo admin) â”€â”€
 // Liberar el escrow manualmente (fondos al vendedor, se cobra el fee).
 router.patch('/orders/:orderId/release-escrow', verifyAuth, attachUser, isAdmin, adminReleaseEscrow);
 // Cancelar/reembolsar el escrow (USDT al comprador).
@@ -121,25 +126,25 @@ router.patch('/orders/:orderId/settle-escrow', verifyAuth, attachUser, isAdmin, 
 router.patch('/escrow/fee', verifyAuth, attachUser, isAdmin, adminUpdateEscrowFee);
 // Actualizar la feeWallet del escrow en el contrato.
 router.patch('/escrow/fee-wallet', verifyAuth, attachUser, isAdmin, adminUpdateEscrowFeeWallet);
-// Leer la configuración on-chain del escrow (fee, feeWallet, admin).
+// Leer la configuraciÃ³n on-chain del escrow (fee, feeWallet, admin).
 router.get('/escrow/config', verifyAuth, attachUser, isAdmin, adminGetEscrowConfig);
-// Actualizar parámetros de plataforma del escrow (plazo de liberación).
+// Actualizar parÃ¡metros de plataforma del escrow (plazo de liberaciÃ³n).
 router.patch('/escrow/config', verifyAuth, attachUser, isAdmin, adminUpdateEscrowConfig);
-// Listar órdenes con pago cripto (escrow) para gestión.
+// Listar Ã³rdenes con pago cripto (escrow) para gestiÃ³n.
 router.get('/crypto-orders', verifyAuth, attachUser, isAdmin, adminListCryptoOrders);
-// Recordar al comprador que confirme la recepción (escrow fondeado).
+// Recordar al comprador que confirme la recepciÃ³n (escrow fondeado).
 router.post('/orders/:orderId/notify-buyer-escrow', verifyAuth, attachUser, isAdmin, adminNotifyBuyerEscrow);
 
-// ── CASHBACK (solo admin) ──
-// Configuración global: activar/desactivar, importe, umbral, etc.
+// â”€â”€ CASHBACK (solo admin) â”€â”€
+// ConfiguraciÃ³n global: activar/desactivar, importe, umbral, etc.
 router.get('/cashback/config', verifyAuth, attachUser, isAdmin, adminGetCashbackConfig);
 router.patch('/cashback/config', verifyAuth, attachUser, isAdmin, adminUpdateCashbackConfig);
 
-// Ajuste de cashback de un usuario concreto (override / bonificación manual).
+// Ajuste de cashback de un usuario concreto (override / bonificaciÃ³n manual).
 router.patch('/cashback/user/:userId', verifyAuth, attachUser, isAdmin, adminAdjustUserCashback);
 
-// ── REFERIDOS (solo admin) ──
-// Configuración global: tope de %, default, activar/desactivar, etc.
+// â”€â”€ REFERIDOS (solo admin) â”€â”€
+// ConfiguraciÃ³n global: tope de %, default, activar/desactivar, etc.
 router.get('/referral/config', verifyAuth, attachUser, isAdmin, adminGetReferralConfig);
 router.patch('/referral/config', verifyAuth, attachUser, isAdmin, adminUpdateReferralConfig);
 

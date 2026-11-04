@@ -4,6 +4,7 @@ import Referral from "../models/Referral.js";
 import User from "../models/User.js";
 import Order from "../models/Order.js";
 import Product from "../models/Product.js";
+import { computeReferrerWithdrawable } from "./rewardsService.js";
 
 /**
  * Obtiene (y crea si hace falta) el documento de configuración global de
@@ -341,8 +342,17 @@ export async function withdrawReferral(user, amountUsd, refId = null) {
       error: `El monto mínimo de retiro es US$ ${config.minWithdrawalUsd}.`,
     };
   }
-  if (Number(user.referral?.balance) < amount) {
-    return { success: false, error: "Saldo de referidos insuficiente." };
+  // ── TOPE POR ROL (Opción B) ──────────────────────────────────────────
+  // Solo es retirable la ganancia como REFERIDOR (lo que ganó por compartir
+  // enlaces). La mitad del COMPRADOR en referidos es saldo de recompensas que
+  // se usa en checkout, NO se retira. Derivamos el tope de las transacciones
+  // `earned` con role "referrer" (menos lo ya retirado), sin migrar el modelo.
+  const withdrawable = computeReferrerWithdrawable(user);
+  if (amount > withdrawable) {
+    return {
+      success: false,
+      error: `Solo podés retirar tu ganancia como referidor (US$ ${withdrawable}).`,
+    };
   }
 
   const rounded = Math.round(amount * 100) / 100;

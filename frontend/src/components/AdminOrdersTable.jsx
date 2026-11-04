@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Eye, RefreshCw, ExternalLink, Undo2 } from 'lucide-react';
+import { Eye, RefreshCw, ExternalLink, Undo2, ChevronLeft, ChevronRight } from 'lucide-react';
 import axios from 'axios';
 import { usePrivy } from "../Utils/authClient";
 import { formatMoney } from '../Utils/currencyFormatter';
@@ -11,8 +11,30 @@ const AdminOrdersTable = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const {getAccessToken} = usePrivy();
-  const [selectedOrder, setSelectedOrder] = useState(null);
+    const [selectedOrder, setSelectedOrder] = useState(null);
 const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // ── PAGINACIÓN (client-side) ──
+  // El endpoint /api/admin/orders devuelve TODAS las órdenes de una, así que
+  // paginamos en el cliente. `perPage` es el tamaño de página elegible (50/100).
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(50);
+
+  // Página acotada por si cambia el total (p.ej. al recargar).
+  const totalPages = Math.max(1, Math.ceil(orders.length / perPage));
+  const safePage = Math.min(page, totalPages);
+  const paginatedOrders = orders.slice(
+    (safePage - 1) * perPage,
+    safePage * perPage,
+  );
+
+  // Al cambiar el tamaño de página volvemos a la primera.
+  const handlePerPageChange = (value) => {
+    setPerPage(Number(value));
+    setPage(1);
+  };
+
+  // Recarga la lista de órdenes desde el servidor.
 
 const handleOpenModal = (order) => {
   setSelectedOrder(order);
@@ -419,21 +441,21 @@ const handleOpenModal = (order) => {
 
   return (
     <div className="bg-white dark:bg-zinc-900 rounded-[2.5rem] border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden">
-      <div className="overflow-x-auto">
+            <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-16rem)] custom-scrollbar">
         <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/50">
-              <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">ID Orden</th>
-              <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">Comprador</th>
-              <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">Vendedor</th>
-              <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">Monto</th>
-              <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">Fecha</th>
-              <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">Estado</th>
-              <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">Acciones</th>
+          <thead className="sticky top-0 z-10">
+            <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800">
+              <th className="px-4 py-3 text-[11px] font-black uppercase tracking-widest text-zinc-400">ID Orden</th>
+              <th className="px-4 py-3 text-[11px] font-black uppercase tracking-widest text-zinc-400">Comprador</th>
+              <th className="px-4 py-3 text-[11px] font-black uppercase tracking-widest text-zinc-400">Vendedor</th>
+              <th className="px-4 py-3 text-[11px] font-black uppercase tracking-widest text-zinc-400">Monto</th>
+              <th className="px-4 py-3 text-[11px] font-black uppercase tracking-widest text-zinc-400">Fecha</th>
+              <th className="px-4 py-3 text-[11px] font-black uppercase tracking-widest text-zinc-400">Estado</th>
+              <th className="px-4 py-3 text-[11px] font-black uppercase tracking-widest text-zinc-400">Acciones</th>
             </tr>
           </thead>
                     <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-            {orders.map((order) => {
+            {paginatedOrders.map((order) => {
               // Normalizar código de orden corto por si el backend no lo manda
               const code = order.code || String(order._id || '').slice(-6).toUpperCase();
               const statusLabels = {
@@ -452,21 +474,21 @@ const handleOpenModal = (order) => {
                 order.seller?.username || order.seller?.firstName || order.seller?.email || 'Vendedor';
               return (
                 <tr key={order._id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
-                  <td className="p-6 font-mono text-xs text-zinc-500">#{code}</td>
-                  <td className="p-6">
+                                    <td className="px-4 py-3 font-mono text-xs text-zinc-500">#{code}</td>
+                  <td className="px-4 py-3">
                     <div className="text-sm font-bold">{buyerName}</div>
                   </td>
-                  <td className="p-6">
+                  <td className="px-4 py-3">
                     <div className="text-sm font-bold">{sellerName}</div>
                   </td>
-                  <td className="p-6 font-black text-sm">${formatMoney(order.totalAmount)}</td>
-                  <td className="p-6">
+                  <td className="px-4 py-3 font-black text-sm">${formatMoney(order.totalAmount)}</td>
+                  <td className="px-4 py-3">
                     <div className="text-sm text-zinc-500 flex flex-col">
                       <p>{new Date(order.createdAt).toLocaleDateString()}</p>
                       <p>{new Date(order.createdAt).toLocaleTimeString()}</p>
                     </div>
                   </td>
-                  <td className="p-6">
+                  <td className="px-4 py-3">
                     <div className="flex flex-col gap-1 items-start">
                       <StatusBadge status={order.status} label={statusLabels[order.status] || order.status} />
                       {detectPendingCancellation(order) && (
@@ -476,7 +498,7 @@ const handleOpenModal = (order) => {
                       )}
                     </div>
                   </td>
-                  <td className="p-6">
+                                    <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                                             <button
                         onClick={() => handleOpenModal(order)}
@@ -518,10 +540,51 @@ const handleOpenModal = (order) => {
                 </tr>
               );
             })}
-          </tbody>
+                    </tbody>
         </table>
-        <AdminOrderModal order={selectedOrder} isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onAction={handleAdminAction} />
       </div>
+
+      {/* ── PAGINACIÓN (client-side) ── */}
+      <div className="p-4 border-t border-zinc-100 dark:border-zinc-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+        {/* Selector de tamaño de página */}
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <span>Mostrar</span>
+          <select
+            value={perPage}
+            onChange={(e) => handlePerPageChange(e.target.value)}
+            className="px-2 py-1 text-xs font-bold bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg outline-none focus:ring-2 focus:ring-[#F26722] dark:text-zinc-100"
+          >
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+          <span>
+            · {orders.length} orden{orders.length === 1 ? '' : 'es'}
+          </span>
+        </div>
+
+        {/* Navegación entre páginas */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-zinc-500 mr-1">
+            Página {safePage} de {totalPages}
+          </span>
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={safePage <= 1}
+            className="p-2 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:text-[#F26722] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={safePage >= totalPages}
+            className="p-2 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:text-[#F26722] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
+
+      <AdminOrderModal order={selectedOrder} isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onAction={handleAdminAction} />
     </div>
   );
 };

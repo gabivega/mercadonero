@@ -39,24 +39,41 @@ export default async function requireSellerOnboarding(req, res, next) {
     //    perfil), no shop.bankAccounts. Se mantiene shop como fallback de
     //    migración para vendedores antiguos.
     const user = await User.findById(req.user._id).select(
-      "shop.active bankAccounts shop.bankAccounts walletAddress",
+      "shop.active shop.approved shop.approvalReason bankAccounts shop.bankAccounts walletAddress",
     );
     if (!user) {
       return res.status(404).json({ success: false, message: "Usuario no encontrado." });
     }
 
     const shopActive = Boolean(user.shop?.active);
+    const shopApproved = Boolean(user.shop?.approved);
     const hasBankAccount =
       Array.isArray(user.bankAccounts) && user.bankAccounts.length > 0;
     const hasLegacyShopBank =
       Array.isArray(user.shop?.bankAccounts) && user.shop.bankAccounts.length > 0;
 
+    // 2a. Falta completar el onboarding (datos / cuenta bancaria).
     if (!shopActive || (!hasBankAccount && !hasLegacyShopBank)) {
       return res.status(403).json({
         success: false,
         blocked: "onboarding",
         message:
           "Para poder publicar necesitamos que completes algunos datos. No compartiremos tus datos con nadie, ofrecemos una plataforma segura para todos los usuarios.",
+      });
+    }
+
+    // 2b. Onboarding completo, pero la tienda aún no fue aprobada por un admin.
+    //     En esta etapa la publicación de productos de pago está sujeta a
+    //     aprobación manual. No abrimos el onboarding (ya está completo); el
+    //     front muestra "tu tienda está en revisión".
+    if (!shopApproved) {
+      return res.status(403).json({
+        success: false,
+        blocked: "approval",
+        message:
+          user.shop?.approvalReason?.trim()
+            ? `Tu tienda todavía no está habilitada para publicar: ${user.shop.approvalReason.trim()}`
+            : "Tu tienda está en revisión. Un administrador la habilitará pronto; te avisaremos cuando puedas publicar.",
       });
     }
 

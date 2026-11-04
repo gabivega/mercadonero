@@ -9,6 +9,7 @@ import {
   requestReferral,
   withdrawMyReferral,
 } from "../controllers/referralController.js";
+import { createReferralLink } from "../controllers/referralLinkController.js";
 
 // Estado del usuario frente al programa de referidores (gate de la vista).
 // Va ANTES de "/" para no colisionar con rutas genéricas.
@@ -16,6 +17,9 @@ router.get("/status", verifyAuth, attachUser, getMyReferralStatus);
 
 // Solicitar ser referidor (requiere perfil completo; aprobación manual).
 router.post("/request", verifyAuth, attachUser, requestReferral);
+
+// Crear/reutilizar enlace corto para compartir un producto (solo aprobados).
+router.post("/link", verifyAuth, attachUser, createReferralLink);
 
 // Consultar mis referidos (balance, histórico, tope de % que aplica).
 router.get("/", verifyAuth, attachUser, getMyReferral);

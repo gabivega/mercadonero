@@ -47,6 +47,8 @@ export const ImportSection = () => {
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [pendingBulk, setPendingBulk] = useState(null);
   const onboardingComplete = Boolean(dbUser?.shop?.active);
+  // Para publicar productos de pago se requiere además la APROBACIÓN del admin.
+  const shopApproved = Boolean(dbUser?.shop?.approved);
   const onboardingPrefill = {
     firstName: dbUser?.firstName || "",
     lastName: dbUser?.lastName || "",
@@ -315,7 +317,7 @@ export const ImportSection = () => {
     };
 
     // ── ENVIAR PRODUCTOS VÁLIDOS AL BACKEND ──
-        const handleBulkSubmit = async (force = false) => {
+                const handleBulkSubmit = async (force = false) => {
           // ── BLOQUEO DE ONBOARDING VENDEDOR ──
           // La carga masiva SIEMPRE crea productos de pago (listingType 'product').
           // Si no completó el onboarding (y no viene forzado desde el modal ya cerrado),
@@ -323,6 +325,21 @@ export const ImportSection = () => {
           if (!onboardingComplete && !force) {
             setPendingBulk(parsedRows);
             setIsOnboardingOpen(true);
+            return;
+          }
+
+          // Completó el onboarding pero la tienda aún no fue aprobada: avisamos.
+          if (onboardingComplete && !shopApproved) {
+            Swal.fire({
+              title: "Tu tienda está en revisión",
+              text: "Un administrador está revisando tu tienda. Cuando la habilite vas a poder importar productos. Te avisaremos.",
+              icon: "info",
+              background: "#1A1A1A",
+              color: "#ffffff",
+              confirmButtonColor: "#2563eb",
+              confirmButtonText: "Entendido",
+              customClass: { popup: "rounded-3xl border border-gray-800" },
+            });
             return;
           }
 
@@ -392,12 +409,28 @@ export const ImportSection = () => {
           return;
         }
 
-        if (data?.blocked === "onboarding") {
+                if (data?.blocked === "onboarding") {
           // Falta completar datos del vendedor (tienda/cuenta bancaria).
           // Abrimos el modal de onboarding para completarlos y reintentar.
           setPendingBulk(parsedRows);
-          setIsOnboardingOpen(true);
+                    setIsOnboardingOpen(true);
           setIsBulkSubmitting(false);
+          return;
+        }
+
+        if (data?.blocked === "approval") {
+          // La tienda está en revisión (no aprobada por un admin todavía).
+          Swal.fire({
+            title: "Tu tienda está en revisión",
+            text: errorMsg,
+            icon: "info",
+            background: "#1A1A1A",
+            color: "#ffffff",
+            confirmButtonColor: "#2563eb",
+            confirmButtonText: "Entendido",
+            customClass: { popup: "rounded-3xl border border-gray-800" },
+          });
+                    setIsBulkSubmitting(false);
           return;
         }
 
@@ -746,7 +779,7 @@ export const ImportSection = () => {
       </div>
     </div>
 
-    {/* Modal de Onboarding Vendedor (carga masiva) */}
+        {/* Modal de Onboarding Vendedor (carga masiva) */}
         <SellerOnboarding
       isOpen={isOnboardingOpen}
       onClose={() => setIsOnboardingOpen(false)}
@@ -757,4 +790,5 @@ export const ImportSection = () => {
     </>
   );
 };
+
 

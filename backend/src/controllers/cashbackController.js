@@ -21,10 +21,20 @@ export const getMyCashback = async (req, res) => {
 
     const params = await resolveCashbackParams(user);
 
+    // Saldo DISPONIBLE = balance - reservado (comprometido en órdenes abiertas).
+    // La wallet debe mostrar el DISPONIBLE, no el balance bruto: si el comprador
+    // usó cashback en una orden, ese monto queda reservado hasta que la orden se
+    // complete (se descuenta) o se cancele (se libera).
+    const balance = Number(user.cashback?.balance ?? 0);
+    const reservedUsd = Number(user.cashback?.reservedUsd ?? 0);
+    const available = Math.max(0, Math.round((balance - reservedUsd) * 100) / 100);
+
     res.status(200).json({
       success: true,
       cashback: {
-        balance: user.cashback?.balance ?? 0,
+        balance, // balance total (incluye lo reservado) — auditoría
+        reservedUsd, // comprometido en órdenes abiertas
+        available, // usable ahora (balance - reservado)
         earned: user.cashback?.earned ?? 0,
         spent: user.cashback?.spent ?? 0,
         withdrawn: user.cashback?.withdrawn ?? 0,

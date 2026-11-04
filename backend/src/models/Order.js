@@ -224,6 +224,26 @@ const orderSchema = new Schema(
       referralPercent: { type: Number, default: 0 },
       shippingCostUsd: { type: Number, default: 0 }, // Costo de envío en USD (si aplica)
       sellerNetReleaseUsd: { type: Number, required: true }, // Lo que efectivamente recibe el vendedor
+      // ────────────────────────────────────────────────
+      // SALDO DE RECOMPENSAS USADO EN EL CHECKOUT (Etapa 2 del programa)
+      // El comprador puede pagar parte del total con su saldo off-chain
+      // (cashback + reintegro de referidos). El escrow se fondea SOLO por el
+      // monto restante (escrowAmountUsd). El seller cobra de menos en escrow y
+      // la plataforma le compensa ese monto vía SellerCredit (registro aparte).
+      // En Etapa 1 quedan en 0 (el descuento todavía no se activa).
+      // ────────────────────────────────────────────────
+      rewardsUsedUsd: { type: Number, default: 0 },   // total de recompensas aplicadas
+      escrowAmountUsd: { type: Number, default: 0 },  // monto efectivamente fondeado en escrow (= total - rewardsUsed + envío)
+      // Crédito a favor del SELLER por las recompensas usadas: es lo que NO
+      // cobró del escrow (su neto pendiente) y se le acredita vía SellerCredit
+      // para que solicite el claim. Puede ser distinto de rewardsUsedUsd: la
+      // diferencia (el fee del pedido) queda a favor de la plataforma al
+      // consumirse el saldo de recompensas.
+      sellerCreditUsd: { type: Number, default: 0 },
+      rewardsBreakdown: {
+        cashbackUsd: { type: Number, default: 0 },
+        referralUsd: { type: Number, default: 0 },
+      },
     },
 
     // ────────────────────────────────────────────────

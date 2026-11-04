@@ -60,7 +60,7 @@ export default function VenderPage() {
         </button>
         
         <p className="text-sm text-zinc-400 dark:text-zinc-500">
-          ¿No tienes cuenta? Se crea automáticamente al iniciar sesión
+          ¿No tienes cuenta? Se crea automáticamente al iniciar sesión. Sin contraseña ni datos biométricos.
         </p>
       </div>
       

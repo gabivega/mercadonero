@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ArrowUpDown,
   ShieldAlert,
+  Clock,
 } from 'lucide-react';
 import axios from 'axios';
 import { usePrivy } from "../Utils/authClient";
@@ -83,7 +84,7 @@ const AdminUsersTable = () => {
   const SortHeader = ({ field, children }) => {
     const active = sort === field;
     return (
-      <th className="p-6">
+      <th className="px-4 py-3">
         <button
           onClick={() => toggleSort(field)}
           className="flex items-center gap-1 text-[11px] font-black uppercase tracking-widest text-zinc-400 hover:text-[#F26722] transition-colors"
@@ -131,92 +132,102 @@ const AdminUsersTable = () => {
           <LoadingSpinner size="lg" text="Cargando usuarios..." />
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <div className="min-w-[760px]">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/50">
-                  <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">
-                    Usuario
-                  </th>
-                  <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">
-                    Email
-                  </th>
-                  <SortHeader field="sales">Ventas</SortHeader>
-                  <SortHeader field="purchases">Compras</SortHeader>
-                  <SortHeader field="username">Username</SortHeader>
-                  <SortHeader field="createdAt">Registro</SortHeader>
-                  <th className="p-6 text-[11px] font-black uppercase tracking-widest text-zinc-400">
-                    Acciones
-                  </th>
+        <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-16rem)] custom-scrollbar">
+          <table className="w-full text-left border-collapse">
+            <thead className="sticky top-0 z-10">
+              <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800">
+                <th className="px-4 py-3 text-[11px] font-black uppercase tracking-widest text-zinc-400">
+                  Usuario
+                </th>
+                <th className="px-4 py-3 text-[11px] font-black uppercase tracking-widest text-zinc-400">
+                  Email
+                </th>
+                <SortHeader field="sales">Ventas</SortHeader>
+                <SortHeader field="purchases">Compras</SortHeader>
+                <SortHeader field="username">Username</SortHeader>
+                <SortHeader field="createdAt">Registro</SortHeader>
+                <th className="px-4 py-3 text-[11px] font-black uppercase tracking-widest text-zinc-400 text-right">
+                  Acciones
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              {users.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="p-10 text-center text-sm text-zinc-400">
+                    No se encontraron usuarios.
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                {users.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="p-10 text-center text-sm text-zinc-400">
-                      No se encontraron usuarios.
+              ) : (
+                users.map((user) => (
+                  <tr
+                    key={user._id}
+                    className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
+                  >
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => handleOpenModal(user)}
+                        className="flex items-center gap-3 text-left group min-w-0"
+                      >
+                        <div className="w-9 h-9 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center overflow-hidden flex-shrink-0">
+                          {user.avatar ? (
+                            <img src={user.avatar} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <UserIcon size={18} className="text-zinc-400" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200 group-hover:text-[#F26722] transition-colors truncate">
+                            {user.fullName || user.username || 'Sin nombre'}
+                          </p>
+                          <p className="text-xs text-zinc-500 font-mono flex items-center gap-1 truncate">
+                            @{user.username || '—'}
+                            {user.accountStatus === 'suspended' && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-rose-500/10 text-rose-600 text-[9px] font-black uppercase">
+                                <ShieldAlert size={9} /> Suspendido
+                              </span>
+                            )}
+                            {user.shopActive && !user.shopApproved && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 text-[9px] font-black uppercase">
+                                <Clock size={9} /> Tienda pendiente
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                      </button>
+                    </td>
+                    <td
+                      className="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400 max-w-[220px] truncate"
+                      title={user.email}
+                    >
+                      {user.email}
+                    </td>
+                    <td className="px-4 py-3 text-sm font-bold text-zinc-800 dark:text-zinc-200">
+                      {user.totalSales ?? 0}
+                    </td>
+                    <td className="px-4 py-3 text-sm font-bold text-zinc-800 dark:text-zinc-200">
+                      {user.totalPurchases ?? 0}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-zinc-500 max-w-[160px] truncate">
+                      {user.username}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-zinc-500 whitespace-nowrap">
+                      {new Date(user.createdAt).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => handleOpenModal(user)}
+                        className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-[#F26722] transition-colors"
+                        title="Ver detalle"
+                      >
+                        <Eye size={18} />
+                      </button>
                     </td>
                   </tr>
-                ) : (
-                  users.map((user) => (
-                    <tr
-                      key={user._id}
-                      className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
-                    >
-                      <td className="p-6">
-                        <button
-                          onClick={() => handleOpenModal(user)}
-                          className="flex items-center gap-3 text-left group"
-                        >
-                          <div className="w-9 h-9 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center overflow-hidden flex-shrink-0">
-                            {user.avatar ? (
-                              <img src={user.avatar} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              <UserIcon size={18} className="text-zinc-400" />
-                            )}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200 group-hover:text-[#F26722] transition-colors">
-                              {user.fullName || user.username || 'Sin nombre'}
-                            </p>
-                            <p className="text-xs text-zinc-500 font-mono flex items-center gap-1">
-                              @{user.username || '—'}
-                              {user.accountStatus === 'suspended' && (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-rose-500/10 text-rose-600 text-[9px] font-black uppercase">
-                                  <ShieldAlert size={9} /> Suspendido
-                                </span>
-                              )}
-                            </p>
-                          </div>
-                        </button>
-                      </td>
-                      <td className="p-6 text-sm text-zinc-600 dark:text-zinc-400">{user.email}</td>
-                      <td className="p-6 text-sm font-bold text-zinc-800 dark:text-zinc-200">
-                        {user.totalSales ?? 0}
-                      </td>
-                      <td className="p-6 text-sm font-bold text-zinc-800 dark:text-zinc-200">
-                        {user.totalPurchases ?? 0}
-                      </td>
-                      <td className="p-6 text-sm text-zinc-500">{user.username}</td>
-                      <td className="p-6 text-sm text-zinc-500">
-                        {new Date(user.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="p-6">
-                        <button
-                          onClick={() => handleOpenModal(user)}
-                          className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-[#F26722] transition-colors"
-                          title="Ver detalle"
-                        >
-                          <Eye size={18} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       )}
 

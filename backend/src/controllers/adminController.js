@@ -1,4 +1,4 @@
-// controllers/adminController.js
+﻿// controllers/adminController.js
 
 import Order from '../models/Order.js';
 import User from '../models/User.js';
@@ -28,9 +28,9 @@ export const getAllOrders = async (req, res) => {
             status: o.status,
       createdAt: o.createdAt,
       expiresAt: o.expiresAt,
-      // Buffer de protección del comprador (flujo reception_confirmed → liberación).
-      // El panel de admin los necesita para saber si el período de seguridad ya
-      // se cumplió y mostrar "liberable desde ..." en vez de "N/D".
+      // Buffer de protecciÃ³n del comprador (flujo reception_confirmed â†’ liberaciÃ³n).
+      // El panel de admin los necesita para saber si el perÃ­odo de seguridad ya
+      // se cumpliÃ³ y mostrar "liberable desde ..." en vez de "N/D".
       receptionConfirmedAt: o.receptionConfirmedAt,
       releaseEligibleAt: o.releaseEligibleAt,
       paymentProof: o.paymentProof,
@@ -43,10 +43,10 @@ export const getAllOrders = async (req, res) => {
       pendingRequest: o.pendingRequest,
       releaseRequest: o.releaseRequest,
       orderActions: o.orderActions,
-      // Datos del PAGO (método + estado del escrow). El panel de admin los
+      // Datos del PAGO (mÃ©todo + estado del escrow). El panel de admin los
       // necesita para distinguir transferencia bancaria de escrow crypto y
-      // habilitar la acción correcta ("Reembolsar comprador" usa cancel-escrow
-      // sólo cuando payment.method === "crypto").
+      // habilitar la acciÃ³n correcta ("Reembolsar comprador" usa cancel-escrow
+      // sÃ³lo cuando payment.method === "crypto").
       payment: o.payment,
       // Estado de disputa. El modal de admin lo usa para mostrar el banner
       // "Orden en disputa", habilitar los botones de cierre (a favor del
@@ -59,13 +59,13 @@ export const getAllOrders = async (req, res) => {
     res.status(200).json({ success: true, orders: data });
   } catch (error) {
     console.log(error)
-    res.status(500).json({ message: "Error al obtener las órdenes" });
+    res.status(500).json({ message: "Error al obtener las Ã³rdenes" });
   }
 };
 
 // GET /api/admin/users
-// Lista los usuarios con búsqueda, ordenamiento y paginación (server-side).
-// Los conteos de ventas/compras se calculan desde la colección Order (siempre al día).
+// Lista los usuarios con bÃºsqueda, ordenamiento y paginaciÃ³n (server-side).
+// Los conteos de ventas/compras se calculan desde la colecciÃ³n Order (siempre al dÃ­a).
 export const getAllUsers = async (req, res) => {
   try {
     const {
@@ -80,7 +80,7 @@ export const getAllUsers = async (req, res) => {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 25));
     const skip = (pageNum - 1) * limitNum;
 
-        // Filtro de búsqueda (email, privyDid/supabaseId, username, nombre)
+        // Filtro de bÃºsqueda (email, privyDid/supabaseId, username, nombre)
     const match = {};
     if (search) {
       const reg = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
@@ -225,14 +225,14 @@ export const getUserById = async (req, res) => {
   }
 };
 
-// ════════════════════════════════════════════════════════════════════
-// ════════════════════════════════════════════════════════════════════
-// GESTIÓN DEL ESTADO DE LA CUENTA (solo admin)
-// ════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// GESTIÃ“N DEL ESTADO DE LA CUENTA (solo admin)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // PATCH /api/admin/users/:id/status
 // Body: { status: "active" | "suspended", reason? }
-// Cambia el accountStatus del usuario. Suspender también pausa sus productos
-// activos (reversible). Nunca borra el documento (preserva órdenes/escrow).
+// Cambia el accountStatus del usuario. Suspender tambiÃ©n pausa sus productos
+// activos (reversible). Nunca borra el documento (preserva Ã³rdenes/escrow).
 export const adminSetUserStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -241,7 +241,7 @@ export const adminSetUserStatus = async (req, res) => {
     if (!["active", "suspended"].includes(status)) {
       return res.status(400).json({
         success: false,
-        message: "Estado inválido. Usá 'active' o 'suspended'.",
+        message: "Estado invÃ¡lido. UsÃ¡ 'active' o 'suspended'.",
       });
     }
 
@@ -262,7 +262,7 @@ export const adminSetUserStatus = async (req, res) => {
     if (status === "suspended" && !String(reason).trim()) {
       return res.status(400).json({
         success: false,
-        message: "El motivo de suspensión es obligatorio.",
+        message: "El motivo de suspensiÃ³n es obligatorio.",
       });
     }
 
@@ -286,7 +286,7 @@ export const adminSetUserStatus = async (req, res) => {
       success: true,
       message:
         status === "suspended"
-          ? `Cuenta suspendida. ${productsPaused} publicación(es) pausada(s).`
+          ? `Cuenta suspendida. ${productsPaused} publicaciÃ³n(es) pausada(s).`
           : "Cuenta reactivada.",
       user: {
         _id: user._id,
@@ -306,19 +306,92 @@ export const adminSetUserStatus = async (req, res) => {
   }
 };
 
-// MODERACIÓN DE PUBLICACIONES (aprobación manual por admin)
-// ════════════════════════════════════════════════════════════════════
-// Flujo: el vendedor publica → el producto nace en moderation.status="pending"
-// y NO aparece en el catálogo público. El admin lo revisa y lo aprueba o
+// Gestion de la TIENDA del vendedor (aprobar / desactivar como admin).
+// PATCH /api/admin/users/:id/shop  Body: { approved: boolean, reason? }.
+// - approved=true: habilita publicar (requiere onboarding completo: shop.active).
+// - approved=false: desactiva la tienda y pausa sus productos "active" (reversible).
+// Ortogonal a accountStatus. Nunca borra el documento.
+export const adminSetShopStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { approved, reason = "" } = req.body || {};
+
+    if (typeof approved !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "Valor invalido. Envia 'approved' como booleano.",
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Usuario no encontrado." });
+    }
+
+    if (user.role === "admin") {
+      return res.status(400).json({
+        success: false,
+        message: "No se puede gestionar la tienda de una cuenta de administrador.",
+      });
+    }
+
+    if (approved && !user.shop?.active) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "El vendedor todavia no completo su onboarding (datos y cuenta bancaria). No se puede aprobar la tienda.",
+      });
+    }
+
+    user.shop = user.shop || {};
+    user.shop.approved = approved;
+    user.shop.approvedAt = new Date();
+    user.shop.approvedBy = req.user._id;
+    user.shop.approvalReason = approved ? "" : String(reason).trim();
+    await user.save();
+
+    let productsPaused = 0;
+    if (!approved) {
+      const r = await Product.updateMany(
+        { seller: user._id, status: "active" },
+        { $set: { status: "paused" } },
+      );
+      productsPaused = r.modifiedCount || 0;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: approved
+        ? "Tienda aprobada. El vendedor ya puede publicar productos de pago."
+        : `Tienda desactivada. ${productsPaused} publicacion(es) pausada(s).`,
+      user: {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        shopApproved: user.shop.approved,
+        shopApprovalReason: user.shop.approvalReason,
+      },
+      productsPaused,
+    });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Error al actualizar el estado de la tienda." });
+  }
+};
+
+// MODERACIÃ“N DE PUBLICACIONES (aprobaciÃ³n manual por admin)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// Flujo: el vendedor publica â†’ el producto nace en moderation.status="pending"
+// y NO aparece en el catÃ¡logo pÃºblico. El admin lo revisa y lo aprueba o
 // rechaza (con motivo). Solo los "approved" (y status="active") son visibles.
 //
 // Estos endpoints NO tocan el `status` de venta (active/paused/...): la
-// moderación es ortogonal. Un producto rechazado puede seguir "active" para
-// el vendedor, pero no se muestra al público.
+// moderaciÃ³n es ortogonal. Un producto rechazado puede seguir "active" para
+// el vendedor, pero no se muestra al pÃºblico.
 
 // GET /api/admin/products?moderation=pending&search=&page=&limit=
 // Lista publicaciones para revisar. Por defecto muestra las "pending".
-// También acepta moderation=approved | rejected | all para ver el historial.
+// TambiÃ©n acepta moderation=approved | rejected | all para ver el historial.
 export const adminGetProducts = async (req, res) => {
   try {
     const {
@@ -332,13 +405,13 @@ export const adminGetProducts = async (req, res) => {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 25));
     const skip = (pageNum - 1) * limitNum;
 
-    // Filtro por estado de moderación (o todos si moderation === "all").
+    // Filtro por estado de moderaciÃ³n (o todos si moderation === "all").
     const match = { status: { $ne: "deleted" } };
     if (moderation !== "all") {
       match["moderation.status"] = moderation;
     }
 
-    // Búsqueda por nombre, marca o categoría.
+    // BÃºsqueda por nombre, marca o categorÃ­a.
     if (search) {
       const reg = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
       match.$or = [{ name: reg }, { brand: reg }, { category: reg }];
@@ -384,7 +457,7 @@ export const adminGetProducts = async (req, res) => {
 
 // PATCH /api/admin/products/:id/moderate
 // Body: { action: "approve" | "reject", reason? }
-// Aprueba o rechaza una publicación. El motivo es obligatorio al rechazar.
+// Aprueba o rechaza una publicaciÃ³n. El motivo es obligatorio al rechazar.
 export const adminModerateProduct = async (req, res) => {
   try {
     const { id } = req.params;
@@ -393,7 +466,7 @@ export const adminModerateProduct = async (req, res) => {
     if (!["approve", "reject"].includes(action)) {
       return res.status(400).json({
         success: false,
-        message: "Acción inválida. Usá 'approve' o 'reject'.",
+        message: "AcciÃ³n invÃ¡lida. UsÃ¡ 'approve' o 'reject'.",
       });
     }
 
@@ -406,7 +479,7 @@ export const adminModerateProduct = async (req, res) => {
 
     const product = await Product.findById(id);
     if (!product) {
-      return res.status(404).json({ success: false, message: "Publicación no encontrada." });
+      return res.status(404).json({ success: false, message: "PublicaciÃ³n no encontrada." });
     }
 
     const now = new Date();
@@ -427,23 +500,23 @@ export const adminModerateProduct = async (req, res) => {
       success: true,
       message:
         action === "approve"
-          ? "Publicación aprobada."
-          : "Publicación rechazada.",
+          ? "PublicaciÃ³n aprobada."
+          : "PublicaciÃ³n rechazada.",
       product,
     });
   } catch (error) {
     console.log(error);
-        res.status(500).json({ message: "Error al moderar la publicación" });
+        res.status(500).json({ message: "Error al moderar la publicaciÃ³n" });
   }
 };
 
 // POST /api/admin/products/moderate-bulk
-// Body (opción A): { ids: [..], action: "approve"|"reject", reason? }
-// Body (opción B): { selectAll: true, moderation?: "pending"|..., search?, action, reason? }
-//   → aplica a TODOS los productos que matcheen el filtro (carga masiva).
+// Body (opciÃ³n A): { ids: [..], action: "approve"|"reject", reason? }
+// Body (opciÃ³n B): { selectAll: true, moderation?: "pending"|..., search?, action, reason? }
+//   â†’ aplica a TODOS los productos que matcheen el filtro (carga masiva).
 //
 // Aprueba/rechaza en bloque. Usa updateMany para que 2000 productos sean UNA
-// operación en Mongo en vez de 2000 requests. Devuelve cuántos se modificaron.
+// operaciÃ³n en Mongo en vez de 2000 requests. Devuelve cuÃ¡ntos se modificaron.
 export const adminModerateProductsBulk = async (req, res) => {
   try {
     const {
@@ -458,7 +531,7 @@ export const adminModerateProductsBulk = async (req, res) => {
     if (!["approve", "reject"].includes(action)) {
       return res.status(400).json({
         success: false,
-        message: "Acción inválida. Usá 'approve' o 'reject'.",
+        message: "AcciÃ³n invÃ¡lida. UsÃ¡ 'approve' o 'reject'.",
       });
     }
 
@@ -473,7 +546,7 @@ export const adminModerateProductsBulk = async (req, res) => {
     const match = { status: { $ne: "deleted" } };
 
     if (selectAll) {
-      // Modo "todo lo filtrado": respeta el tab + búsqueda del panel.
+      // Modo "todo lo filtrado": respeta el tab + bÃºsqueda del panel.
       if (moderation && moderation !== "all") {
         match["moderation.status"] = moderation;
       }
@@ -507,7 +580,7 @@ export const adminModerateProductsBulk = async (req, res) => {
 
     const result = await Product.updateMany(match, update);
 
-    // Contadores actualizados para que el panel refresque las pestañas.
+    // Contadores actualizados para que el panel refresque las pestaÃ±as.
     const [pendingCount, approvedCount, rejectedCount] = await Promise.all([
       Product.countDocuments({ "moderation.status": "pending", status: { $ne: "deleted" } }),
       Product.countDocuments({ "moderation.status": "approved", status: { $ne: "deleted" } }),
@@ -518,8 +591,8 @@ export const adminModerateProductsBulk = async (req, res) => {
       success: true,
       message:
         action === "approve"
-          ? `${result.modifiedCount} publicación(es) aprobada(s).`
-          : `${result.modifiedCount} publicación(es) rechazada(s).`,
+          ? `${result.modifiedCount} publicaciÃ³n(es) aprobada(s).`
+          : `${result.modifiedCount} publicaciÃ³n(es) rechazada(s).`,
       modifiedCount: result.modifiedCount,
       matchedCount: result.matchedCount,
       counts: {
@@ -534,24 +607,24 @@ export const adminModerateProductsBulk = async (req, res) => {
   }
 };
 
-// ════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // GET /api/admin/stats
-// Panel de estadísticas globales de Mercado Nero.
+// Panel de estadÃ­sticas globales de Mercado Nero.
 //
 // Todo se calcula con agregaciones de Mongo sobre Order, Product y User.
-// Las métricas de dinero se basan en valores ya guardados por orden
+// Las mÃ©tricas de dinero se basan en valores ya guardados por orden
 // (financials.*), para que sean auditables y no dependan de configs que
 // cambien con el tiempo.
 //
 // Criterios:
-//   - "Órdenes completadas": status === "completed".
-//   - "Órdenes abiertas": status en estados activos (ni completada,
+//   - "Ã“rdenes completadas": status === "completed".
+//   - "Ã“rdenes abiertas": status en estados activos (ni completada,
 //     ni cancelada, ni expirada).
-//   - GMV ARS = suma de totalAmount (ARS) de órdenes COMPLETADAS.
+//   - GMV ARS = suma de totalAmount (ARS) de Ã³rdenes COMPLETADAS.
 //   - GMV USD = suma de financials.totalUsd (subtotal productos) de
 //     COMPLETADAS. Se separa en "crypto" (payment.method === "crypto")
 //     vs "transferencia" (el resto).
-//   - Ganancia BRUTA = suma de financials.baseFeeUsd (comisión 3%).
+//   - Ganancia BRUTA = suma de financials.baseFeeUsd (comisiÃ³n 3%).
 //   - Reintegros = cashback.earnedUsd (sale de la plataforma).
 //   - Ganancia NETA = bruta - cashback.
 //
@@ -559,7 +632,7 @@ export const adminModerateProductsBulk = async (req, res) => {
 //   ganancia. Se descuenta del VENDEDOR on-chain (va sumado al fee) y la
 //   plataforma lo recibe en su wallet y lo reparte a los referidos; es un
 //   pass-through, no plata propia.
-// ════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 export const getStats = async (req, res) => {
   try {
     const OPEN_STATUSES = [
@@ -571,7 +644,7 @@ export const getStats = async (req, res) => {
     ];
     const COMPLETED = "completed";
 
-    // Métricas de dinero y conteos sobre órdenes (una sola pasada con $facet).
+    // MÃ©tricas de dinero y conteos sobre Ã³rdenes (una sola pasada con $facet).
     const [ordersAgg] = await Order.aggregate([
       {
         $facet: {
@@ -618,7 +691,7 @@ export const getStats = async (req, res) => {
       },
     ]);
 
-    // Órdenes por método de pago (completadas).
+    // Ã“rdenes por mÃ©todo de pago (completadas).
     const paymentMethodAgg = await Order.aggregate([
       { $match: { status: COMPLETED } },
       {
@@ -659,20 +732,20 @@ export const getStats = async (req, res) => {
           name: {
             $ifNull: [
               { $arrayElemAt: ["$seller.shop.name", 0] },
-              { $ifNull: [{ $arrayElemAt: ["$seller.username", 0] }, "—"] },
+              { $ifNull: [{ $arrayElemAt: ["$seller.username", 0] }, "â€”"] },
             ],
           },
         },
       },
     ]);
 
-    // Top 5 categorías por unidades vendidas (completadas).
+    // Top 5 categorÃ­as por unidades vendidas (completadas).
     const topCategoriesAgg = await Order.aggregate([
       { $match: { status: COMPLETED } },
       { $unwind: "$itemsSnapshot" },
       {
         $group: {
-          _id: { $ifNull: ["$itemsSnapshot.category", "Sin categoría"] },
+          _id: { $ifNull: ["$itemsSnapshot.category", "Sin categorÃ­a"] },
           gmvUsd: {
             $sum: {
               $multiply: [
@@ -700,7 +773,7 @@ export const getStats = async (req, res) => {
       },
     ]);
 
-    // Top 5 productos más vistos.
+    // Top 5 productos mÃ¡s vistos.
     const topViewedAgg = await Product.find({ status: { $ne: "deleted" } })
       .sort({ views: -1 })
       .limit(5)
@@ -735,7 +808,7 @@ export const getStats = async (req, res) => {
       ]),
     ]);
 
-    // Normalización.
+    // NormalizaciÃ³n.
     const statusMap = {};
     for (const s of ordersAgg?.statusCounts || []) {
       statusMap[s._id] = s.count;
@@ -747,7 +820,7 @@ export const getStats = async (req, res) => {
     const gmvUsdCrypto = money.gmvUsdCrypto || 0;
     const gmvUsdTransfer = gmvUsd - gmvUsdCrypto;
 
-        const feeGrossUsd = money.feeGrossUsd || 0; // 3% bruto (tu comisión)
+        const feeGrossUsd = money.feeGrossUsd || 0; // 3% bruto (tu comisiÃ³n)
     const cashbackUsd = money.cashbackUsd || 0; // reintegro cashback (sale de tu bolsillo)
     const referralFeeUsd = money.referralFeeUsd || 0; // pass-through a referidos (lo paga el vendedor)
     // Ganancia neta: solo se resta el cashback. El reward de referidos NO es un
@@ -781,8 +854,8 @@ export const getStats = async (req, res) => {
     const completionRate =
       closedCount > 0 ? (completedCount / closedCount) * 100 : 0;
 
-    // Margen efectivo: qué % del GMV en USD termina siendo ganancia neta.
-    // Con la política actual (3% fee - 2.5% cashback) ronda el 0.5%.
+    // Margen efectivo: quÃ© % del GMV en USD termina siendo ganancia neta.
+    // Con la polÃ­tica actual (3% fee - 2.5% cashback) ronda el 0.5%.
     const effectiveMarginPct = gmvUsd > 0 ? (feeNetUsd / gmvUsd) * 100 : 0;
 
         res.status(200).json({
@@ -842,7 +915,7 @@ export const getStats = async (req, res) => {
         })),
         topSellers: topSellersAgg.map((s) => ({
           sellerId: s.sellerId,
-          name: s.name || "—",
+          name: s.name || "â€”",
           orders: s.orders,
           gmvUsd: Math.round(s.gmvUsd * 100) / 100,
         })),
@@ -861,19 +934,19 @@ export const getStats = async (req, res) => {
     });
   } catch (error) {
     console.log(error);
-    res.status(500).json({ message: "Error al obtener las estadísticas" });
+    res.status(500).json({ message: "Error al obtener las estadÃ­sticas" });
   }
 };
 
 // --------------------------------------------------------------------
 // GET /api/admin/collateral/audit
-// Auditor�a del colateral de vendedores: contrasta la DB con la blockchain
-// y devuelve las �rdenes que requieren acci�n del admin (liberar garant�a,
+// Auditorï¿½a del colateral de vendedores: contrasta la DB con la blockchain
+// y devuelve las ï¿½rdenes que requieren acciï¿½n del admin (liberar garantï¿½a,
 // completar tras el buffer o reconciliar la DB).
 //
 // Query:
-//   ?since=<d�as | ISO date>  Ventana de antig�edad de las �rdenes (default 60).
-//   ?attention=true           Devuelve SOLO las que requieren atenci�n.
+//   ?since=<dï¿½as | ISO date>  Ventana de antigï¿½edad de las ï¿½rdenes (default 60).
+//   ?attention=true           Devuelve SOLO las que requieren atenciï¿½n.
 //
 // Respuesta: { summary, since, count, orders }. Es de SOLO LECTURA: no mueve
 // fondos. El admin acciona luego con los endpoints existentes
@@ -883,7 +956,7 @@ export const auditCollateralHandler = async (req, res) => {
   try {
     const { since, attention } = req.query;
 
-    // Aceptamos "since" como n�mero de d�as o como fecha ISO.
+    // Aceptamos "since" como nï¿½mero de dï¿½as o como fecha ISO.
     let sinceDate;
     if (since && Number.isFinite(Number(since))) {
       sinceDate = new Date(Date.now() - Number(since) * 24 * 60 * 60 * 1000);

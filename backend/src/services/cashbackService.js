@@ -151,7 +151,14 @@ export async function useCashbackForCheckout(user, amountUsd, refId = null) {
   if (amountUsd <= 0) {
     return { success: false, error: "Monto inválido." };
   }
-  if (Number(user.cashback?.balance) < amountUsd) {
+  // Validar contra el saldo DISPONIBLE (balance - reservado), no el bruto:
+  // parte del balance puede estar comprometido en órdenes abiertas y no debe
+  // poder usarse otra vez (doble uso).
+  const available = Math.max(
+    0,
+    Number(user.cashback?.balance || 0) - Number(user.cashback?.reservedUsd || 0),
+  );
+  if (available < amountUsd) {
     return { success: false, error: "Saldo de cashback insuficiente." };
   }
 
@@ -182,6 +189,16 @@ export async function useCashbackForCheckout(user, amountUsd, refId = null) {
  */
 export async function withdrawCashback(user, amountUsd, refId = null) {
   const params = await resolveCashbackParams(user);
+  // ── POLÍTICA DE NEGOCIO (Etapa 1) ────────────────────────────────────
+  // El cashback NO es retirable: solo se usa en checkout. Bloqueamos acá
+  // (además del flag de config) para que ningún documento legacy con
+  // allowWithdraw=true habilite el retiro por error.
+  return {
+    success: false,
+    error:
+      "El cashback no se puede retirar; se usa como saldo de recompensas en el checkout.",
+  };
+  // eslint-disable-next-line no-unreachable
   if (!params.allowWithdraw) {
     return { success: false, error: "La extracción de cashback está deshabilitada." };
   }

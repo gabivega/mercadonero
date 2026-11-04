@@ -13,6 +13,7 @@ import messageRoutes from './src/routes/messageRoutes.js';
 import reviewRoutes from './src/routes/reviewRoutes.js';
 import cashbackRoutes from './src/routes/cashbackRoutes.js';
 import referralRoutes from './src/routes/referralRoutes.js';
+import rewardsRoutes from './src/routes/rewardsRoutes.js';
 import poolRoutes from './src/routes/poolRoutes.js';
 import shippingRoutes from './src/routes/shippingRoutes.js';
 import elitRoutes from './src/routes/elitRoutes.js';
@@ -22,6 +23,7 @@ import tiendanubeRoutes from './src/routes/tiendanubeRoutes.js';
 import myStoreRoutes from './src/routes/myStoreRoutes.js';
 import adminStoreRoutes from './src/routes/adminStoreRoutes.js';
 import testAuthRoutes from './src/routes/testAuthRoutes.js';
+import redirectRoutes from './src/routes/redirectRoutes.js';
 import startOrderCleanup from './src/services/orderCleanup.js';
 import startElitSyncCron from './src/services/elitSyncCron.js';
 import { getSitemap } from './src/controllers/seoController.js';
@@ -65,6 +67,7 @@ try {
     app.use('/api/review', reviewRoutes);
   app.use('/api/cashback', cashbackRoutes);
   app.use('/api/referral', referralRoutes);
+  app.use('/api/rewards', rewardsRoutes);
   app.use('/api/pool', poolRoutes);
   app.use('/api/shipping', shippingRoutes);
   app.use('/api/elit', elitRoutes);
@@ -77,6 +80,8 @@ try {
   app.use('/api/admin/store-connections', adminStoreRoutes);
   // Ruta de prueba para validar Supabase Auth (temporal, se borra al decidir)
   app.use('/api/test-auth', testAuthRoutes);
+  // Enlaces cortos de referido: /r/<code> → /producto/<slug>?ref=<id>
+  app.use('/r', redirectRoutes);
   // Sitemap dinámico para motores de búsqueda (SEO orgánico)
   app.get('/sitemap.xml', getSitemap);
   // Config PÚBLICA de medios de pago crypto: redes con escrow desplegado y su

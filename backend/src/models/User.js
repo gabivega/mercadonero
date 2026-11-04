@@ -231,7 +231,25 @@ const userSchema = new Schema(
 
     // --- DATOS DE VENDEDOR (TIENDA) ---
     shop: {
-      active: { type: Boolean, default: false }, // Solo true si completó el onboarding
+      // `active`: el vendedor COMPLETÓ el onboarding (datos + cuenta bancaria).
+      // Lo setea automáticamente el flujo de onboarding. Es requisito para
+      // publicar, PERO por sí solo NO habilita la publicación: además la
+      // tienda debe estar APROBADA por un admin (ver `approved`).
+      active: { type: Boolean, default: false },
+      // `approved`: la tienda fue APROBADA manualmente por un admin. En esta
+      // etapa la publicación de productos de pago está sujeta a aprobación
+      // manual. `active=true` + `approved=true` → puede publicar.
+      // Solo un admin puede cambiarlo (PATCH /api/admin/users/:id/shop).
+      approved: { type: Boolean, default: false },
+      // Trazabilidad de la última revisión de la tienda por parte del admin.
+      approvedAt: { type: Date, default: null },
+      approvedBy: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
+      // Motivo de rechazo/desactivación de la tienda (visible para el vendedor).
+      approvalReason: { type: String, trim: true, default: "" },
       name: { type: String, trim: true, default: "" },
       description: { type: String, maxLength: 500, default: "" },
       logo: { type: String, default: "" },
@@ -248,6 +266,9 @@ const userSchema = new Schema(
       location: {
         city: { type: String, default: "" },
         province: { type: String, default: "" },
+        // CP de despacho. Sin declararlo acá, Mongoose descarta el campo
+        // silenciosamente (updateShop/onboarding lo guardaban pero se perdía).
+        zipCode: { type: String, default: "" },
       },
 
       // ────────────────────────────────────────────────
@@ -344,6 +365,10 @@ const userSchema = new Schema(
       earned: { type: Number, default: 0 },     // Total acumulado histórico (USD)
       spent: { type: Number, default: 0 },      // Total usado en compras (USD)
       withdrawn: { type: Number, default: 0 },  // Total retirado fuera de la plataforma (USD)
+      // Saldo COMPROMETIDO en órdenes abiertas (reservado/bloqueado). No está
+      // disponible para otras compras hasta que la orden se complete (se
+      // consume) o se cancele/expire (se libera). Disponible = balance - reserved.
+      reservedUsd: { type: Number, default: 0 },
 
       // Override por usuario: si se setea, anula la config global para ESTE user.
       // Puede servir para fidelizar usuarios de pago, dar un % distinto, etc.
@@ -385,6 +410,10 @@ const userSchema = new Schema(
       earned: { type: Number, default: 0 },     // Total ganado histórico (USD) como referidor
       spent: { type: Number, default: 0 },      // Total usado en compras (USD)
       withdrawn: { type: Number, default: 0 },  // Total retirado fuera de la plataforma (USD)
+      // Saldo COMPROMETIDO (parte del comprador usada como recompensa) en
+      // órdenes abiertas. No disponible hasta completar (consume) o
+      // cancelar/expirar (libera). Disponible = saldo_buyer - reservedUsd.
+      reservedUsd: { type: Number, default: 0 },
 
       // Historial de movimientos de referidos (para auditoría/UI).
       transactions: [

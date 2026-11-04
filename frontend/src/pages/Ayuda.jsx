@@ -18,7 +18,7 @@ export default function Ayuda() {
           <p className="mb-2">
             Mercado Nero es un marketplace multivendedor que integra tecnología blockchain y contratos inteligentes para ofrecer una experiencia de compra más segura y con comisiones mucho mas bajas.
             Integramos medios de pagos tradicionales y los respaldamos con criptomonedas, lo que permite transacciones más rápidas y seguras.
-            Gracias a esta integración, somos el único marketplace que permite que los vendedores cobren su venta por adelantado, mientras se ofrece al comprador la protección del 100% de su inversión.
+            Gracias a esta integración, somos el único marketplace que permite que los vendedores cobren su venta por adelantado, mientras se ofrece al comprador la protección del 100% de su compra.
           </p>        
         </>
       ),
@@ -42,10 +42,10 @@ export default function Ayuda() {
         <>
           <p className="mb-2">
            Es igual a cualquier plataforma de comercio electrónico, elegís el producto que necesitas y procedés al checkout, eligiendo tu dirección y método de envío. Tras tu confirmación, se crea una orden de compra.
-           Puedes abonar por transferencia bancaria directa o con criptomonedas (USDT).                 
+           Puedes abonar por transferencia bancaria directa o con criptomonedas (USDT o USDC).                 
           </p>
           <p>
-            No tenés que preocuparte por estafas porque la compra está protegida al 100%, ya que un contrato inteligente custodia tu dinero. Si abonás por transferencia bancaria, el vendedor previamente tiene que tener un depósito de garantía para cubrir el 100% del valor de la compra, y si abonas con USDT el saldo no se libera hasta que recibas el producto.
+            No tenés que preocuparte por estafas porque la compra está protegida al 100%, ya que un contrato inteligente custodia tu dinero. Si abonás por transferencia bancaria, el vendedor previamente tiene que tener un depósito de garantía para cubrir el 100% del valor de la compra, y si abonas con USDT o USDC el saldo no se libera hasta que recibas el producto.
             <p>
             Una vez realizado y notificado el pago, el vendedor procederá a despachar por el metodo seleccionado. Cuando se confirma que el producto te llegó correctamente, se le libera el saldo al vendedor.
             Tu compra está protegida durante todo el proceso.</p>

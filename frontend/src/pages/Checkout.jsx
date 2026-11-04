@@ -1,4 +1,4 @@
-﻿import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useCartStore } from "../store/useCartStore";
 import {
@@ -44,6 +44,15 @@ const addresses = dbUser?.addresses || [];
 const [selectedAddress, setSelectedAddress] = useState(null);
   const { syncUser } = useSyncUser(setDbUser);
   const [isLoading, setIsLoading] = useState(false);
+
+  // ── RECOMPENSAS (cashback + referral-buyer) ──
+  // El comprador puede aplicar su saldo de recompensas al subtotal de
+  // PRODUCTOS (nunca al envío). El descuento se calcula en el backend con
+  // `POST /api/rewards/quote` y se aplica de verdad recién al crear la orden
+  // (enviando `useRewards: true`). Acá solo MOSTRAMOS la previsualización.
+  const [useRewards, setUseRewards] = useState(false);
+  const [rewardsQuote, setRewardsQuote] = useState(null);
+  const [rewardsSummary, setRewardsSummary] = useState(null);
 
     // ── MÉTODO DE ENTREGA: "shipping" (default) | "pickup" (retiro en sucursal)
   // ── El comprador elige si recibe a domicilio o retira GRATIS en el local.
@@ -440,7 +449,7 @@ const step1 = await Swal.fire({
             <span>📦 Subtotal Productos:</span>
             <span style="font-weight: 700;">$${formatMoney(total)}</span>
           </p>
-                    <p style="margin: 3px 0; display: flex; justify-content: space-between;">
+                                        <p style="margin: 3px 0; display: flex; justify-content: space-between;">
             <span>${deliveryMethod === "pickup" ? "🏪 Retiro en sucursal:" : "🚚 Costo de Envío:"}</span>
             <span style="font-weight: 700; color: ${shippingTotal === 0 ? '#10b981' : 'inherit'}">
               ${
@@ -452,9 +461,14 @@ const step1 = await Swal.fire({
               }
             </span>
           </p>
-                    <p style="margin: 8px 0 0 0; display: flex; justify-content: space-between; font-size: 1.1rem; border-top: 1px solid ${isDark ? "#3f3f46" : "#e5e7eb"}; pt-2">
+          ${rewardsDiscountArs > 0 ? `
+          <p style="margin: 3px 0; display: flex; justify-content: space-between;">
+            <span>🎁 Descuento recompensas:</span>
+            <span style="font-weight: 700; color: #10b981;">-$${formatMoney(rewardsDiscountArs)}</span>
+          </p>` : ""}
+                                        <p style="margin: 8px 0 0 0; display: flex; justify-content: space-between; font-size: 1.1rem; border-top: 1px solid ${isDark ? "#3f3f46" : "#e5e7eb"}; pt-2">
             <b>Total Final:</b>
-            <span style="color: #3483fa; font-weight: 900;">$${formatMoney(finalTotal)}</span>
+            <span style="color: #3483fa; font-weight: 900;">$${formatMoney(Math.max(0, finalTotal - rewardsDiscountArs))}</span>
           </p>
           <p style="margin: 8px 0 0 0; font-size: 0.85rem; color: #10b981; display: flex; align-items: center; gap: 4px;">
             ⚡ <span>Ganás <b>2.5%</b> de cashback en <b>USDT</b> sobre tus productos (se acredita al completar la compra).</span>
@@ -542,10 +556,13 @@ const step1 = await Swal.fire({
                     pickupPoint: selectedShipping.pickupPoint || undefined,
                   }
                 : undefined,
-            // Atribución de referidos: id del usuario que compartió el enlace
+                        // Atribución de referidos: id del usuario que compartió el enlace
             // (capturado desde ?ref= y persistido). El backend lo valida y, si
             // el producto tiene referido activo, lo guarda en la orden.
             referrerId: getReferral() || undefined,
+            // Aplicar saldo de recompensas (cashback + referral-buyer) al
+            // subtotal de productos. El backend recalcula el monto exacto.
+            useRewards: useRewards === true,
           },
           { headers: { Authorization: `Bearer ${token}` } },
         );
@@ -754,12 +771,14 @@ const step1 = await Swal.fire({
       });
     }
 
-    // ── 2ª VALIDACIÓN: cotización + saldo REAL por red (selector en el Swal) ──
+        // ── 2ª VALIDACIÓN: cotización + saldo REAL por red (selector en el Swal) ──
     // La cotización (ARS→USD) siempre se hace contra USDT-dólar (referencia de
     // precio). El TOKEN/RED de pago lo elige el comprador DENTRO de este Swal,
     // viendo el saldo real de su wallet en CADA red (leído por RPC público,
     // igual que WalletPage). Solo se crea la orden si la red elegida alcanza.
-    const quote = await getUsdtQuote(finalTotal);
+    // Monto a pagar en ARS NETO de recompensas (el saldo se aplica a productos).
+    const amountToPayArs = Math.max(0, finalTotal - rewardsDiscountArs);
+    const quote = await getUsdtQuote(amountToPayArs);
     // Monto necesario. Para stablecoins (USDT/USDC/USDXM) ≈ 1:1 con USD.
     const usdNeeded = quote.usdtAmount || 0;
 
@@ -875,14 +894,15 @@ const step1 = await Swal.fire({
           <p style="margin: 0; font-size: 1.5rem; font-weight: 900; color: #F26722;" id="crypto-total-line">
             ${usdNeeded.toFixed(2)} <span style="font-size: 0.95rem; font-weight: 700;" id="crypto-total-token">${selectedOptionInList()?.tokenSymbol || ""}</span>
           </p>
-          <p style="margin: 5px 0 0 0; font-size: 0.76rem; color: ${isDark ? "#a8a29e" : "#78716c"};">
-            ≈ $${formatMoney(finalTotal)} ARS · 1 USDT ≈ $${(quote.usdRate || 0).toFixed(2)} ARS
+                    <p style="margin: 5px 0 0 0; font-size: 0.76rem; color: ${isDark ? "#a8a29e" : "#78716c"};">
+            ≈ $${formatMoney(amountToPayArs)} ARS · 1 USDT ≈ $${(quote.usdRate || 0).toFixed(2)} ARS
           </p>
         </div>
 
         <div style="background-color: ${isDark ? "#27272a" : "#f4f4f5"}; padding: 10px 12px; border-radius: 10px; margin-bottom: 12px;">
           <p style="margin: 0 0 4px 0; font-weight: 700; font-size: 0.82rem;">Detalle</p>
           <p style="margin: 2px 0; font-size: 0.78rem;">📦 Productos: $${formatMoney(total)} ARS</p>
+          ${rewardsDiscountArs > 0 ? `<p style="margin: 2px 0; font-size: 0.78rem; color:#10b981;">🎁 Saldo de recompensas: -${formatMoney(rewardsDiscountArs)} ARS</p>` : ""}
           <p style="margin: 2px 0; font-size: 0.78rem;">🚚 Envío: ${shippingTotal > 0 ? "$" + formatMoney(shippingTotal) + " ARS" : (deliveryMethod === "pickup" ? "Retiro en sucursal (GRATIS)" : "GRATIS")}</p>
           <p style="margin: 2px 0; font-size: 0.78rem;">📍 ${deliveryMethod === "pickup" && selectedPickup ? `Retiro en: ${selectedPickup.name}` : `Envío a: ${selectedAddress.street} ${selectedAddress.streetNumber}, ${selectedAddress.city}`}</p>
         </div>
@@ -1033,8 +1053,10 @@ const step1 = await Swal.fire({
                   pickupPoint: selectedShipping.pickupPoint || undefined,
                 }
               : undefined,
-          // Atribución de referidos (ver comentario en el flujo transferencia).
+                    // Atribución de referidos (ver comentario en el flujo transferencia).
           referrerId: getReferral() || undefined,
+          // Aplicar saldo de recompensas (ver comentario en el flujo transferencia).
+          useRewards: useRewards === true,
         },
         { headers: { Authorization: `Bearer ${token}` } },
       );
@@ -1293,6 +1315,84 @@ const deliveryReady =
 
 // Calculamos el total final sumando productos + envío
 const finalTotal = useMemo(() => total + shippingTotal, [total, shippingTotal]);
+
+// ── RECOMPENSAS: saldo disponible del comprador (para mostrar el opt-in) ──
+useEffect(() => {
+  if (!authenticated) return;
+  let mounted = true;
+  (async () => {
+    try {
+      const tk = await getAccessToken();
+      const { data } = await axios.get(
+        `${import.meta.env.VITE_SERVER_URL}/api/rewards/summary`,
+        { headers: { Authorization: `Bearer ${tk}` } },
+      );
+      if (!mounted) return;
+      setRewardsSummary(data?.usable || null);
+      if (!(data?.usable?.totalUsableUsd > 0)) setUseRewards(false);
+    } catch (err) {
+      // No bloquea el checkout si falla el resumen.
+      console.error("No se pudo cargar el saldo de recompensas:", err);
+    }
+  })();
+  return () => {
+    mounted = false;
+  };
+}, [authenticated]);
+
+// ── RECOMPENSAS: previsualización del descuento (productos + envío) ──
+// El quote del backend trabaja en USD. Convertimos el subtotal y el envío
+// (que están en ARS) a USD con la misma cotización que usa el backend
+// (`OrderUtils` → dolarapi venta) para que la preview no quede desfasada.
+// Se recalcula cuando cambia el subtotal, el envío o el tilde de usar saldo.
+useEffect(() => {
+  if (!authenticated) return;
+  if (!useRewards) {
+    setRewardsQuote(null);
+    return;
+  }
+  let mounted = true;
+  (async () => {
+    try {
+      const tk = await getAccessToken();
+      // ARS → USD con la tasa de dolarapi (misma que OrderUtils).
+      let rate = 0;
+      try {
+        const { data } = await axios.get(
+          "https://dolarapi.com/v1/dolares/cripto",
+        );
+        rate = Number(data?.venta) || 0;
+      } catch {
+        rate = 0;
+      }
+      if (!rate) return; // sin tasa no podemos previsualizar; el backend decide
+      const productsTotalUsd = parseFloat((total / rate).toFixed(2));
+      const shippingUsd = parseFloat((shippingTotal / rate).toFixed(2));
+      const { data } = await axios.post(
+        `${import.meta.env.VITE_SERVER_URL}/api/rewards/quote`,
+        { productsTotalUsd, shippingUsd },
+        { headers: { Authorization: `Bearer ${tk}` } },
+      );
+      if (mounted) setRewardsQuote({ ...data, usdRate: rate });
+    } catch (err) {
+      console.error("No se pudo cotizar el descuento por recompensas:", err);
+      if (mounted) setRewardsQuote(null);
+    }
+  })();
+  return () => {
+    mounted = false;
+  };
+}, [useRewards, total, shippingTotal, authenticated]);
+
+// Descuento efectivo a mostrar: `rewardsUsedUsd` (solo productos). Lo pasamos
+// a ARS con la MISMA tasa del quote para descontarlo del total mostrado.
+const rewardsDiscountUsd = useRewards
+  ? Number(rewardsQuote?.rewardsUsedUsd || 0)
+  : 0;
+const rewardsDiscountArs = useMemo(() => {
+  if (rewardsDiscountUsd <= 0 || !rewardsQuote?.usdRate) return 0;
+  return Math.round(rewardsDiscountUsd * rewardsQuote.usdRate);
+}, [rewardsDiscountUsd, rewardsQuote]);
 
 
   const sellerName =
@@ -1766,15 +1866,22 @@ if (!authenticated ||  !dbUser ) {
                       : "Gratis"}
                 </span>
               </div>
-              <div className="border-t dark:border-zinc-800 pt-4 flex justify-between">
-                <span className="text-lg font-bold dark:text-white">Total</span>
-                                <span className="text-lg font-bold dark:text-white">
-                  ${formatMoney(finalTotal)}
-                </span>
-              </div>
+                            <div className="border-t dark:border-zinc-800 pt-4 flex justify-between">
+                              <span className="text-lg font-bold dark:text-white">Total</span>
+                                              <span className="text-lg font-bold dark:text-white">
+                                ${formatMoney(finalTotal)}
+                              </span>
+                            </div>
+
+              {/* RECOMPENSAS: el opt-in para aplicar saldo de recompensas
+                  (cashback/referral) al checkout esta DESHABILITADO por negocio.
+                  El saldo se sigue acumulando y mostrando en la wallet, pero NO
+                  se ofrece aca. Para reactivar: reponer este bloque con el
+                  checkbox condicionado a REWARDS_CHECKOUT_ENABLED y descontar
+                  rewardsDiscountArs del total. */}
             </div>
 
-                                                                                                                                                                                                <button
+                                                                                                                                                                                                 <button
               onClick={() => handleFinalConfirm(paymentMethod)}
                             disabled={isLoading || !deliveryReady || isProfileIncomplete(dbUser) || shippingPending || pickupPointPending}
               className={`w-full py-4 rounded-md font-bold text-white transition-all flex items-center justify-center gap-2 ${

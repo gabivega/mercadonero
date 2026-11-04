@@ -189,9 +189,14 @@ export default function CryptoPaymentModal({
     order?.escrowContract || payment.escrowContract || "";
 
   // Monto total a fondeear = productos + envío en USD.
+  // Priorizamos `payment.amountUsdRetained` (lo que realmente se congela
+  // on-chain). Si el comprador usó recompensas, el monto es MENOR que el bruto
+  // de productos + envío. Fallback al bruto para órdenes viejas.
   const totalUsd =
-    (order?.financials?.totalUsd || 0) +
-    (order?.financials?.shippingCostUsd || 0);
+    Number(order?.payment?.amountUsdRetained) > 0
+      ? Number(order?.payment?.amountUsdRetained)
+      : (order?.financials?.totalUsd || 0) +
+        (order?.financials?.shippingCostUsd || 0);
   const amountStr = totalUsd > 0 ? totalUsd.toFixed(2) : "0.00";
 
   // ── RESOLVER LA WALLET CROSSMINT (address real que firma) ──

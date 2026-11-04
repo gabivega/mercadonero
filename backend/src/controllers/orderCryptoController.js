@@ -67,7 +67,7 @@ export const makeCreateCryptoOrder = () => {
       buyer, seller, buyerId, sellerId, productIds, itemsSnapshot,
       effectiveShippingAddress, isPickup, pickupLocation, shippingDetails,
       calculatedTotal, maxShippingCost, financials, validReferrerId,
-      referralPercent, token,
+      referralPercent, token, groupBuy = null, pendingRewards = null,
     } = ctx;
 
     if (!buyer.walletAddress) {
@@ -115,14 +115,54 @@ export const makeCreateCryptoOrder = () => {
         chainId: escrowChain.chainId,
         fundingMode: escrowChain.fundingMode,
         tokenAddress: escrowChain.tokenAddress || "",
-        amountUsdRetained: financials.totalUsd + financials.shippingCostUsd,
+        amountUsdRetained:
+          financials.rewardsUsedUsd > 0
+            ? financials.escrowAmountUsd
+            : financials.totalUsd + financials.shippingCostUsd,
         feeUsd: financials.platformFeeUsd,
         feeBps: currentFeeBps,
-        sellerNetUsd: financials.sellerNetReleaseUsd,
+        sellerNetUsd:
+          financials.rewardsUsedUsd > 0
+            ? Number((financials.escrowAmountUsd - financials.platformFeeUsd).toFixed(2))
+            : financials.sellerNetReleaseUsd,
       },
     });
 
     const savedCryptoOrder = await newOrderCrypto.save();
+
+    // ── MATERIALIZAR descuento por recompensas (si el comprador lo usó) ──
+    // En crypto el SellerCredit es DINÁMICO: el contrato cobra el fee del
+    // escrow, así que al seller solo se le compensa lo que NO cobró del escrow
+    // (pendingRewards.sellerCreditUsd). La diferencia (fee) se absorbe al
+    // consumir el saldo de recompensas. Ver rewardsService.quoteRewardsForOrder.
+    if (pendingRewards && pendingRewards.rewardsUsedUsd > 0) {
+      try {
+        const { spendRewardsForOrder, recordSellerCredit } = await import(
+          "../services/rewardsService.js"
+        );
+        await spendRewardsForOrder({
+          userId: buyerId,
+          cashbackUsd: pendingRewards.breakdown.cashbackUsd,
+          referralUsd: pendingRewards.breakdown.referralUsd,
+          orderId: savedCryptoOrder._id,
+        });
+        await recordSellerCredit({
+          sellerId,
+          orderId: savedCryptoOrder._id,
+          amountUsd:
+            pendingRewards.sellerCreditUsd ?? pendingRewards.rewardsUsedUsd,
+          breakdown: pendingRewards.breakdown,
+        });
+        console.log(
+          `[Rewards] Orden crypto ${savedCryptoOrder._id}: saldo descontado al comprador y SellerCredit de US$ ${pendingRewards.sellerCreditUsd ?? pendingRewards.rewardsUsedUsd} al vendedor.`,
+        );
+      } catch (rewardsErr) {
+        console.error(
+          `[Rewards] Fallo al materializar descuento en orden crypto ${savedCryptoOrder._id}:`,
+          rewardsErr.message,
+        );
+      }
+    }
 
     return res.status(201).json({
       success: true,
@@ -168,7 +208,9 @@ export const confirmEscrowFunding = async (req, res) => {
     const { verifyOrderFunded } = await import("../services/escrowServices.js");
     const verification = await verifyOrderFunded(
       order._id.toString(),
-      order.financials.totalUsd + order.financials.shippingCostUsd,
+      order.financials.rewardsUsedUsd > 0
+        ? order.financials.escrowAmountUsd
+        : order.financials.totalUsd + order.financials.shippingCostUsd,
       escrowChainId,
     );
 
@@ -189,7 +231,10 @@ export const confirmEscrowFunding = async (req, res) => {
     order.payment.escrowTokenAddress = escrowInfo.token || tokenAddress || order.payment.escrowTokenAddress || "";
     order.payment.tokenAddress = resolvedFundingMode === "native" ? "" : tokenAddress || escrowInfo.token || order.payment.tokenAddress;
     order.payment.token = resolveOrderPaymentToken(token || order.payment.token, getEscrowChainConfig(escrowChainId));
-    order.payment.amountUsdRetained = order.financials.totalUsd + order.financials.shippingCostUsd;
+    order.payment.amountUsdRetained =
+      order.financials.rewardsUsedUsd > 0
+        ? order.financials.escrowAmountUsd
+        : order.financials.totalUsd + order.financials.shippingCostUsd;
     order.payment.fundedAt = new Date();
     order.statusHistory.push({ status: "paid", changedAt: new Date(), comment: `El comprador abonó con cripto (${order.payment.token || "USDT"}). Fondos retenidos en el contrato de escrow.` });
     order.status = "paid";
@@ -341,6 +386,16 @@ export const cancelCryptoOrder = async (req, res) => {
     await order.save();
 
     await User.findByIdAndUpdate(order.buyer, { $inc: { "accounting.cancellationsAsBuyer": 1 } });
+
+    // LIBERAR la reserva de recompensas (si la hubiera). En crypto el saldo se
+    // consume al crear la orden, pero dejamos la liberacion idempotente para
+    // cubrir ordenes con modelo de reserva (no-op si no hay monto reservado).
+    try {
+      const { releaseOrderRewardsReservation } = await import("./orderController.js");
+      await releaseOrderRewardsReservation(order, { reason: "orden crypto cancelada sin fondear" });
+    } catch (rewardsErr) {
+      console.error("[Rewards] Fallo liberar reserva en cancel crypto:", rewardsErr?.message);
+    }
 
     const buyer = await User.findById(order.buyer);
     if (buyer?.email) {
@@ -675,6 +730,14 @@ export const adminCancelEscrow = async (req, res) => {
     order.orderActions.push({ type: "admin_intervention", initiator: "admin", paidStatus: "paid", status: "completed", reason: "El admin cancelo el escrow y devolvio el 100% de los USDT al comprador.", releaseTxHash: result.txHash, createdBy: req.user?._id });
     await order.save();
 
+    // LIBERAR la reserva de recompensas (escrow cancelado/reembolsado = orden NO completada).
+    try {
+      const { releaseOrderRewardsReservation } = await import("./orderController.js");
+      await releaseOrderRewardsReservation(order, { reason: "escrow cancelado por admin" });
+    } catch (rewardsErr) {
+      console.error("[Rewards] Fallo liberar reserva en adminCancelEscrow:", rewardsErr?.message);
+    }
+
     await User.findByIdAndUpdate(order.buyer, { $inc: { "accounting.cancellationsAsBuyer": 1 } });
 
     const buyer = await User.findById(order.buyer);
@@ -775,6 +838,18 @@ export const adminSettleEscrow = async (req, res) => {
       order.orderActions.push({ type: "admin_intervention", initiator: "admin", paidStatus: "paid", status: "completed", reason: "Settle: seller=" + sellerAmount + " fee=" + feeAmount + " refund=" + refundAmount + ".", releaseTxHash: result.txHash, createdBy: req.user?._id });
     }
     await order.save();
+
+    // LIBERAR la reserva de recompensas SOLO si el settle dejó la orden cancelada
+    // (reembolso total). Si terminó 'completed', las recompensas se consumen al
+    // completar (flujo de adminCompleteOrder), no acá.
+    if (order.status === "cancelled") {
+      try {
+        const { releaseOrderRewardsReservation } = await import("./orderController.js");
+        await releaseOrderRewardsReservation(order, { reason: "settle con reembolso total" });
+      } catch (rewardsErr) {
+        console.error("[Rewards] Fallo liberar reserva en adminSettleEscrow:", rewardsErr?.message);
+      }
+    }
 
     createNotification({
       recipient: order.seller,

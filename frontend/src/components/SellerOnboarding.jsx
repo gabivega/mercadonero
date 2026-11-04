@@ -196,18 +196,21 @@ export default function SellerOnboarding({
 
       if (data.success) {
         Swal.fire({
-          title: "¡Todo listo!",
-          text: "Tus datos quedaron guardados. Seguimos con tu publicación.",
+          title: "¡Datos guardados!",
+          text:
+            "Tu tienda quedó pendiente de aprobación. Un administrador la revisará y te habilitaremos para publicar. Te avisaremos.",
           icon: "success",
           background: "#1A1A1A",
           color: "#ffffff",
           confirmButtonColor: "#2563eb",
+          confirmButtonText: "Entendido",
           customClass: { popup: "rounded-3xl border border-gray-800" },
-          timer: 1500,
-          showConfirmButton: false,
         });
-        // Cerramos el modal y reintentamos el submit con el draft guardado.
-        onComplete(draft);
+        // ⚠️ En esta etapa la tienda requiere APROBACIÓN manual del admin.
+        // NO reintentamos el submit del producto automáticamente: si no está
+        // aprobada, el backend rechazaría la publicación. Simplemente cerramos
+        // el modal; el vendedor podrá publicar cuando el admin lo habilite.
+        onClose();
       }
     } catch (error) {
       const err = error.response?.data;
@@ -271,8 +274,8 @@ export default function SellerOnboarding({
               </h3>
               <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
                 {isEdit
-                  ? "Actualizá tu usuario y la información pública de tu tienda."
-                  : "No compartiremos tus datos con nadie."}
+                  ? "Actualizá tu usuario y la información pública de tu tienda para poder publicar productos."
+                  : "No pedimos datos biométricos."}
               </p>
             </div>
           </div>
@@ -335,8 +338,7 @@ export default function SellerOnboarding({
             ) : (
               <>
                 Necesitamos esta información para ofrecer una plataforma segura para todos los
-                usuarios y evitar el uso de cuentas bancarias de terceros. La titularidad de la
-                cuenta debe coincidir con la del vendedor.
+                usuarios. Se compartirán solo los datos necesarios para que el comprador pueda completar su compra de forma segura.
               </>
             )}
           </p>
