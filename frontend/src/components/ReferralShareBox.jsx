@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
+import axios from "axios";
 import { usePrivy } from "../Utils/authClient";
 import { Share2, Check, Sparkles, Zap, Loader2 } from "lucide-react";
 import {
@@ -12,9 +13,9 @@ import { showCopiedToast } from "../Utils/copiedToast";
 import { useUserStore } from "../store/useUserStore";
 
 // Copy de ventas: gancho directo + refuerzo de reciprocidad.
-const SHARE_TITLE = "Compartí este producto y ganá";
+const SHARE_TITLE = "CompartÃ­ este producto y ganÃ¡";
 const SHARE_SUBTITLE =
-  "Cada persona que compre con tu enlace te deja plata en tu wallet. Sin límites.";
+  "Cada persona que compre con tu enlace te deja plata en tu wallet. Sin lÃ­mites.";
 const BUYER_BADGE = "Reintegro asegurado";
 
 export default function ReferralShareBox({ product }) {
@@ -24,9 +25,13 @@ export default function ReferralShareBox({ product }) {
   // Solo los referidores APROBADOS pueden ver la caja de compartir.
   const isApprovedReferrer = dbUser?.referralStatus === "approved";
 
-  const [usdRate, setUsdRate] = useState(null);
+    const [usdRate, setUsdRate] = useState(null);
   const [copied, setCopied] = useState(false);
   const [loadingLink, setLoadingLink] = useState(false);
+  // % que se lleva el REFERIDOR (reparto configurable, default 75). Lo trae el
+  // backend desde ReferralConfig.referrerSharePercent para que la previsualizaciÃ³n
+  // coincida EXACTA con lo que se acredita al completar la orden.
+  const [referrerSharePercent, setReferrerSharePercent] = useState(75);
   // Referidor que nos trajo (si vinimos por un ?ref=). Mostramos al comprador
   // su beneficio SOLO si el producto tiene referidos activos.
   const [incomingRef, setIncomingRef] = useState(false);
@@ -37,10 +42,27 @@ export default function ReferralShareBox({ product }) {
       .then((rate) => active && setUsdRate(rate))
       .catch(() => {});
     setIncomingRef(Boolean(getReferral()));
+
+    // Traemos el reparto vigente (endpoint autenticado). Si falla, queda 75.
+    (async () => {
+      try {
+        const token = await getAccessToken?.();
+        if (!token) return;
+        const { data } = await axios.get(
+          `${import.meta.env.VITE_SERVER_URL}/api/referral`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        const share = Number(data?.referral?.referrerSharePercent);
+        if (active && Number.isFinite(share)) setReferrerSharePercent(share);
+      } catch {
+        /* usamos el default 75 */
+      }
+    })();
+
     return () => {
       active = false;
     };
-  }, []);
+  }, [getAccessToken]);
 
   // Solo productos de pago que ofrecen referido con % > 0.
   const referralEnabled =
@@ -51,19 +73,23 @@ export default function ReferralShareBox({ product }) {
   if (!referralEnabled) return null;
 
   const price = product?.sale?.active ? product.sale.price : product.price;
-  const { eachUsd } = calcReferralSplit(
+    const { referrerUsd, buyerUsd } = calcReferralSplit(
     price,
     product.referral.percent,
     usdRate,
+    referrerSharePercent,
   );
-  const percentEach = Math.round((product.referral.percent / 2) * 100) / 100;
+  // % que representa cada parte del reward total (para el fallback sin cotizaciÃ³n).
+  const totalPercent = Number(product.referral.percent) || 0;
+  const referrerPercent = Math.round(totalPercent * (referrerSharePercent / 100) * 100) / 100;
+  const buyerPercent = Math.round((totalPercent - referrerPercent) * 100) / 100;
 
-  // Mostramos el monto si ya tenemos cotización; si no, el % (nunca un $0).
-  const gananciaLabel = usdRate ? formatUsdt(eachUsd) : `${percentEach}%`;
-  const compradorLabel = usdRate ? formatUsdt(eachUsd) : `${percentEach}%`;
+  // Monto si ya tenemos cotizaciÃ³n; si no, el % (nunca un $0).
+  const gananciaLabel = usdRate ? formatUsdt(referrerUsd) : `${referrerPercent}%`;
+  const compradorLabel = usdRate ? formatUsdt(buyerUsd) : `${buyerPercent}%`;
 
-  // Copia el enlace al portapapeles con varios fallbacks (clipboard API →
-  // execCommand). Devuelve true sólo si realmente se copió.
+  // Copia el enlace al portapapeles con varios fallbacks (clipboard API â†’
+  // execCommand). Devuelve true sÃ³lo si realmente se copiÃ³.
   const copyToClipboard = async (text) => {
     if (navigator?.clipboard?.writeText) {
       try {
@@ -91,9 +117,9 @@ export default function ReferralShareBox({ product }) {
     }
   };
 
-  // Pide el enlace corto (/r/<code>) al backend vía helper compartido.
-  // Única fuente de verdad para "compartir" (mismo enlace que la grilla de
-  // /referidos). Ante fallo, cae al enlace largo automáticamente.
+  // Pide el enlace corto (/r/<code>) al backend vÃ­a helper compartido.
+  // Ãšnica fuente de verdad para "compartir" (mismo enlace que la grilla de
+  // /referidos). Ante fallo, cae al enlace largo automÃ¡ticamente.
   const fetchShortLink = async () => {
     return fetchReferralShortUrl(product, getAccessToken, myId);
   };
@@ -110,7 +136,7 @@ export default function ReferralShareBox({ product }) {
     }
     if (!shareUrl) return;
 
-    // 1) API nativa de compartir (móvil). En desktop caemos a copiar.
+    // 1) API nativa de compartir (mÃ³vil). En desktop caemos a copiar.
     const canUseNativeShare =
       typeof navigator !== "undefined" &&
       typeof navigator.share === "function" &&
@@ -120,8 +146,8 @@ export default function ReferralShareBox({ product }) {
     if (canUseNativeShare) {
       try {
         await navigator.share({
-          title: product?.name || "Mirá este producto",
-          text: "¡Mirá esto! Comprá con mi enlace y los dos ganamos 🤑",
+          title: product?.name || "MirÃ¡ este producto",
+          text: "Â¡MirÃ¡ esto! ComprÃ¡ con mi enlace y los dos ganamos ðŸ¤‘",
           url: shareUrl,
         });
         return;
@@ -136,14 +162,14 @@ export default function ReferralShareBox({ product }) {
     if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2200);
-      showCopiedToast("Con tu enlace ganás en cada compra");
+      showCopiedToast("Con tu enlace ganÃ¡s en cada compra");
     }
   };
 
   return (
     <div className="space-y-3">
-      {/* ── BANDA PARA EL COMPRADOR ──
-          Si el visitante llegó por un enlace ?ref=, le mostramos el reintegro
+      {/* â”€â”€ BANDA PARA EL COMPRADOR â”€â”€
+          Si el visitante llegÃ³ por un enlace ?ref=, le mostramos el reintegro
           que tiene esperando. Se muestra a cualquiera (no requiere ser referidor). */}
       {incomingRef && (
         <div className="flex items-start gap-3 p-4 rounded-xl bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 border border-emerald-500/40">
@@ -152,7 +178,7 @@ export default function ReferralShareBox({ product }) {
           </div>
           <div className="min-w-0">
             <p className="text-sm font-black text-emerald-700 dark:text-emerald-300 leading-tight">
-              ¡Tenés un reintegro extra esperando!
+              Â¡TenÃ©s un reintegro extra esperando!
             </p>
             <p className="text-xs text-emerald-700/80 dark:text-emerald-400/90 mt-0.5">
               Por comprar con tu enlace de referidos, al concretar esta compra te acreditamos{" "}
@@ -168,7 +194,7 @@ export default function ReferralShareBox({ product }) {
         </div>
       )}
 
-      {/* ── CAJA PARA COMPARTIR (solo REFERIDORES APROBADOS) ── */}
+      {/* â”€â”€ CAJA PARA COMPARTIR (solo REFERIDORES APROBADOS) â”€â”€ */}
       {isApprovedReferrer && (
         <div className="rounded-xl border border-orange-200 dark:border-orange-900/40 bg-orange-50/60 dark:bg-orange-950/20 p-4 space-y-3">
           <div className="flex items-start gap-3">
@@ -197,16 +223,16 @@ export default function ReferralShareBox({ product }) {
               <Share2 size={16} />
             )}
             {loadingLink
-              ? "Generando enlace…"
+              ? "Generando enlaceâ€¦"
               : copied
-                ? "¡Enlace copiado!"
+                ? "Â¡Enlace copiado!"
                 : "Compartir y ganar"}
           </button>
 
-          {/* Micro-incentivo de reciprocidad: refuerza que el otro también gana. */}
+          {/* Micro-incentivo de reciprocidad: refuerza que el otro tambiÃ©n gana. */}
           <p className="text-[11px] text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
             <Sparkles size={12} className="text-[#F26722]" />
-            Tu contacto también recibe su reintegro. Los dos ganan: por eso
+            Tu contacto tambiÃ©n recibe su reintegro. Los dos ganan: por eso
             compran.
           </p>
         </div>

@@ -51,6 +51,11 @@ const [selectedAddress, setSelectedAddress] = useState(null);
   // `POST /api/rewards/quote` y se aplica de verdad recién al crear la orden
   // (enviando `useRewards: true`). Acá solo MOSTRAMOS la previsualización.
   const [useRewards, setUseRewards] = useState(false);
+  // Flag de activación del opt-in de recompensas en el checkout. Se puede
+  // apagar por env (`VITE_REWARDS_CHECKOUT_ENABLED=false`) sin tocar código.
+  // Por defecto ON para poder probar el flujo de recompensas.
+  const REWARDS_CHECKOUT_ENABLED =
+    String(import.meta.env.VITE_REWARDS_CHECKOUT_ENABLED ?? "true") !== "false";
   const [rewardsQuote, setRewardsQuote] = useState(null);
   const [rewardsSummary, setRewardsSummary] = useState(null);
 
@@ -658,8 +663,8 @@ const step1 = await Swal.fire({
         <p style="margin: 5px 0;"><b>Alias:</b> ${bankAccount?.alias || 'No disponible'}</p>
         <p style="margin: 5px 0;"><b>Banco:</b> ${bankAccount?.bankName || 'No disponible'}</p>
         <p style="margin: 5px 0;"><b>Cuit/Cuil:</b> ${bankAccount?.cuitCuil || 'No disponible'}</p>
-        <p style="margin: 10px 0 0 0; font-size: 1.1rem; color: #3483fa; font-weight: bold;">
-          Total: $${formatMoney(response.data.order.totalAmount)}
+                <p style="margin: 10px 0 0 0; font-size: 1.1rem; color: #3483fa; font-weight: bold;">
+          Total: $${formatMoney(amountToTransfer)}
         </p>
       </div>
       <p>Transferí y presioná el botón de abajo para avisarle al vendedor.</p>
@@ -1394,6 +1399,20 @@ const rewardsDiscountArs = useMemo(() => {
   return Math.round(rewardsDiscountUsd * rewardsQuote.usdRate);
 }, [rewardsDiscountUsd, rewardsQuote]);
 
+// Monto REAL a transferir por transferencia bancaria, en ARS y neto de
+// recompensas (productos + envío - saldo aplicado).
+// ⚠️ NO usamos `order.totalAmount` del backend para mostrarlo: ese campo mezcla
+// monedas (ARS cuando no hay recompensas, USD cuando sí las hay), por lo que un
+// descuento parcial terminaba mostrando "US$3" como "$3" ARS. Este valor es la
+// ÚNICA fuente correcta en ARS (la misma que ya usan el modal de compromiso y
+// el flujo cripto). DEBE declararse después de `rewardsDiscountArs` porque lo
+// referencia en el mismo render (si se mueve arriba → TDZ: "Cannot access
+// 'rewardsDiscountArs' before initialization").
+const amountToTransfer = useMemo(
+  () => Math.max(0, Math.round(finalTotal - rewardsDiscountArs)),
+  [finalTotal, rewardsDiscountArs],
+);
+
 
   const sellerName =
     sellerProducts[0]?.seller?.shop?.name ||
@@ -1866,19 +1885,51 @@ if (!authenticated ||  !dbUser ) {
                       : "Gratis"}
                 </span>
               </div>
-                            <div className="border-t dark:border-zinc-800 pt-4 flex justify-between">
+                                                        <div className="border-t dark:border-zinc-800 pt-4 flex justify-between items-center">
                               <span className="text-lg font-bold dark:text-white">Total</span>
-                                              <span className="text-lg font-bold dark:text-white">
-                                ${formatMoney(finalTotal)}
+                                              <span className="text-lg font-bold dark:text-white text-right">
+                                {rewardsDiscountArs > 0 && (
+                                  <span className="block text-xs font-normal text-gray-400 line-through">
+                                    ${formatMoney(finalTotal)}
+                                  </span>
+                                )}
+                                ${formatMoney(Math.max(0, finalTotal - rewardsDiscountArs))}
                               </span>
                             </div>
 
-              {/* RECOMPENSAS: el opt-in para aplicar saldo de recompensas
-                  (cashback/referral) al checkout esta DESHABILITADO por negocio.
-                  El saldo se sigue acumulando y mostrando en la wallet, pero NO
-                  se ofrece aca. Para reactivar: reponer este bloque con el
-                  checkbox condicionado a REWARDS_CHECKOUT_ENABLED y descontar
-                  rewardsDiscountArs del total. */}
+                            {/* RECOMPENSAS: opt-in para aplicar el saldo de recompensas
+                  (cashback + reintegro de referidos) al checkout.
+                  - Solo se muestra si el usuario tiene saldo disponible.
+                  - El descuento se calcula con `/api/rewards/quote` y se resta
+                    del total mostrado y del monto a pagar.
+                  - El backend reserva el saldo al crear la orden y lo consume
+                    recién al COMPLETARLA. */}
+              {REWARDS_CHECKOUT_ENABLED && Number(rewardsSummary?.totalUsableUsd) > 0 && (
+                <div className="mt-4 p-3 rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/60 dark:bg-emerald-950/20">
+                  <label className="flex items-start gap-3 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 accent-emerald-600"
+                      checked={useRewards}
+                      onChange={(e) => setUseRewards(e.target.checked)}
+                    />
+                    <span className="text-sm">
+                      <span className="font-bold text-emerald-700 dark:text-emerald-400">
+                        Usar mi saldo de recompensas
+                      </span>
+                      <span className="block text-[11px] text-gray-500 dark:text-gray-400">
+                        Disponible: US$ {Number(rewardsSummary?.totalUsableUsd || 0).toFixed(2)}
+                        {rewardsDiscountArs > 0 && (
+                          <>
+                            {" · "}
+                            Descuento: -${formatMoney(rewardsDiscountArs)}
+                          </>
+                        )}
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              )}
             </div>
 
                                                                                                                                                                                                  <button

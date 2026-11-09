@@ -4,60 +4,56 @@ import PostalCodeInput from "./PostalCodeInput";
 import {
   X,
   ShieldCheck,
-  Landmark,
-  CreditCard,
   Store,
   Loader2,
   ArrowLeft,
   ArrowRight,
   User,
   Check,
+  Clock,
 } from "lucide-react";
 import { usePrivy } from "../Utils/authClient";
 import axios from "axios";
+import { isValidPhone } from "../Utils/crossmintWallet";
 
 /**
- * Modal de ONBOARDING VENDEDOR (3 pasos) / EDITAR TIENDA (2 pasos).
+ * Modal de ONBOARDING VENDEDOR (WAITING LIST) / EDITAR TIENDA.
  *
- * - Modo "onboarding": se abre cuando el usuario intenta publicar un producto
- *   de pago (escrow) sin haber completado sus datos. Al terminar, llama a
- *   onComplete(draft) para que el caller reintente el submit del producto.
- *   Pasos: 1. Datos de usuario · 2. Datos de la tienda · 3. Datos bancarios.
+ * - Modo "onboarding": es el MURO DE ENTRADA para vender. En esta etapa las
+ *   publicaciones estan limitadas a tiendas invitadas. Se muestra ANTES de los
+ *   formularios de publicacion: sin pasar por aca (y sin aprobacion del admin)
+ *   el vendedor no puede cargar nada. Pasos:
+ *     1. Datos basicos de usuario.
+ *     2. Datos de la tienda.
+ *   Se ELIMINO el paso de datos bancarios: la cuenta bancaria se administra
+ *   desde el perfil (BankAccountSection). Al terminar, la tienda queda en
+ *   LISTA DE ESPERA (shop.active=true + shop.approved=false) hasta que un admin
+ *   la habilite. No se reintenta publicar: primero hay que ser aprobado.
  *
- * - Modo "edit": se abre desde "Mis publicaciones" para que el vendedor edite
- *   los datos de su tienda. SOLO edita los pasos 1 y 2 (usuario + tienda).
- *   El paso 3 (cuentas bancarias) se OMITE para no duplicar ni pisar la cuenta
- *   que ya se administra desde el perfil (BankAccountSection, fuente de verdad).
- *   Al terminar solo cierra el modal (no reintenta ninguna publicación).
+ * - Modo "edit": edita los datos de la tienda (mismos 2 pasos). Al terminar
+ *   solo cierra el modal.
  */
 export default function SellerOnboarding({
   isOpen,
   onClose,
   onComplete,
-  draft,
   prefill = {},
   mode = "onboarding",
 }) {
   const { getAccessToken } = usePrivy();
   const isEdit = mode === "edit";
-  const maxStep = isEdit ? 2 : 3;
+  const maxStep = 2;
   const [step, setStep] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
+  // Error de formato del telefono (se muestra inline bajo el input).
+  const [phoneError, setPhoneError] = useState("");
 
-  // ── Estado del formulario ──
+  // -- Estado del formulario (datos de usuario + tienda, sin bancarios) --
   const [form, setForm] = useState({
-    // Datos de usuario (reutilizamos lo que ya tenga el perfil)
     firstName: prefill.firstName || "",
     lastName: prefill.lastName || "",
     dni: prefill.dni || "",
     phone: prefill.phone || "",
-    // Datos bancarios
-    bankName: prefill.bankName || "",
-    cbuCvu: prefill.cbuCvu || "",
-    alias: prefill.alias || "",
-    holderName: prefill.holderName || "",
-    cuitCuil: prefill.cuitCuil || "",
-    // Datos de tienda
     shopName: prefill.shopName || "",
     shopDescription: prefill.shopDescription || "",
     province: prefill.province || "",
@@ -67,80 +63,66 @@ export default function SellerOnboarding({
 
   if (!isOpen) return null;
 
-  // ── Detección automática CBU vs CVU ──
-  // 22 dígitos → CBU (cuenta bancaria) · 23 dígitos → CVU (billetera virtual).
-  const cbuCvuDigits = (form.cbuCvu || "").replace(/\D/g, "");
-  const detectedType = cbuCvuDigits.length === 23 ? "CVU" : "CBU";
-
-  // El número bancario no permite más de 23 dígitos.
-  const handleCbuCvuChange = (e) => {
-    const clean = e.target.value.replace(/\D/g, "");
-    if (clean.length > 23) return;
-    setForm((prev) => ({ ...prev, cbuCvu: clean }));
-  };
-
   const set = (field) => (e) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
 
-  // ── Navegación entre pasos ──
+  // -- TELEFONO -- Antes el input aceptaba CUALQUIER texto y sin limite de longitud.
+  // Ahora sanitizamos al tipear (solo digitos/espacios/+ - ()) y validamos el
+  // FORMATO con isValidPhone (E.164 de crossmintWallet) al avanzar/guardar.
+  const PHONE_MAX_LEN = 20;
+  const handlePhoneChange = (e) => {
+    let clean = e.target.value.replace(/[^\d\s+\-()]/g, "");
+    if (clean.length > PHONE_MAX_LEN) clean = clean.slice(0, PHONE_MAX_LEN);
+    setForm((prev) => ({ ...prev, phone: clean }));
+    if (phoneError) setPhoneError("");
+  };
+
+  // -- Navegacion entre pasos --
   const goNext = () => setStep((s) => Math.min(s + 1, maxStep));
   const goBack = () => setStep((s) => Math.max(s - 1, 1));
 
-  // Validación simple del paso antes de avanzar.
+  // Validacion simple del paso antes de avanzar.
   const validateStep = (currentStep) => {
     if (currentStep === 1) {
-      return form.firstName.trim() && form.lastName.trim() && form.dni.trim() && form.phone.trim();
+      return Boolean(form.firstName.trim() && form.lastName.trim() && form.dni.trim() && form.phone.trim());
     }
     if (currentStep === 2) {
-      return form.shopName.trim() && form.province && form.city.trim() && form.zipCode.trim();
-    }
-    if (currentStep === 3) {
-      // El alias es OBLIGATORIO en el modelo (bankAccounts.alias required:true).
-      // Si se deja vacío, Mongoose falla al guardar (runValidators) y el
-      // endpoint devuelve 500 "Error al completar el onboarding". Lo validamos
-      // acá para mostrar un mensaje claro en vez de un ¡Ups! genérico.
-      return (
-        form.cbuCvu.trim() &&
-        form.bankName.trim() &&
-        form.holderName.trim() &&
-        form.cuitCuil.trim() &&
-        form.alias.trim()
-      );
+      return Boolean(form.shopName.trim() && form.province && form.city.trim() && form.zipCode.trim());
     }
     return true;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    // Validación final del último paso (incluye el alias obligatorio del paso 3).
     if (!validateStep(step)) return;
     setIsSaving(true);
 
-    // En modo edición NO enviamos datos bancarios: el endpoint /api/user/shop
-    // actualiza solo la tienda y los datos de usuario, sin tocar las cuentas
-    // bancarias (que se administran desde el perfil).
-    if (isEdit) {
-      const payloadEdit = {
-        firstName: form.firstName,
-        lastName: form.lastName,
-        dni: form.dni,
-        phone: form.phone,
-        shopName: form.shopName,
-        shopDescription: form.shopDescription,
-        city: form.city,
-        province: form.province,
-        zipCode: form.zipCode,
-      };
-      try {
-        const token = await getAccessToken();
+    // Payload comun (sin datos bancarios en ningun caso).
+    const payload = {
+      firstName: form.firstName,
+      lastName: form.lastName,
+      dni: form.dni,
+      phone: form.phone,
+      shopName: form.shopName,
+      shopDescription: form.shopDescription,
+      city: form.city,
+      province: form.province,
+      zipCode: form.zipCode,
+    };
+
+    try {
+      const token = await getAccessToken();
+
+      if (isEdit) {
+        // MODO EDITAR: solo actualiza tienda + datos de usuario.
         const { data } = await axios.put(
           `${import.meta.env.VITE_SERVER_URL}/api/user/shop`,
-          payloadEdit,
+          payload,
           { headers: { Authorization: `Bearer ${token}` } }
         );
 
         if (data.success) {
           Swal.fire({
-            title: "¡Tienda actualizada!",
+            title: "Tienda actualizada",
             text: "Los datos de tu tienda quedaron guardados.",
             icon: "success",
             background: "#1A1A1A",
@@ -152,78 +134,43 @@ export default function SellerOnboarding({
           });
           onClose();
         }
-      } catch (error) {
-        const err = error.response?.data;
-        const field = err?.field;
-        const msg = err?.message || "No se pudieron guardar los datos de la tienda. Intentá de nuevo.";
+      } else {
+        // MODO ONBOARDING (waiting list): deja la tienda en lista de espera.
+        const { data } = await axios.post(
+          `${import.meta.env.VITE_SERVER_URL}/api/user/seller-onboarding`,
+          payload,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
 
-        if (field) {
-          const el = document.getElementById(`field-${field}`);
-          el?.focus();
-          el?.classList.add("ring-2", "ring-red-500", "border-red-500");
-          setTimeout(() => el?.classList.remove("ring-2", "ring-red-500"), 2500);
+        if (data.success) {
+          Swal.fire({
+            title: "Ya estas en la lista de espera",
+            html:
+              '<p style="font-size:14px;line-height:1.5">Seras notificado cuando estes habilitado para vender en <b>Mercado Nero</b>.</p>' +
+              '<p style="font-size:12px;line-height:1.5;margin-top:10px;opacity:.7">Mientras tanto podes explorar y comprar como siempre.</p>',
+            icon: "success",
+            background: "#1A1A1A",
+            color: "#ffffff",
+            confirmButtonColor: "#2563eb",
+            confirmButtonText: "Entendido",
+            customClass: { popup: "rounded-3xl border border-gray-800" },
+          });
+          // El vendedor NO puede publicar hasta que un admin lo habilite:
+          // no reintentamos ningun submit. Avisamos al caller si le interesa.
+          onComplete?.();
+          onClose();
         }
-
-        Swal.fire({
-          title: "¡Ups!",
-          text: msg,
-          icon: "error",
-          background: "#1A1A1A",
-          color: "#ffffff",
-          confirmButtonColor: "#2563eb",
-          customClass: { popup: "rounded-3xl border border-gray-800" },
-        });
-      } finally {
-        setIsSaving(false);
-      }
-      return;
-    }
-
-    // ── Modo ONBOARDING (enviar también datos bancarios) ──
-    // El backend sabe diferenciar CBU/CVU por la cantidad de dígitos
-    // (22 → CBU, 23 → CVU). Ya no enviamos accountNumberType.
-    const payload = {
-      ...form,
-      cbuCvu: cbuCvuDigits,
-    };
-    try {
-      const token = await getAccessToken();
-      const { data } = await axios.post(
-        `${import.meta.env.VITE_SERVER_URL}/api/user/seller-onboarding`,
-        payload,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      if (data.success) {
-        Swal.fire({
-          title: "¡Datos guardados!",
-          text:
-            "Tu tienda quedó pendiente de aprobación. Un administrador la revisará y te habilitaremos para publicar. Te avisaremos.",
-          icon: "success",
-          background: "#1A1A1A",
-          color: "#ffffff",
-          confirmButtonColor: "#2563eb",
-          confirmButtonText: "Entendido",
-          customClass: { popup: "rounded-3xl border border-gray-800" },
-        });
-        // ⚠️ En esta etapa la tienda requiere APROBACIÓN manual del admin.
-        // NO reintentamos el submit del producto automáticamente: si no está
-        // aprobada, el backend rechazaría la publicación. Simplemente cerramos
-        // el modal; el vendedor podrá publicar cuando el admin lo habilite.
-        onClose();
       }
     } catch (error) {
       const err = error.response?.data;
       const field = err?.field;
-      // Mostramos el mensaje real del backend cuando existe. Si es un 500 sin
-      // mensaje útil (p. ej. un error de validación de Mongoose), lo indicamos.
       const msg =
         err?.message ||
         (error.response?.status === 500
-          ? "Hubo un problema al guardar en el servidor. Revisá que todos los datos estén completos (incluido el alias) e intentá de nuevo."
-          : "No se pudieron guardar tus datos. Intentá de nuevo.");
+          ? "Hubo un problema al guardar en el servidor. Revisa que los datos esten completos e intenta de nuevo."
+          : "No se pudieron guardar tus datos. Intenta de nuevo.");
 
-      // Resaltamos el campo con error
+      // Resaltamos el campo con error (si el backend indica cual).
       if (field) {
         const el = document.getElementById(`field-${field}`);
         el?.focus();
@@ -232,9 +179,9 @@ export default function SellerOnboarding({
       }
 
       Swal.fire({
-        title: "¡Ups!",
+        title: "Ups",
         text: msg,
-        icon: field === "cbuCvu" || field === "cuitCuil" ? "warning" : "error",
+        icon: "error",
         background: "#1A1A1A",
         color: "#ffffff",
         confirmButtonColor: "#2563eb",
@@ -250,9 +197,8 @@ export default function SellerOnboarding({
   const labelCls = "text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5 inline-block";
 
   const stepsMeta = [
-    { n: 1, label: "Datos de usuario", icon: User },
+    { n: 1, label: "Tus datos", icon: User },
     { n: 2, label: "Tu tienda", icon: Store },
-    ...(!isEdit ? [{ n: 3, label: "Datos bancarios", icon: CreditCard }] : []),
   ];
 
   return (
@@ -270,12 +216,12 @@ export default function SellerOnboarding({
             </div>
             <div>
               <h3 className="font-black text-lg dark:text-white leading-tight">
-                {isEdit ? "Editá los datos de tu tienda" : "Completá tus datos para poder publicar"}
+                {isEdit ? "Edita los datos de tu tienda" : "Queremos conocerte para habilitarte a vender"}
               </h3>
               <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
                 {isEdit
-                  ? "Actualizá tu usuario y la información pública de tu tienda para poder publicar productos."
-                  : "No pedimos datos biométricos."}
+                  ? "Actualiza tu usuario y la informacion publica de tu tienda."
+                  : "Vender en Mercado Nero es por invitacion. Completa tus datos y sumate a la lista de espera."}
               </p>
             </div>
           </div>
@@ -326,31 +272,35 @@ export default function SellerOnboarding({
           </div>
         </div>
 
-        {/* Seguridad / Aviso */}
+        {/* Aviso / lista de espera */}
         <div className="mx-5 mt-4 p-3 rounded-2xl bg-blue-500/5 border border-blue-500/10 flex items-start gap-2.5">
-          <ShieldCheck size={16} className="text-blue-500 flex-shrink-0 mt-0.5" />
+          {isEdit ? (
+            <ShieldCheck size={16} className="text-blue-500 flex-shrink-0 mt-0.5" />
+          ) : (
+            <Clock size={16} className="text-blue-500 flex-shrink-0 mt-0.5" />
+          )}
           <p className="text-[11px] text-blue-600 dark:text-blue-400">
             {isEdit ? (
               <>
-                Tus <b>datos bancarios</b> no se modifican acá: se administran desde tu{" "}
-                <b>Perfil</b> para mantener una única fuente de verdad y evitar cuentas duplicadas.
+                Tus <b>datos bancarios</b> no se modifican aca: se administran desde tu{" "}
+                <b>Perfil</b>.
               </>
             ) : (
               <>
-                Necesitamos esta información para ofrecer una plataforma segura para todos los
-                usuarios. Se compartirán solo los datos necesarios para que el comprador pueda completar su compra de forma segura.
+                Al enviar tus datos, tu tienda entra en la <b>lista de espera</b>. Un administrador
+                la revisara y <b>seras notificado cuando estes habilitado para vender</b>.
               </>
             )}
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="p-5 space-y-6">
-          {/* ══════════ PASO 1: DATOS DE USUARIO ══════════ */}
+          {/* PASO 1: DATOS DE USUARIO */}
           {step === 1 && (
             <section className="animate-in fade-in slide-in-from-left-4 duration-300">
               <h4 className="text-[11px] font-black uppercase tracking-widest text-gray-400 flex items-center gap-2 mb-3">
                 <span className="w-5 h-5 rounded-md bg-blue-600 text-white flex items-center justify-center text-[10px]">1</span>
-                Datos de usuario
+                Tus datos
                 {prefill.firstName && <span className="normal-case font-medium text-green-500">(ya tenemos estos datos)</span>}
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -367,14 +317,27 @@ export default function SellerOnboarding({
                   <input id="field-dni" className={inputCls} placeholder="DNI sin puntos" value={form.dni} onChange={set("dni")} inputMode="numeric" required />
                 </div>
                 <div>
-                  <label className={labelCls}>Teléfono *</label>
-                  <input id="field-phone" className={inputCls} placeholder="Ej: 11 5555 1234" value={form.phone} onChange={set("phone")} inputMode="tel" required />
+                  <label className={labelCls}>Telefono *</label>
+                  <input
+                    id="field-phone"
+                    className={inputCls}
+                    placeholder="Ej: +54 9 11 5555 1234"
+                    value={form.phone}
+                    onChange={handlePhoneChange}
+                    inputMode="tel"
+                    maxLength={PHONE_MAX_LEN}
+                    aria-invalid={Boolean(phoneError)}
+                    required
+                  />
+                  {phoneError && (
+                    <p className="text-xs text-red-500 mt-1">{phoneError}</p>
+                  )}
                 </div>
               </div>
-          </section>
+            </section>
           )}
 
-          {/* ══════════ PASO 2: DATOS DE LA TIENDA ══════════ */}
+          {/* PASO 2: DATOS DE LA TIENDA */}
           {step === 2 && (
             <section className="animate-in fade-in slide-in-from-right-4 duration-300">
               <h4 className="text-[11px] font-black uppercase tracking-widest text-gray-400 flex items-center gap-2 mb-3">
@@ -404,70 +367,11 @@ export default function SellerOnboarding({
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className={labelCls}>Descripción de la tienda (opcional)</label>
-                  <textarea className={inputCls} rows="2" placeholder="Contá un poco qué vendés..." value={form.shopDescription} onChange={set("shopDescription")} />
+                  <label className={labelCls}>Descripcion de la tienda (opcional)</label>
+                  <textarea className={inputCls} rows="2" placeholder="Conta un poco que vendes..." value={form.shopDescription} onChange={set("shopDescription")} />
                 </div>
               </div>
             </section>
-          )}
-
-          {/* ══════════ PASO 3: DATOS BANCARIOS ══════════ */}
-          {step === 3 && (
-            <section className="animate-in fade-in slide-in-from-right-4 duration-300">
-              <h4 className="text-[11px] font-black uppercase tracking-widest text-gray-400 flex items-center gap-2 mb-3">
-                <span className="w-5 h-5 rounded-md bg-blue-600 text-white flex items-center justify-center text-[10px]">3</span>
-                Datos bancarios para recibir tus pagos
-              </h4>
-
-              <div className="mb-3 p-3 rounded-2xl bg-blue-500/5 border border-blue-500/10 flex items-center gap-2.5">
-                <Landmark size={16} className="text-blue-500 flex-shrink-0" />
-                <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                  Detectamos el tipo automáticamente: <b>CBU</b> (22 dígitos) para cuentas bancarias o{" "}
-                  <b>CVU</b> (23 dígitos) para billeteras virtuales.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className={labelCls}>N° CBU / CVU *</label>
-                  <div className="relative">
-                    <input
-                      id="field-cbuCvu"
-                      className={`${inputCls} pr-24 tracking-[0.15em] font-mono`}
-                      placeholder="Ingresá tu CBU o CVU"
-                      value={form.cbuCvu}
-                      onChange={handleCbuCvuChange}
-                      inputMode="numeric"
-                      required
-                    />
-                    {cbuCvuDigits.length > 0 && (
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-black uppercase px-2 py-1 rounded-md bg-blue-600/10 text-blue-600 dark:text-blue-400">
-                        {detectedType} · {cbuCvuDigits.length}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[10px] text-gray-400 mt-1">
-                    Máx. 23 dígitos · {cbuCvuDigits.length}/23
-                  </p>
-                </div>
-                <div>
-                  <label className={labelCls}>Banco / Proveedor *</label>
-                  <input id="field-bankName" className={inputCls} placeholder="Ej: Santander, Nación, Mercado Pago..." value={form.bankName} onChange={set("bankName")} required />
-                </div>
-                <div>
-                  <label className={labelCls}>Titular de la cuenta *</label>
-                  <input id="field-holderName" className={inputCls} placeholder="Nombre y apellido del titular" value={form.holderName} onChange={set("holderName")} required />
-                </div>
-                <div>
-                  <label className={labelCls}>CUIT/CUIL *</label>
-                  <input id="field-cuitCuil" className={inputCls} placeholder="11 dígitos" value={form.cuitCuil} onChange={set("cuitCuil")} inputMode="numeric" required />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className={labelCls}>Alias / CBU alias *</label>
-                  <input id="field-alias" className={inputCls} placeholder="Ej: mis.ventas.alias" value={form.alias} onChange={set("alias")} required />
-                </div>
-              </div>
-          </section>
           )}
 
           {/* Acciones */}
@@ -516,7 +420,7 @@ export default function SellerOnboarding({
                   </>
                 ) : (
                   <>
-                    <Store size={15} /> Guardar y continuar
+                    <Clock size={15} /> Unirme a la lista
                   </>
                 )}
               </button>

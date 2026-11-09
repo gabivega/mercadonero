@@ -40,14 +40,14 @@ function getCopy(signerType, channel) {
     const via =
       channel === "whatsapp" ? "WhatsApp" : "mensaje de texto (SMS)";
     return {
-      intro: `Para firmar esta operación de forma segura, vamos a confirmar tu identidad enviándote un código por ${via}. Es un código de verificación de nuestro proveedor de pagos.`,
+      intro: `Para firmar esta operación de forma segura, vamos a confirmar tu identidad enviándote un código por ${via}. Es un código de verificación de nuestro gestor de wallets.`,
       sendCta: `Enviar código por ${channel === "whatsapp" ? "WhatsApp" : "SMS"}`,
       resent: `Reenvía el código e ingresalo en el campo de abajo.`,
     };
   }
   return {
     intro:
-      "Para firmar esta operación de forma segura, vamos a confirmar tu identidad enviándote un código por email. Es un código de verificación de nuestro proveedor de pagos. Ingresalo en el campo de abajo para continuar.",
+      "Para firmar esta operación de forma segura, vamos a confirmar tu identidad enviándote un código por email. Es un código de verificación de nuestro gestor de wallets. Ingresalo en el campo de abajo para continuar.",
     sendCta: "Enviar código por email",
     resent: "Reenvía el código e ingresalo en el campo de abajo.",
   };

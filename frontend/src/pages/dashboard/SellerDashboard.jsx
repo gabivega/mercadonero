@@ -541,7 +541,17 @@ export default function SellerDashboard() {
                             className="px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-rose-100 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400 cursor-help"
                             title={p.moderation?.reason || "Publicación rechazada"}
                           >
-                            Rechazado
+                                                        Rechazado
+                          </span>
+                        )}
+                        {/* Oculto al publico por falta de wallet del vendedor
+                            (solo productos de pago; clasificados no la usan). */}
+                        {!dbUser?.walletAddress && p.listingType === "product" && (
+                          <span
+                            className="px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-zinc-200 text-zinc-600 dark:bg-zinc-700/50 dark:text-zinc-300 cursor-help"
+                            title="No visible para compradores hasta que vincules tu wallet (Mi Billetera)."
+                          >
+                            Oculto · sin wallet
                           </span>
                         )}
                       </div>
@@ -660,9 +670,15 @@ export default function SellerDashboard() {
                         En revisión
                       </span>
                     )}
-                    {p.moderation?.status === "rejected" && (
+                                        {p.moderation?.status === "rejected" && (
                       <span className="px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-rose-100 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400">
                         Rechazado: {p.moderation?.reason || "ver detalle"}
+                      </span>
+                    )}
+                    {/* Oculto al publico por falta de wallet (solo productos de pago). */}
+                    {!dbUser?.walletAddress && p.listingType === "product" && (
+                      <span className="px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-zinc-200 text-zinc-600 dark:bg-zinc-700/50 dark:text-zinc-300">
+                        Oculto · sin wallet
                       </span>
                     )}
                   </div>

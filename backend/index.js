@@ -15,6 +15,7 @@ import cashbackRoutes from './src/routes/cashbackRoutes.js';
 import referralRoutes from './src/routes/referralRoutes.js';
 import rewardsRoutes from './src/routes/rewardsRoutes.js';
 import poolRoutes from './src/routes/poolRoutes.js';
+import gasRoutes from './src/routes/gasRoutes.js';
 import shippingRoutes from './src/routes/shippingRoutes.js';
 import elitRoutes from './src/routes/elitRoutes.js';
 import flamingRoutes from './src/routes/flamingRoutes.js';
@@ -69,6 +70,9 @@ try {
   app.use('/api/referral', referralRoutes);
   app.use('/api/rewards', rewardsRoutes);
   app.use('/api/pool', poolRoutes);
+  // Gas patrocinado (drip multi-chain): el frontend lo llama antes de firmar
+  // send/colateral para asegurar que la smart wallet tenga gas nativo.
+  app.use('/api/gas', gasRoutes);
   app.use('/api/shipping', shippingRoutes);
   app.use('/api/elit', elitRoutes);
     app.use('/api/flaming', flamingRoutes);

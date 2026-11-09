@@ -61,7 +61,7 @@ const OrderInfoAccordion = ({ order, role }) => {
         .join(', ')
     : '';
 
-  const STATUS_MAP = {
+    const STATUS_MAP = {
     awaiting_collateral: 'En espera de garantia',
     pending_payment: 'Pago Pendiente',
     verifying_payment: 'Verificando Pago',
@@ -71,6 +71,38 @@ const OrderInfoAccordion = ({ order, role }) => {
     cancelled: 'Cancelado',
     expired: 'Expirado',
   };
+
+  // ── RECOMPENSAS APLICADAS EN EL PAGO ──
+  // Cuando el comprador paga con saldo de recompensas, el monto que ve el
+  // seller es MENOR al precio de lista (el descuento se fondea desde el saldo
+  // del comprador). Para que el vendedor NO piense que hay un error, mostramos
+  // explícitamente cuánto se usó de recompensas y cuánto le quedará a favor
+  // (SellerCredit, que la plataforma le paga aparte).
+    const rewardsUsedUsd = Number(order.financials?.rewardsUsedUsd || 0);
+  const sellerCreditUsd = Number(order.financials?.sellerCreditUsd || 0);
+  const hasRewardsUsed = rewardsUsedUsd > 0;
+
+  // ⚠️ UNIDADES DE `totalAmount` (mezcla de monedas en el backend):
+  //   - Sin recompensas → está en ARS (productos + envío).
+  //   - Con recompensas → está en USD (escrowAmountUsd: efectivo real a pagar).
+  // Por eso NO podemos mostrar siempre "$ totalAmount" como si fueran pesos:
+  // un descuento parcial hacía ver "US$3" como "$3" ARS. Para mostrarlo bien,
+  // calculamos el monto en ARS cuando el valor viene en USD (transferencia con
+  // recompensas), usando la cotización guardada en financials.usdRate.
+    const usdRate = Number(order.financials?.usdRate || 0);
+  const totalAmountIsUsd = hasRewardsUsed && usdRate > 0;
+  const totalDisplayValue = totalAmountIsUsd
+    ? `US$ ${Number(order.totalAmount || 0).toFixed(2)}` +
+      // Mostramos el equivalente en pesos entre paréntesis para transparencia.
+      ` (≈ $ ${(Number(order.totalAmount || 0) * usdRate).toLocaleString('es-AR', { maximumFractionDigits: 0 })})`
+    : `$ ${(order.totalAmount ?? 0).toLocaleString('es-AR')}`;
+
+  // Mismo criterio para "Precio de Productos": en transferencia CON recompensas
+  // el backend guarda productsAmount en USD (escrowAmountUsd - envío). Lo
+  // mostramos con su moneda correcta para no etiquetar USD como pesos.
+  const productsDisplayValue = totalAmountIsUsd
+    ? `US$ ${Number(order.productsAmount || 0).toFixed(2)}`
+    : `$ ${(order.productsAmount ?? 0).toLocaleString('es-AR')}`;
 
   // Helper para las filas de datos
   const InfoRow = ({ icon: Icon, label, value, linkId }) => (
@@ -163,11 +195,11 @@ const OrderInfoAccordion = ({ order, role }) => {
                 label="Metodo de Pago"
                 value={PAYMENT_METHOD_LABEL}
               />
-              <InfoRow
-                icon={CreditCard}
-                label="Precio de Productos"
-                value={`$ ${(order.productsAmount ?? 0).toLocaleString('es-AR')}`}
-              />
+                            <InfoRow
+                              icon={CreditCard}
+                              label="Precio de Productos"
+                              value={productsDisplayValue}
+                            />
               {order.shippingAmount > 0 && (
                 <InfoRow
                   icon={Truck}
@@ -175,11 +207,18 @@ const OrderInfoAccordion = ({ order, role }) => {
                   value={`$ ${(order.shippingAmount ?? 0).toLocaleString('es-AR')}`}
                 />
               )}
-              <InfoRow
+                            <InfoRow
                 icon={Tag}
                 label="Precio Total"
-                value={`$ ${(order.totalAmount ?? 0).toLocaleString('es-AR')}`}
+                value={totalDisplayValue}
               />
+              {hasRewardsUsed && (
+                <InfoRow
+                  icon={CreditCard}
+                  label="Pago con saldo de recompensas"
+                  value={`US$ ${rewardsUsedUsd.toFixed(2)}`}
+                />
+              )}
               <InfoRow
                 icon={Calendar}
                 label="Fecha de Compra"
@@ -203,11 +242,25 @@ const OrderInfoAccordion = ({ order, role }) => {
                     label="Tipo de cambio"
                     value={`$ ${Number(order.financials?.usdRate || 0).toFixed(2)}`}
                   />
-                  <InfoRow
+                                    <InfoRow
                     icon={CreditCard}
                     label="Comision descontada"
                     value={`$ ${Number(order.financials?.platformFeeUsd || 0).toFixed(2)}`}
                   />
+                  {hasRewardsUsed && (
+                    <InfoRow
+                      icon={CreditCard}
+                      label="Pagado con saldo de recompensas (comprador)"
+                      value={`US$ ${rewardsUsedUsd.toFixed(2)}`}
+                    />
+                  )}
+                  {hasRewardsUsed && sellerCreditUsd > 0 && (
+                    <InfoRow
+                      icon={CreditCard}
+                      label="Saldo a tu favor (se te transfiere aparte)"
+                      value={`US$ ${sellerCreditUsd.toFixed(2)}`}
+                    />
+                  )}
                 </>
               )}
             </div>
@@ -302,14 +355,35 @@ const OrderInfoAccordion = ({ order, role }) => {
             </div>
           </div>
 
-          {/* NOTA PARA EL VENDEDOR */}
+                    {/* NOTA PARA EL VENDEDOR */}
           {isSeller && (
-            <div className="mt-6 p-4 bg-zinc-50 dark:bg-zinc-800/50 rounded-2xl border border-zinc-100 dark:border-zinc-700">
-              <p className="text-[10px] text-zinc-500 font-medium">
-                * Los fondos y el colateral se liquidaran una vez que el estado
-                pase a COMPLETED.
-              </p>
-            </div>
+            <>
+              {hasRewardsUsed && (
+                <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-2xl border border-amber-200 dark:border-amber-900/30 flex items-start gap-3">
+                  <div className="mt-0.5 text-amber-600 dark:text-amber-400">
+                    <Tag size={16} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                      Este comprador pagó usando saldo de recompensas
+                    </p>
+                    <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5">
+                      Por eso el monto que ves es {rewardsUsedUsd ? `US$ ${rewardsUsedUsd.toFixed(2)} ` : ''}
+                      menor al precio de lista. No es un error: ese saldo te lo
+                      acredita la plataforma
+                      {sellerCreditUsd > 0 ? ` (US$ ${sellerCreditUsd.toFixed(2)} a tu favor)` : ''}.
+                      Podés reclamarlo desde <b>Mi Billetera → Billetera de Recompensas</b>.
+                    </p>
+                  </div>
+                </div>
+              )}
+              <div className="mt-4 p-4 bg-zinc-50 dark:bg-zinc-800/50 rounded-2xl border border-zinc-100 dark:border-zinc-700">
+                <p className="text-[10px] text-zinc-500 font-medium">
+                  * Los fondos y el colateral se liquidaran una vez que el estado
+                  pase a COMPLETED.
+                </p>
+              </div>
+            </>
           )}
         </div>
       )}

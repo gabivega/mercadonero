@@ -138,6 +138,12 @@ export const getMyReferral = async (req, res) => {
         maxPercent: config.maxPercent,
         defaultPercent: config.defaultPercent,
         enabled: config.enabled,
+        // Reparto del reward: % que se lleva el referidor (default 75).
+        // El front lo usa para previsualizar cuánto gana cada parte.
+        referrerSharePercent:
+          Number.isFinite(Number(config.referrerSharePercent))
+            ? Number(config.referrerSharePercent)
+            : 75,
         // Reglas de retiro (para el modal de la billetera de recompensas).
         minWithdrawalUsd: config.minWithdrawalUsd,
         allowWithdraw: config.allowWithdraw,
@@ -208,7 +214,7 @@ export const adminGetReferralConfig = async (_req, res) => {
  */
 export const adminUpdateReferralConfig = async (req, res) => {
   try {
-    const allowed = [
+        const allowed = [
       "enabled",
       "defaultPercent",
       "maxPercent",
@@ -216,6 +222,7 @@ export const adminUpdateReferralConfig = async (req, res) => {
       "platformFeePercent",
       "minWithdrawalUsd",
       "allowWithdraw",
+      "referrerSharePercent",
     ];
     const updates = {};
     for (const k of allowed) {
@@ -233,11 +240,23 @@ export const adminUpdateReferralConfig = async (req, res) => {
         message: "El % por defecto no puede superar el % máximo.",
       });
     }
-    if (nextMax > 50) {
+        if (nextMax > 50) {
       return res.status(400).json({
         success: false,
         message: "El % máximo de referido no puede superar 50%.",
       });
+    }
+
+    // Validación del reparto referidor/comprador (debe ser 0-100).
+    if (updates.referrerSharePercent !== undefined) {
+      const share = Number(updates.referrerSharePercent);
+      if (!Number.isFinite(share) || share < 0 || share > 100) {
+        return res.status(400).json({
+          success: false,
+          message: "El % del referidor debe estar entre 0 y 100.",
+        });
+      }
+      updates.referrerSharePercent = share;
     }
 
     for (const k of Object.keys(updates)) config[k] = updates[k];

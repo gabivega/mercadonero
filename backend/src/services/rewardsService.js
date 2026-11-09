@@ -183,17 +183,75 @@ export async function getSellerPendingCreditTotal(sellerId) {
  * @param {ObjectId} sellerId
  * @param {object}   opts  { ref, claimedBy }  referencia del pago manual / admin
  */
+/**
+ * Lista los créditos PENDIENTES de un seller con su detalle (para mostrar en la
+ * billetera: "orden #XXXX · US$ YY · fecha"). Solo lectura.
+ */
+export async function getSellerPendingCredits(sellerId) {
+  const credits = await SellerCredit.find({ seller: sellerId, status: "pending" })
+    .select("order amountUsd breakdown createdAt")
+    .sort({ createdAt: -1 })
+    .lean();
+  if (!credits.length) return [];
+
+  // Traemos el estado de cada orden para saber si el crédito ya es RECLAMABLE
+  // (orden completada) o todavía está pendiente de cierre. Esto permite mostrar
+  // al vendedor qué puede reclamar YA y qué se acreditará al completar.
+  const Order = (await import("../models/Order.js")).default;
+  const orderIds = credits.map((c) => c.order);
+  const orders = await Order.find(
+    { _id: { $in: orderIds } },
+    { _id: 1, status: 1 },
+  ).lean();
+  const statusByOrder = new Map(
+    orders.map((o) => [String(o._id), o.status]),
+  );
+
+  return credits.map((c) => {
+    const orderStatus = statusByOrder.get(String(c.order)) || "unknown";
+    return {
+      orderId: c.order,
+      code: String(c.order || "").slice(-6).toUpperCase(),
+      amountUsd: round2(Number(c.amountUsd) || 0),
+      breakdown: {
+        cashbackUsd: round2(Number(c.breakdown?.cashbackUsd) || 0),
+        referralUsd: round2(Number(c.breakdown?.referralUsd) || 0),
+      },
+      // Reclamable = la orden ya se completó (el crédito es firme).
+      claimable: orderStatus === "completed",
+      orderStatus,
+      createdAt: c.createdAt,
+    };
+  });
+}
+
 export async function claimSellerCredit(sellerId, { ref = "", claimedBy = null } = {}) {
-  const pending = await SellerCredit.find({ seller: sellerId, status: "pending" });
+  // ⚠️ SOLO se pueden reclamar créditos de órdenes COMPLETADAS. El crédito se
+  // registra desde que se crea la orden (para que el vendedor lo vea), pero aún
+  // es un pasivo contingente: si la orden se cancela, deja de aplicar. Reclamar
+  // (y pagar) antes de completar permitiría cobrar por ventas que luego no se
+  // cierran. Filtramos por el estado de la orden al momento del claim.
+  const Order = (await import("../models/Order.js")).default;
+  const completedOrderIds = await Order.find(
+    { seller: sellerId, status: "completed" },
+    { _id: 1 },
+  ).lean();
+  const completedIds = completedOrderIds.map((o) => o._id);
+
+  const pending = await SellerCredit.find({
+    seller: sellerId,
+    status: "pending",
+    order: { $in: completedIds },
+  });
   if (!pending.length) {
-    return { success: false, error: "No tenés saldo a favor pendiente." };
+    return { success: false, error: "No tenés saldo a favor reclamable (solo se paga por órdenes completadas)." };
   }
 
   const total = round2(pending.reduce((s, c) => s + (Number(c.amountUsd) || 0), 0));
   const now = new Date();
 
   await SellerCredit.updateMany(
-    { seller: sellerId, status: "pending" },
+    { seller: sellerId, status: "pending", order: { $in: completedIds } },
     { $set: { status: "claimed", claimedAt: now, claimRef: ref, claimedBy } },
   );
 

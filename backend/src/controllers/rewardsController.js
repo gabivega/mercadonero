@@ -4,6 +4,7 @@ import {
   getRewardsBalanceSummary,
   computeReferrerWithdrawable,
   getSellerPendingCreditTotal,
+  getSellerPendingCredits,
   claimSellerCredit,
   quoteRewardsForOrder,
 } from "../services/rewardsService.js";
@@ -108,9 +109,16 @@ export const getMyRewardsSummary = async (req, res) => {
         .json({ success: false, message: "Usuario no encontrado" });
     }
 
-    const rewards = await getRewardsBalanceSummary(user._id);
+        const rewards = await getRewardsBalanceSummary(user._id);
     const referrerWithdrawableUsd = computeReferrerWithdrawable(user);
     const sellerCredit = await getSellerPendingCreditTotal(user._id);
+        // Detalle de créditos pendientes (uno por orden que usó saldo). Se usa en
+    // la billetera del vendedor para mostrar de dónde viene cada monto.
+    const sellerCreditItems = await getSellerPendingCredits(user._id);
+    // Reclamable = solo créditos de órdenes COMPLETADAS (ver claimSellerCredit).
+    const sellerCreditClaimableUsd = sellerCreditItems
+      .filter((c) => c.claimable)
+      .reduce((s, c) => s + (Number(c.amountUsd) || 0), 0);
 
     res.status(200).json({
       success: true,
@@ -121,6 +129,10 @@ export const getMyRewardsSummary = async (req, res) => {
       // Lo que la plataforma le debe al seller por compras pagadas con saldo.
       sellerCreditPendingUsd: sellerCredit.totalUsd,
       sellerCreditPendingCount: sellerCredit.count,
+      // Lo que YA puede reclamar (órdenes completadas).
+      sellerCreditClaimableUsd: Math.round(sellerCreditClaimableUsd * 100) / 100,
+      // Detalle por orden (para la sección de vendedor).
+      sellerCreditItems,
     });
   } catch (error) {
     console.error("Error en getMyRewardsSummary:", error);

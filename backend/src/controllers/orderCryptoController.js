@@ -100,9 +100,23 @@ export const makeCreateCryptoOrder = () => {
       shippingAddress: effectiveShippingAddress,
       deliveryMethod: isPickup ? "pickup" : "shipping",
       pickupLocation: isPickup ? pickupLocation || undefined : undefined,
-      shippingDetails,
-      totalAmount: calculatedTotal + maxShippingCost,
-      productsAmount: calculatedTotal,
+            shippingDetails,
+      // Monto REAL a fondear en el escrow = productos (netos de recompensas) + envío.
+      // Si el comprador usó saldo de recompensas, `financials.escrowAmountUsd`
+      // trae el efectivo a pagar; si no, es null y se paga el total completo.
+      // Igual criterio que la orden bancaria: el descuento de recompensas se
+      // aplica DE ENTRADA al monto que fondea el comprador (no al final).
+      totalAmount:
+        financials.rewardsUsedUsd > 0 && financials.escrowAmountUsd != null
+          ? financials.escrowAmountUsd
+          : calculatedTotal + maxShippingCost,
+      productsAmount:
+        financials.rewardsUsedUsd > 0 && financials.escrowAmountUsd != null
+          ? Math.max(
+              0,
+              Number((financials.escrowAmountUsd - maxShippingCost).toFixed(2)),
+            )
+          : calculatedTotal,
       shippingAmount: maxShippingCost,
       status: "pending_payment",
       financials,
@@ -130,35 +144,32 @@ export const makeCreateCryptoOrder = () => {
 
     const savedCryptoOrder = await newOrderCrypto.save();
 
-    // ── MATERIALIZAR descuento por recompensas (si el comprador lo usó) ──
-    // En crypto el SellerCredit es DINÁMICO: el contrato cobra el fee del
-    // escrow, así que al seller solo se le compensa lo que NO cobró del escrow
-    // (pendingRewards.sellerCreditUsd). La diferencia (fee) se absorbe al
-    // consumir el saldo de recompensas. Ver rewardsService.quoteRewardsForOrder.
+        // ── RESERVAR el descuento por recompensas (si el comprador lo usó) ──
+    // Fix de integridad: antes acá se intentaba GASTAR el saldo y acreditar al
+    // vendedor al CREAR la orden, pero (a) llamaba a `spendRewardsForOrder`, que
+    // no existe (el export real es `commitReservedRewardsForOrder`), así que el
+    // catch lo tragaba y NO se descontaba nada; y (b) el SellerCredit se
+    // acreditaba acá Y otra vez en commitRewardsOnComplete (unique index por
+    // orden → error confuso).
+    //
+    // Ahora seguimos el MISMO modelo que bank_transfer: al crear solo RESERVAMOS
+    // (bloquea el saldo, sin gastarlo). El consumo real + el SellerCredit ocurren
+    // recién al COMPLETAR la orden (adminCompleteOrder → commitRewardsOnComplete).
+    // Si la orden se cancela/reembolsa, releaseOrderRewardsReservation devuelve
+    // la reserva al comprador.
+    //
+    // Usamos el helper compartido de orderController para respetar el monto
+    // EFECTIVAMENTE reservado (por carreras de saldo) y persistirlo en la orden
+    // (financials.rewardsReservedUsd).
     if (pendingRewards && pendingRewards.rewardsUsedUsd > 0) {
       try {
-        const { spendRewardsForOrder, recordSellerCredit } = await import(
-          "../services/rewardsService.js"
+        const { applyPendingRewards } = await import(
+          "./orderController.js"
         );
-        await spendRewardsForOrder({
-          userId: buyerId,
-          cashbackUsd: pendingRewards.breakdown.cashbackUsd,
-          referralUsd: pendingRewards.breakdown.referralUsd,
-          orderId: savedCryptoOrder._id,
-        });
-        await recordSellerCredit({
-          sellerId,
-          orderId: savedCryptoOrder._id,
-          amountUsd:
-            pendingRewards.sellerCreditUsd ?? pendingRewards.rewardsUsedUsd,
-          breakdown: pendingRewards.breakdown,
-        });
-        console.log(
-          `[Rewards] Orden crypto ${savedCryptoOrder._id}: saldo descontado al comprador y SellerCredit de US$ ${pendingRewards.sellerCreditUsd ?? pendingRewards.rewardsUsedUsd} al vendedor.`,
-        );
+        await applyPendingRewards(savedCryptoOrder, pendingRewards);
       } catch (rewardsErr) {
         console.error(
-          `[Rewards] Fallo al materializar descuento en orden crypto ${savedCryptoOrder._id}:`,
+          `[Rewards] Fallo al reservar descuento en orden crypto ${savedCryptoOrder._id}:`,
           rewardsErr.message,
         );
       }

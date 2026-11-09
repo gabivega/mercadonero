@@ -63,15 +63,16 @@ export async function resolveProductReferral(rawReferral, { listingType } = {}) 
 }
 
 /**
- * CALCULA el reparto del reward 50/50 para una orden con referidor.
+ * CALCULA el reparto del reward entre referidor y comprador (reparto
+ * configurable, por defecto 75/25 desde `config.referrerSharePercent`).
  *
  * Base de cálculo: SUBTOTAL USD de la orden (productos, SIN envío). Usamos
  * `order.financials.totalUsd`, que ya refleja el precio efectivo (oferta
  * aplicada) por cantidad.
  *
  *   totalUsd    = baseUsd * (percent / 100)
- *   referrerUsd = totalUsd / 2
- *   buyerUsd    = totalUsd / 2
+ *   referrerUsd = totalUsd * (referrerSharePercent / 100)
+ *   buyerUsd    = totalUsd - referrerUsd
  *
  * Respeta el tope global `maxRewardUsdPerOrder` (si > 0).
  */
@@ -86,12 +87,20 @@ export function calculateReferralSplit(order, percent, config = {}) {
     totalUsd = config.maxRewardUsdPerOrder;
   }
 
-  // Reparto 50/50 (el half del referidor se redondea; el del comprador se
-  // deriva como diferencia para que la suma coincida exactamente).
-  const referrerUsd = Math.round((totalUsd / 2) * 100) / 100;
+  // Reparto configurable. Si llega un valor inválido (o no llega), usamos 75%
+  // para el referidor como default de negocio actual.
+  const rawShare = Number(config.referrerSharePercent);
+  const referrerShare = Number.isFinite(rawShare)
+    ? Math.min(100, Math.max(0, rawShare))
+    : 75;
+
+  // La parte del referidor se redondea; la del comprador se deriva como
+  // diferencia para que la suma coincida exactamente (sin centavos perdidos).
+  const referrerUsd =
+    Math.round(totalUsd * (referrerShare / 100) * 100) / 100;
   const buyerUsd = Math.round((totalUsd - referrerUsd) * 100) / 100;
 
-  return { baseUsd, totalUsd, referrerUsd, buyerUsd };
+  return { baseUsd, totalUsd, referrerUsd, buyerUsd, referrerSharePercent: referrerShare };
 }
 
 /**

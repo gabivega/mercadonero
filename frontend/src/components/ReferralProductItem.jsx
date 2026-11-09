@@ -22,7 +22,7 @@ const ACCENT = "#F26722";
  *
  * @param {object} product  producto con referral.enabled y referral.percent > 0
  */
-export default function ReferralProductItem({ product }) {
+export default function ReferralProductItem({ product, sharePercent = 75 }) {
   const dbUser = useUserStore((s) => s.dbUser);
   const { login, authenticated, getAccessToken } = usePrivy();
   const myId = dbUser?._id;
@@ -43,11 +43,11 @@ export default function ReferralProductItem({ product }) {
 
   const price = product?.sale?.active ? product.sale.price : product.price;
   const percent = Number(product?.referral?.percent) || 0;
-  const { eachUsd } = calcReferralSplit(price, percent, usdRate);
-  const percentEach = Math.round((percent / 2) * 100) / 100;
+    const { referrerUsd } = calcReferralSplit(price, percent, usdRate, sharePercent);
+  const percentReferrer = Math.round(percent * (sharePercent / 100) * 100) / 100;
 
   // Monto si ya tenemos cotización; si no, el % (nunca un $0).
-  const rewardLabel = usdRate ? formatUsdt(eachUsd) : `${percentEach}%`;
+  const rewardLabel = usdRate ? formatUsdt(referrerUsd) : `${percentReferrer}%`;
 
   // Copia al portapapeles con fallbacks: Clipboard API → execCommand.
   // Devuelve true SOLO si realmente se copió. Esto evita el "primer click no

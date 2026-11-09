@@ -20,6 +20,10 @@ import {
   activateDeviceSigner,
   isDeviceActivated,
 } from "../Utils/crossmintWallet";
+// Gas patrocinado + anti-abuso (rate limit por operación + monto mínimo).
+import { ensureGas } from "../Utils/ensureGas";
+import { checkOpRateLimit, registerOp, describeLimit } from "../Utils/opRateLimit";
+import { getOpLimit } from "../config/opPolicy";
 
 // ─────────────────────────────────────────────────────────────────────────
 // CONFIGURACIÓN MULTIRED
@@ -611,11 +615,42 @@ export default function CollateralManager() {
       return;
     }
 
-    // 🔐 El OTP (si hiciera falta) lo maneja el SDK + el CrossmintOtpModal
+        // 🔐 El OTP (si hiciera falta) lo maneja el SDK + el CrossmintOtpModal
     // global vía `onAuthRequired`. NO mostramos un aviso previo: si el device
     // signer es válido, la firma es silenciosa; si no, aparece el modal real de
     // OTP (con su botón "Enviar código"). Evitamos así el falso aviso de
     // "dispositivo nuevo" que no enviaba ningún correo.
+
+    // ── ANTI-ABUSO: monto mínimo + cuota de frecuencia ──
+    // El depósito son 2 UserOps (approve + deposit), el más caro en gas. En
+    // testnet OP_POLICY.enforce=false → sólo avisa; en prod bloqueará.
+    const limit = checkOpRateLimit({
+      address: signerAddress || walletAddress,
+      chain: network.chainName,
+      opType: "deposit_collateral",
+      amountUsd: Number(depositAmount),
+    });
+    if (limit.belowMin) {
+      Toast.fire({ icon: "warning", title: describeLimit(limit) });
+      return;
+    }
+    if (limit.blocked) {
+      Toast.fire({ icon: "warning", title: describeLimit(limit) });
+      return;
+    }
+
+    // ── GAS PATROCINADO: garantizar gas nativo antes de firmar ──
+    // La firma es client-side; pedimos al backend el "drip" de gas para que la
+    // smart wallet tenga con qué firmar. Idempotente si ya tiene gas.
+    const gas = await ensureGas({
+      chain: network.chainName,
+      opType: "deposit_collateral",
+      getAccessToken,
+    });
+    if (!gas.ok) {
+      Toast.fire({ icon: "warning", title: gas.message });
+      return;
+    }
 
     setLoading(true);
     setProgress(`Aprobando ${COLLATERAL_TOKEN_SYMBOL}...`);
@@ -730,9 +765,15 @@ export default function CollateralManager() {
         return;
       }
 
-      Toast.fire({
+            Toast.fire({
         icon: "success",
         title: `Depositaste ${depositAmount} ${COLLATERAL_TOKEN_SYMBOL}.`,
+      });
+      // Registrar la operación exitosa para el conteo de cuota por hora.
+      registerOp({
+        address: addrForVerify || signerAddress || walletAddress,
+        chain: network.chainName,
+        opType: "deposit_collateral",
       });
     } catch (error) {
       console.error(error);
@@ -772,8 +813,37 @@ export default function CollateralManager() {
       return;
     }
 
-    // 🔐 El OTP (si hiciera falta) lo maneja el SDK + el CrossmintOtpModal
+        // 🔐 El OTP (si hiciera falta) lo maneja el SDK + el CrossmintOtpModal
     // global vía `onAuthRequired` (ver nota en handleDeposit).
+
+    // ── ANTI-ABUSO: monto mínimo + cuota de frecuencia ──
+    // El retiro es el flujo que más se presta a "mil micro retiros". En testnet
+    // OP_POLICY.enforce=false → sólo avisa; en prod bloqueará.
+    const limit = checkOpRateLimit({
+      address: signerAddress || walletAddress,
+      chain: network.chainName,
+      opType: "withdraw_collateral",
+      amountUsd: Number(withdrawAmount),
+    });
+    if (limit.belowMin) {
+      Toast.fire({ icon: "warning", title: describeLimit(limit) });
+      return;
+    }
+    if (limit.blocked) {
+      Toast.fire({ icon: "warning", title: describeLimit(limit) });
+      return;
+    }
+
+    // ── GAS PATROCINADO: garantizar gas nativo antes de firmar ──
+    const gas = await ensureGas({
+      chain: network.chainName,
+      opType: "withdraw_collateral",
+      getAccessToken,
+    });
+    if (!gas.ok) {
+      Toast.fire({ icon: "warning", title: gas.message });
+      return;
+    }
 
     setLoading(true);
     setProgress("Confirmando el retiro...");
@@ -816,9 +886,15 @@ export default function CollateralManager() {
         return;
       }
 
-      Toast.fire({
+            Toast.fire({
         icon: "success",
         title: `Retiraste ${withdrawAmount} ${COLLATERAL_TOKEN_SYMBOL} a tu billetera.`,
+      });
+      // Registrar la operación exitosa para el conteo de cuota por hora.
+      registerOp({
+        address: addrForVerify || signerAddress || walletAddress,
+        chain: network.chainName,
+        opType: "withdraw_collateral",
       });
     } catch (error) {
       console.error(error);
@@ -1126,20 +1202,25 @@ export default function CollateralManager() {
           onSubmit={handleDeposit}
           className="space-y-3 p-4 bg-gray-50 dark:bg-gray-800/40 rounded-xl border border-gray-100 dark:border-gray-800"
         >
-          <h3 className="text-sm font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wide">
+                    <h3 className="text-sm font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wide">
             Colocar Colateral en Garantía
           </h3>
           <div className="relative rounded-md shadow-sm">
             <input
               type="number"
               step="any"
+              min={getOpLimit("deposit_collateral").minUsd}
               value={depositAmount}
               onChange={(e) => setDepositAmount(e.target.value)}
               disabled={disabled}
               className="block w-full rounded-lg border-gray-300 p-2.5 text-sm dark:bg-gray-800 dark:text-white border dark:border-gray-700 focus:ring-blue-500 disabled:opacity-60"
-              placeholder="Monto a depositar"
+              placeholder={`Mínimo US$ ${getOpLimit("deposit_collateral").minUsd}`}
             />
           </div>
+          <p className="text-[11px] text-gray-400 dark:text-gray-500">
+            Depósito mínimo US$ {getOpLimit("deposit_collateral").minUsd} · hasta{" "}
+            {getOpLimit("deposit_collateral").maxPerHour}/hora
+          </p>
           <button
             type="submit"
             disabled={disabled}
@@ -1154,20 +1235,25 @@ export default function CollateralManager() {
           onSubmit={handleWithdraw}
           className="space-y-3 p-4 bg-gray-50 dark:bg-gray-800/40 rounded-xl border border-gray-100 dark:border-gray-800"
         >
-          <h3 className="text-sm font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wide">
+                    <h3 className="text-sm font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wide">
             Quitar Garantía
           </h3>
           <div className="relative rounded-md shadow-sm">
             <input
               type="number"
               step="any"
+              min={getOpLimit("withdraw_collateral").minUsd}
               value={withdrawAmount}
               onChange={(e) => setWithdrawAmount(e.target.value)}
               disabled={withdrawDisabled}
               className="block w-full rounded-lg border-gray-300 p-2.5 text-sm dark:bg-gray-800 dark:text-white border dark:border-gray-700 focus:ring-red-500 disabled:opacity-60"
-              placeholder="Monto a retirar"
+              placeholder={`Mínimo US$ ${getOpLimit("withdraw_collateral").minUsd}`}
             />
           </div>
+          <p className="text-[11px] text-gray-400 dark:text-gray-500">
+            Retiro mínimo US$ {getOpLimit("withdraw_collateral").minUsd} · hasta{" "}
+            {getOpLimit("withdraw_collateral").maxPerHour}/hora
+          </p>
           <button
             type="submit"
             disabled={withdrawDisabled}

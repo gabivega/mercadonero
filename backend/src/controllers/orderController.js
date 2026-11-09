@@ -238,12 +238,38 @@ const applyPendingRewards = async (order, pendingRewards) => {
       "../services/rewardsService.js"
     );
 
-    const res = await reserveRewardsForOrder({
+        const res = await reserveRewardsForOrder({
       userId: pendingRewards.buyerId,
       cashbackUsd: pendingRewards.breakdown.cashbackUsd,
       referralUsd: pendingRewards.breakdown.referralUsd,
       orderId: order._id,
     });
+
+    // ── REGISTRO DEL CRÉDITO A FAVOR DEL VENDEDOR (desde la creación) ──
+    // El comprador usó saldo de recompensas → el vendedor cobra de menos en el
+    // pago directo/escrow. Para que el VENDEDOR lo VEA desde el inicio (y no se
+    // asuste al ver un monto menor), registramos el SellerCredit apenas la orden
+    // se crea y el saldo queda reservado. El monto acreditado = lo efectivamente
+    // reservado (res.applied). Si la orden se cancela/expira, este crédito se
+    // marca "cancelled" (ver releaseOrderRewardsReservation). Al COMPLETARSE, se
+    // re-verifica/actualiza en commitRewardsOnComplete (idempotente por `order`).
+    try {
+      const { recordSellerCredit } = await import(
+        "../services/rewardsService.js"
+      );
+      await recordSellerCredit({
+        sellerId: pendingRewards.sellerId,
+        orderId: order._id,
+        amountUsd: res.applied,
+        breakdown: res.breakdown,
+      });
+    } catch (creditErr) {
+      // No bloqueante: si falla, el crédito se crea igual al completar.
+      console.error(
+        `[Rewards] No se pudo registrar el SellerCredit al crear la orden ${order._id}:`,
+        creditErr.message,
+      );
+    }
 
     // Persistimos la reserva efectiva en la orden (para liberar/consumir luego).
     // Si la reserva aplicó menos de lo pedido (saldo insuficiente por carrera),
@@ -326,20 +352,33 @@ const commitRewardsOnComplete = async (order) => {
       orderId: order._id,
     });
 
-    // 2) Acreditar al vendedor el crédito (pasivo que reclama aparte).
+        // 2) Acreditar al vendedor el crédito (pasivo que reclama aparte).
+    // ⚠️ AISLADO del consumo: si esto falla NO debemos re-ejecutar el consumo
+    // del comprador (doble descuento). El crédito es idempotente por `order`
+    // (recordSellerCredit hace upsert), así que se puede reintentar aparte.
     const isCrypto = order.payment?.method === "crypto";
     const sellerCreditUsd = isCrypto
       ? Number(order.financials?.sellerCreditUsd) || rewardsReserved
       : rewardsReserved; // BANK: crédito = 100% de recompensas usadas
 
-    await recordSellerCredit({
-      sellerId: order.seller,
-      orderId: order._id,
-      amountUsd: sellerCreditUsd,
-      breakdown,
-    });
+    try {
+      await recordSellerCredit({
+        sellerId: order.seller,
+        orderId: order._id,
+        amountUsd: sellerCreditUsd,
+        breakdown,
+      });
+    } catch (creditErr) {
+      console.error(
+        `[Rewards] Consumo OK pero falló el SellerCredit de la orden ${order._id} ` +
+          `(US$ ${sellerCreditUsd}). Reintentar con recordSellerCredit; NO repetir el consumo.`,
+        creditErr.message,
+      );
+    }
 
     // 3) Marcar en la orden que ya se consumió (idempotencia).
+    // Se setea SIEMPRE tras consumir, aunque el crédito haya fallado: evita
+    // que un reintento vuelva a descontar el saldo del comprador.
     await Order.updateOne(
       { _id: order._id },
       { $set: { "financials.rewardsCommitted": true } },
@@ -4447,8 +4486,9 @@ export {
   adminResolvePaymentDispute,
   adminOpenDispute,
   adminCloseDispute,
-  // Helpers de recompensas (reserva/consumo) reutilizados por el flujo crypto
+    // Helpers de recompensas (reserva/consumo) reutilizados por el flujo crypto
   // (orderCryptoController) y por el servicio de holds de colateral.
+  applyPendingRewards,
   commitRewardsOnComplete,
   releaseOrderRewardsReservation,
 };

@@ -3,7 +3,7 @@ import { usePrivy } from "../../Utils/authClient";
 import { createPublicClient, http, formatUnits } from 'viem';
 import { polygonAmoy, bscTestnet, baseSepolia } from 'viem/chains';
 
-import { Wallet, RefreshCcw, ArrowUpRight, Copy, PlusCircle, Sparkles, BadgePercent, ChevronDown, Gift, Users, History, ShieldCheck } from 'lucide-react';
+import { Wallet, RefreshCcw, ArrowUpRight, ArrowDownLeft, ArrowUpRight as ArrowOut, ExternalLink, Copy, PlusCircle, Sparkles, BadgePercent, ChevronDown, Gift, Users, History, ShieldCheck, HandCoins, Info } from 'lucide-react';
 import axios from 'axios';
 import SendTokenModal from '../../components/SendTokenModal';
 import Swal from 'sweetalert2';
@@ -14,6 +14,9 @@ import { useUserStore } from '../../store/useUserStore';
 import { useSyncUser } from '../../Utils/userSync';
 import { ensureUserWallet, sendToken, activateForChains, APP_EVM_CHAINS, isDeviceActivatedForAll } from '../../Utils/crossmintWallet';
 import { isJwtExpiredError, handleUnauthorized } from '../../Utils/axiosAuth';
+import { ensureGas } from '../../Utils/ensureGas';
+import { checkOpRateLimit, registerOp, describeLimit } from '../../Utils/opRateLimit';
+import { OP_POLICY, getOpLimit } from '../../config/opPolicy';
 
 /**
  * Redes soportadas por la billetera, agrupadas por red.
@@ -126,6 +129,39 @@ function getPublicClient(chainId, chain) {
   return publicClientByChain[chainId];
 }
 
+// ── Config del historial de movimientos ────────────────────────────────────
+// Los RPC públicos no permiten `eth_getLogs` sobre rangos enormes de bloques
+// (ni el full range). Para no reventar el endpoint, escaneamos hacia atrás en
+// tramos ("chunks") de bloques, como máximo LOOKBACK_BLOCKS atrás, hasta
+// juntar los últimos N movimientos. Es una heurística: si la wallet tuvo mucha
+// actividad hace mucho tiempo, puede que los 10 movimientos no estén dentro de
+// la ventana; en ese caso mostramos los que haya. Alcanza para testnets.
+const TX_HISTORY_LIMIT = 10;
+const TX_HISTORY_CHUNK_BLOCKS = 2000n; // tamaño de cada tramo de getLogs
+const TX_HISTORY_LOOKBACK_BLOCKS = 200000n; // ~cuánto hacia atrás escaneamos (aprox)
+
+// Topic del evento ERC-20: Transfer(address,address,uint256)
+// keccak256("Transfer(address,address,uint256)")
+const ERC20_TRANSFER_TOPIC =
+  '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+// Abi mínimo solo con el evento (viem lo usa para `getLogs` / decodificar).
+const erc20TransferAbi = [
+  {
+    type: 'event',
+    name: 'Transfer',
+    inputs: [
+      { indexed: true, name: 'from', type: 'address' },
+      { indexed: true, name: 'to', type: 'address' },
+      { indexed: false, name: 'value', type: 'uint256' },
+    ],
+  },
+];
+
+// topic de una address (32 bytes, padded a la izquierda)
+const addressToTopic = (addr) =>
+  `0x${String(addr).toLowerCase().replace(/^0x/, '').padStart(64, '0')}`;
+
 const minERC20Abi = [
   { constant: true, inputs: [{ name: "_owner", type: "address" }], name: "balanceOf", outputs: [{ name: "balance", type: "uint256" }], type: "function" },
   { constant: false, inputs: [{ name: "_to", type: "address" }, { name: "_value", type: "uint256" }], name: "transfer", outputs: [{ name: "success", type: "bool" }], type: "function" }
@@ -157,9 +193,16 @@ export default function WalletPage() {
   const [balances, setBalances] = useState({});
     const [isLoading, setIsLoading] = useState(false);
     const [isCreatingWallet, setIsCreatingWallet] = useState(false);
-  const [isActivating, setIsActivating] = useState(false);
+    const [isActivating, setIsActivating] = useState(false);
   // ¿El dispositivo ya está activado en todas las redes? Se relee tras activar.
   const [activatedAll, setActivatedAll] = useState(false);
+
+  // Historial de movimientos on-chain (ingresos/egresos de las stablecoins).
+  // Se calcula a partir de los eventos ERC-20 `Transfer` leídos con getLogs;
+  // no depende del backend. Se consulta junto con los balances.
+  const [recentTransfers, setRecentTransfers] = useState([]);
+  const [transfersLoading, setTransfersLoading] = useState(false);
+  const [transfersError, setTransfersError] = useState(null);
 
     // Estados del Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -187,10 +230,28 @@ export default function WalletPage() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historySource, setHistorySource] = useState("all"); // all | cashback | referral
 
-  // Modal de retiro (sirve tanto para cashback como para referidos).
+    // Modal de retiro (sirve tanto para cashback como para referidos).
   const [withdrawModal, setWithdrawModal] = useState(null); // { source, balance, minUsd, allow }
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+
+  // ── Saldo a favor como vendedor (SellerCredit) ──
+  // Cuando un comprador paga con recompensas, el vendedor cobra menos en el
+  // escrow/pago directo. La plataforma le queda debiendo ese monto, que se
+  // registra como SellerCredit (pendiente) y se paga manualmente. Acá mostramos
+  // ese saldo y permitimos solicitar el claim. Los datos vienen ya en
+  // `rewardsSummary.sellerCreditPendingUsd` / `sellerCreditItems`.
+  const [isClaimingSeller, setIsClaimingSeller] = useState(false);
+  // Toggle "ver detalle" del saldo a favor (oculto por defecto, igual que el
+  // historial de recompensas). Se despliega al clickear.
+  const [isSellerCreditOpen, setIsSellerCreditOpen] = useState(false);
+  // Paginación "ver más" del detalle de saldo a favor: arrancamos mostrando 10
+  // ventas y sumamos de a 10 para no hacer un scroll infinito.
+  const [sellerCreditVisible, setSellerCreditVisible] = useState(10);
+
+  // Paginación "ver más" del historial de recompensas (cashback + referidos).
+  // Mostramos los últimos 10 movimientos y sumamos de a 10 al clickear.
+  const [historyVisible, setHistoryVisible] = useState(10);
 
     // Dirección de la wallet del usuario. Fuente de verdad: Mongo (dbUser).
   // Fallback al user mapeado (authClient ya incluye dbUser.walletAddress ahí).
@@ -386,7 +447,160 @@ export default function WalletPage() {
     }
   };
 
-      // Carga el cashback (reintegros) del usuario autenticado.
+      // ── Historial de movimientos on-chain ────────────────────────────────────
+  // Lee los eventos ERC-20 `Transfer` de cada token/red con getLogs y arma un
+  // listado unificado de ingresos y egresos de la wallet.
+  //
+  // Estrategia:
+  //   · Por cada token, hacemos DOS queries con `topics` de 3 posiciones
+  //     ([Transfer, address|null, address|null]) — una con `from = wallet`
+  //     (egreso) y otra con `to = wallet` (ingreso). NO se puede pasar un array
+  //     de dos address en la misma posición porque viem lo trata como AND, no
+  //     como OR, y no devolvería nada.
+  //   · Escaneamos hacia atrás en tramos de TX_HISTORY_CHUNK_BLOCKS, como
+  //     máximo TX_HISTORY_LOOKBACK_BLOCKS, hasta juntar >= LIMIT movimientos.
+  //   · Enriqucemos cada log con el timestamp del bloque (cacheado) y su hash.
+  //   · Mergeamos todas las chains, ordenamos por bloque/fecha desc y cortamos.
+  const fetchRecentTransfers = async () => {
+    if (!walletAddress) return;
+    setTransfersLoading(true);
+    setTransfersError(null);
+
+    try {
+      const walletLower = walletAddress.toLowerCase();
+      const walletTopic = addressToTopic(walletLower);
+      const allEvents = [];
+
+      // Cache de timestamps por chain+blockNumber para no consultar dos veces
+      // el mismo bloque (varias transfers suelen compartir bloque).
+      const tsCache = new Map();
+
+      const jobs = WALLET_NETWORKS.flatMap((net) =>
+        net.tokens
+          .filter((t) => !t.native && t.address) // sólo ERC-20
+          .map(async (token) => {
+            try {
+              const client = getPublicClient(net.chainId, net.chain);
+              const latest = await client.getBlockNumber();
+
+              let scanned = 0n;
+              let cursor = latest;
+              const tokenEvents = [];
+
+              // Escaneamos hacia atrás hasta acumular el límite o agotar lookback.
+              while (
+                scanned < TX_HISTORY_LOOKBACK_BLOCKS &&
+                tokenEvents.length < TX_HISTORY_LIMIT &&
+                cursor >= 0n
+              ) {
+                const fromBlock =
+                  cursor > TX_HISTORY_CHUNK_BLOCKS
+                    ? cursor - TX_HISTORY_CHUNK_BLOCKS + 1n
+                    : 0n;
+                const toBlock = cursor;
+
+                // Ingresos (`to = wallet`) y egresos (`from = wallet`) en paralelo.
+                const [incoming, outgoing] = await Promise.all([
+                  client.getLogs({
+                    address: token.address,
+                    event: erc20TransferAbi[0],
+                    args: { to: walletAddress },
+                    fromBlock,
+                    toBlock,
+                  }),
+                  client.getLogs({
+                    address: token.address,
+                    event: erc20TransferAbi[0],
+                    args: { from: walletAddress },
+                    fromBlock,
+                    toBlock,
+                  }),
+                ]);
+
+                for (const log of [...incoming, ...outgoing]) {
+                  // topic[2] = "to"; si coincide con la wallet ⇒ ingreso.
+                  const toTopic = log.topics?.[2]?.toLowerCase();
+                  const isIncoming = toTopic === walletTopic;
+
+                  // En viem v5 el log trae args decodificados con el evento.
+                  const rawValue = log.args?.value;
+                  const from = log.args?.from || '0x0';
+                  const to = log.args?.to || '0x0';
+
+                  tokenEvents.push({
+                    id: `${net.chainId}:${log.transactionHash}:${log.logIndex}`,
+                    chainId: net.chainId,
+                    chainLabel: net.label,
+                    explorer: net.explorer,
+                    symbol: token.symbol,
+                    tokenName: token.name,
+                    decimals: token.decimals,
+                    direction: isIncoming ? 'in' : 'out',
+                    counterparty: isIncoming ? from : to,
+                    amountFormatted: formatUnits(rawValue ?? 0n, token.decimals),
+                    blockNumber: log.blockNumber,
+                    txHash: log.transactionHash,
+                    // timestamp se completa abajo (cache por bloque).
+                    timestamp: null,
+                  });
+                }
+
+                // Siguiente tramo hacia atrás.
+                if (fromBlock === 0n) break;
+                cursor = fromBlock - 1n;
+                scanned += TX_HISTORY_CHUNK_BLOCKS;
+              }
+
+              // Rellenar timestamps (uno por bloque, cacheado por chain).
+              for (const ev of tokenEvents) {
+                const cacheKey = `${ev.chainId}:${ev.blockNumber}`;
+                if (tsCache.has(cacheKey)) {
+                  ev.timestamp = tsCache.get(cacheKey);
+                  continue;
+                }
+                try {
+                  const client = getPublicClient(net.chainId, net.chain);
+                  const block = await client.getBlock({ blockNumber: ev.blockNumber });
+                  const ts = Number(block.timestamp) * 1000;
+                  tsCache.set(cacheKey, ts);
+                  ev.timestamp = ts;
+                } catch {
+                  ev.timestamp = null;
+                }
+              }
+
+              allEvents.push(...tokenEvents);
+            } catch (chainErr) {
+              // No abortamos todas las chains por una que falle; logueamos y
+              // seguimos. Si TODAS fallan, el listado quedará vacío.
+              console.error(
+                `Error cargando movimientos de ${token.symbol} (chain ${net.chainId}):`,
+                chainErr,
+              );
+            }
+          }),
+      );
+
+      await Promise.all(jobs);
+
+      // Merge global: orden por bloques (no comparable entre chains) / timestamp.
+      const merged = allEvents
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+        .slice(0, TX_HISTORY_LIMIT);
+
+      setRecentTransfers(merged);
+    } catch (error) {
+      console.error('Error general en fetchRecentTransfers:', error);
+      setTransfersError(
+        'No pudimos cargar los movimientos en este momento. Probá refrescar.',
+      );
+      setRecentTransfers([]);
+    } finally {
+      setTransfersLoading(false);
+    }
+  };
+
+  // Carga el cashback (reintegros) del usuario autenticado.
   const fetchCashback = async () => {
     setCashbackLoading(true);
     try {
@@ -535,8 +749,73 @@ export default function WalletPage() {
               err?.response?.data?.message ||
               "No se pudo procesar el retiro. Intentá nuevamente.";
             Swal.fire({ title: "No se pudo retirar", text: message, icon: "error", confirmButtonColor: "#F26722" });
-    } finally {
+        } finally {
             setIsWithdrawing(false);
+    }
+  };
+
+  // Solicita el CLAIM del saldo a favor como vendedor (SellerCredit pendiente).
+  // En esta etapa es off-chain/manual: marca los créditos como "claimed" y la
+  // plataforma transfiere el monto a la wallet del vendedor. Pedimos confirmación
+  // explícita porque es una acción de "reclamo" de dinero.
+    const handleClaimSellerCredit = async () => {
+    const total = Number(rewardsSummary?.sellerCreditClaimableUsd || 0);
+    if (total <= 0) return;
+
+    const isDark = document.documentElement.classList.contains("dark");
+    const confirm = await Swal.fire({
+      icon: "question",
+      title: "Reclamar saldo a favor",
+      html: `Se solicitará el pago de <b>US$ ${total.toFixed(2)}</b> a favor tuyo (producto de compras pagadas con saldo de recompensas). La plataforma procesará la transferencia a tu billetera a la brevedad.`,
+      showCancelButton: true,
+      confirmButtonText: "Solicitar claim",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#F26722",
+      cancelButtonColor: "#6b7280",
+      background: isDark ? "#252525" : "#fff",
+      color: isDark ? "#fff" : "#111",
+    });
+    if (!confirm.isConfirmed) return;
+
+    try {
+      setIsClaimingSeller(true);
+      const token = await getAccessToken();
+      const res = await axios.post(
+        `${import.meta.env.VITE_SERVER_URL}/api/rewards/seller-claim`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      Swal.fire({
+        title: "Claim solicitado",
+        text:
+          res.data?.message ||
+          `Registramos tu saldo a favor de US$ ${total.toFixed(2)}. Se acreditará a tu billetera a la brevedad.`,
+        icon: "success",
+        background: isDark ? "#1f2937" : "#ffffff",
+        color: isDark ? "#f3f4f6" : "#1f2937",
+        confirmButtonColor: "#F26722",
+      });
+
+      // Refrescamos el resumen para reflejar el saldo pendiente ya reclamado.
+      await fetchRewardsSummary();
+    } catch (err) {
+      if (isJwtExpiredError(err)) {
+        handleUnauthorized();
+        return;
+      }
+      const message =
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        "No se pudo procesar el claim. Intentá nuevamente.";
+      Swal.fire({
+        title: "No se pudo reclamar",
+        text: message,
+        icon: "error",
+        confirmButtonColor: "#F26722",
+      });
+    } finally {
+      setIsClaimingSeller(false);
     }
   };
 
@@ -561,12 +840,47 @@ export default function WalletPage() {
 
     // Envía tokens desde la wallet Crossmint del usuario (device signer, sin OTP).
   // Reutiliza el mismo modal que el resto de los tokens.
-  const handleSend = async () => {
+    const handleSend = async () => {
     if (!selectedToken) return;
+    const isDark = document.documentElement.classList.contains("dark");
+
+    // La red donde vive el token: la firma la hace la smart wallet EN esa red.
+    const chainName = NETWORK_CHAIN_NAME[selectedToken.chainId];
+
+    // ── ANTI-ABUSO (1/2): cuota de frecuencia + monto mínimo ──
+    // Los envíos son el flujo de MAYOR riesgo (cualquier user con wallet).
+    // checkOpRateLimit valida el monto mínimo (siempre) y la cuota/hora (sólo
+    // si OP_POLICY.enforce=true). En testnet enforce=false → sólo avisa.
+    const limit = checkOpRateLimit({
+      address: walletAddress,
+      chain: chainName,
+      opType: "send",
+      amountUsd: Number(sendForm.amount),
+    });
+    if (limit.belowMin) {
+      // El mínimo lo valida el backend/modal; acá reforzamos con un mensaje claro.
+      return Swal.fire({
+        title: "Monto mínimo",
+        text: describeLimit(limit),
+        icon: "warning",
+        background: isDark ? "#1f2937" : "#ffffff",
+        color: isDark ? "#f3f4f6" : "#1f2937",
+        confirmButtonColor: "#F26722",
+      });
+    }
+    if (limit.blocked) {
+      return Swal.fire({
+        title: "Límite de envíos",
+        text: describeLimit(limit),
+        icon: "warning",
+        background: isDark ? "#1f2937" : "#ffffff",
+        color: isDark ? "#f3f4f6" : "#1f2937",
+        confirmButtonColor: "#F26722",
+      });
+    }
+
     setIsSending(true);
     try {
-      const isDark = document.documentElement.classList.contains("dark");
-
             // Resolvemos el locator del token que espera Crossmint.
             //   - Native (POL/ETH/BNB): Crossmint usa su símbolo nativo.
             //   - ERC-20: preferimos el locator de Crossmint (p. ej. "usdxm") cuando
@@ -575,8 +889,26 @@ export default function WalletPage() {
               ? selectedToken.symbol.toLowerCase()
               : (selectedToken.locator || selectedToken.address);
 
-            // La red donde vive el token: la firma la hace la smart wallet EN esa red.
-            const chainName = NETWORK_CHAIN_NAME[selectedToken.chainId];
+            // ── GAS PATROCINADO: garantizar gas nativo antes de firmar ──
+            // La firma es client-side, así que el backend no ve la tx. Le
+            // pedimos que haga el "drip" de gas (BNB/POL/ETH) para que la
+            // smart wallet tenga con qué firmar. Es idempotente: si ya tiene
+            // gas, responde sin gastar nada.
+            const gas = await ensureGas({
+              chain: chainName,
+              opType: "send",
+              getAccessToken,
+            });
+            if (!gas.ok) {
+              return Swal.fire({
+                title: gas.rateLimited ? "Límite alcanzado" : "No se pudo preparar el envío",
+                text: gas.message,
+                icon: "warning",
+                background: isDark ? "#1f2937" : "#ffffff",
+                color: isDark ? "#f3f4f6" : "#1f2937",
+                confirmButtonColor: "#F26722",
+              });
+            }
 
             await sendToken({
               to: sendForm.to,
@@ -584,6 +916,9 @@ export default function WalletPage() {
               amount: sendForm.amount,
               chain: chainName,
             });
+
+            // ── ANTI-ABUSO (2/2): registrar la operación exitosa ──
+            registerOp({ address: walletAddress, chain: chainName, opType: "send" });
 
       Swal.fire({
         title: "¡Envío exitoso!",
@@ -596,8 +931,10 @@ export default function WalletPage() {
 
       setIsModalOpen(false);
       setSendForm({ to: "", amount: "" });
-      // Refrescamos balances tras un breve delay para dejar minar la tx.
+            // Refrescamos balances tras un breve delay para dejar minar la tx.
       setTimeout(() => fetchAllBalances(), 3000);
+      // Y el historial de movimientos on-chain.
+      setTimeout(() => fetchRecentTransfers(), 3000);
     } catch (error) {
       console.error("Error en envío:", error);
       const message =
@@ -628,8 +965,10 @@ export default function WalletPage() {
       fetchRewardsSummary();
       // Verificamos si el usuario es vendedor (tiene publicaciones creadas).
       checkSellerByProducts();
-      if (hasWallet) {
+            if (hasWallet) {
         fetchAllBalances();
+        // Movimientos on-chain (ingresos/egresos) de las stablecoins.
+        fetchRecentTransfers();
         // ¿Ya está activado el dispositivo en todas las redes? (flag local)
         setActivatedAll(
           isDeviceActivatedForAll({ address: walletAddress, chains: APP_EVM_CHAINS }),
@@ -765,8 +1104,15 @@ export default function WalletPage() {
                               <p className="text-[11px] text-blue-600/70 dark:text-blue-400/70 mt-1">
             Podés recibir USDXM/USDC (Polygon Amoy), USDT (BSC) y USDC (Base) en esta misma dirección.
           </p>
-          <p className="text-[11px] text-blue-600/70 dark:text-blue-400/70 mt-1">
+                    <p className="text-[11px] text-blue-600/70 dark:text-blue-400/70 mt-1">
             No necesitás cargar cripto nativo para el gas: las comisiones de red las cubre la plataforma.
+          </p>
+          {/* Política anti-abuso: se muestra como referencia. Hoy OP_POLICY.enforce
+              está en false (sólo aviso), por lo que no bloquea; el texto igual
+              informa los límites para que el usuario sepa a qué atenerse. */}
+          <p className="text-[11px] text-blue-600/60 dark:text-blue-400/60 mt-1">
+            Límite de envíos: hasta {getOpLimit("send").maxPerHour} por hora ·
+            mínimo US$ {getOpLimit("send").minUsd} por envío.
           </p>
         </div>
       </div>    
@@ -836,9 +1182,161 @@ export default function WalletPage() {
                 );
               })}
             </div>
-          </div>
+      </div>
         ))}
       </div>
+
+      {/* ────────────────────────────────────────────────
+          ÚLTIMOS MOVIMIENTOS ON-CHAIN
+          Se leen de los eventos ERC-20 `Transfer` de cada red. Muestra
+          ingresos y egresos de las stablecoins (hoy: USDXM, USDT, USDC)
+          en las últimas transacciones. Se refresca con el botón o al
+          enviar fondos. Sin backend: lectura directa del RPC.
+      ──────────────────────────────────────────────── */}
+      <section className="p-6 bg-white dark:bg-[#252525] rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+          <h3 className="font-bold text-lg flex items-center gap-2 dark:text-white">
+            <History className="text-[#F26722]" size={20} />
+            Últimos movimientos
+            <span className="text-xs font-normal text-zinc-400">
+              (últimos {TX_HISTORY_LIMIT})
+            </span>
+          </h3>
+          <button
+            onClick={fetchRecentTransfers}
+            disabled={transfersLoading}
+            className="flex items-center gap-1.5 text-xs text-[#F26722] font-medium hover:underline disabled:opacity-50"
+          >
+            {transfersLoading ? (
+              <LoadingSpinner size="sm" />
+            ) : (
+              <RefreshCcw size={14} />
+            )}
+            Actualizar
+          </button>
+        </div>
+
+        {transfersLoading ? (
+          <div className="py-8 text-center">
+            <LoadingSpinner size="md" text="Buscando movimientos on-chain..." />
+          </div>
+        ) : transfersError ? (
+          <p className="text-sm text-red-500 py-6 text-center">
+            {transfersError}
+          </p>
+        ) : recentTransfers.length === 0 ? (
+          <p className="text-sm text-zinc-400 dark:text-zinc-500 py-6 text-center">
+            Todavía no hay movimientos en tus redes.
+          </p>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <table className="w-full text-sm">
+              <thead className="bg-zinc-50 dark:bg-zinc-900/60 text-zinc-500 dark:text-zinc-400">
+                <tr className="text-left">
+                  <th className="px-4 py-2.5 font-bold text-xs uppercase tracking-wide">Fecha</th>
+                  <th className="px-4 py-2.5 font-bold text-xs uppercase tracking-wide">Tipo</th>
+                  <th className="px-4 py-2.5 font-bold text-xs uppercase tracking-wide">Red / Token</th>
+                  <th className="px-4 py-2.5 font-bold text-xs uppercase tracking-wide">Contraparte</th>
+                  <th className="px-4 py-2.5 font-bold text-xs uppercase tracking-wide text-right">Monto</th>
+                  <th className="px-4 py-2.5 font-bold text-xs uppercase tracking-wide text-right">Tx</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {recentTransfers.map((tx) => {
+                  const isIn = tx.direction === 'in';
+                  return (
+                    <tr
+                      key={tx.id}
+                      className="dark:text-zinc-200 hover:bg-zinc-50/60 dark:hover:bg-zinc-800/30 transition-colors"
+                    >
+                      <td className="px-4 py-2.5 whitespace-nowrap text-zinc-500 dark:text-zinc-400 text-xs">
+                        {tx.timestamp
+                          ? new Date(tx.timestamp).toLocaleString('es-AR', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })
+                          : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                            isIn
+                              ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'
+                              : 'bg-orange-100 dark:bg-orange-950/40 text-[#F26722]'
+                          }`}
+                        >
+                          {isIn ? (
+                            <ArrowDownLeft size={12} />
+                          ) : (
+                            <ArrowOut size={12} />
+                          )}
+                          {isIn ? 'Ingreso' : 'Egreso'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-2">
+                          <TokenIcon symbol={tx.symbol} size={20} />
+                          <span className="text-xs">
+                            <span className="block font-semibold text-zinc-700 dark:text-zinc-200">
+                              {tx.symbol}
+                            </span>
+                            <span className="block text-[11px] text-zinc-400 dark:text-zinc-500">
+                              {tx.chainLabel}
+                            </span>
+                          </span>
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap text-xs font-mono text-zinc-500 dark:text-zinc-400">
+                        {isIn ? 'de' : 'a'} {tx.counterparty?.slice(0, 6)}…
+                        {tx.counterparty?.slice(-4)}
+                      </td>
+                      <td
+                        className={`px-4 py-2.5 text-right font-bold whitespace-nowrap ${
+                          isIn
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : 'text-zinc-600 dark:text-zinc-300'
+                        }`}
+                      >
+                        {isIn ? '+' : '−'}
+                        {parseFloat(tx.amountFormatted || 0).toLocaleString(
+                          undefined,
+                          { minimumFractionDigits: 2, maximumFractionDigits: 6 },
+                        )}{' '}
+                        <span className="text-xs font-medium text-zinc-400">
+                          {tx.symbol}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                        <a
+                          href={`${tx.explorer}/tx/${tx.txHash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline"
+                          title="Ver transacción en el explorer"
+                        >
+                          ver
+                          <ExternalLink size={11} />
+                        </a>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-3">
+          Se muestran las últimas {TX_HISTORY_LIMIT} transferencias de
+          stablecoins detectadas en tus redes. Las comisiones de red (gas) no
+          aparecen porque las cubre la plataforma.
+        </p>
+      </section>
+
+
      
 
             {/* ACTIVAR BILLETERA: OCULTO por ahora.
@@ -935,6 +1433,126 @@ export default function WalletPage() {
             )}
           </div>
         </div>
+
+        {/* SALDO A FAVOR COMO VENDEDOR (SellerCredit).
+            Solo vendedores. Aparece cuando algún comprador pagó con saldo de
+            recompensas: el vendedor cobró menos en el escrow y la plataforma
+            le queda debiendo ese monto. Se puede solicitar el claim. */}
+        {isSeller && (rewardsSummary?.sellerCreditPendingUsd ?? 0) > 0 && (
+          <div className="mb-5 p-5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/30">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 bg-white dark:bg-zinc-900 rounded-xl shrink-0">
+                  <HandCoins className="text-indigo-600" size={20} />
+                </div>
+                <div>
+                  <p className="text-xs text-indigo-700 dark:text-indigo-300 font-bold uppercase tracking-widest">
+                    Saldo a favor como vendedor
+                  </p>
+                  <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-0.5">
+                    US$ {(rewardsSummary?.sellerCreditPendingUsd ?? 0).toFixed(2)}
+                  </p>
+                                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 max-w-md">
+                    Es la plata que la plataforma te debe porque tus compradores
+                    pagaron usando saldo de recompensas (vos cobraste menos en el
+                    pago directo). Se te transfiere a tu billetera: la parte de
+                    órdenes <b>completadas</b> ya se puede reclamar; el resto se
+                    acredita al cerrarse cada venta.
+                    {rewardsSummary?.sellerCreditPendingCount
+                      ? ` (${rewardsSummary.sellerCreditPendingCount} orden(es))`
+                      : ""}
+                  </p>
+                  <p className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 mt-1">
+                    Reclamable ahora: US$ {(rewardsSummary?.sellerCreditClaimableUsd ?? 0).toFixed(2)}
+                  </p>
+                </div>
+              </div>
+                            <button
+                onClick={handleClaimSellerCredit}
+                disabled={isClaimingSeller || (rewardsSummary?.sellerCreditClaimableUsd ?? 0) <= 0}
+                className="shrink-0 px-4 py-2.5 rounded-xl font-bold text-sm bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 flex items-center justify-center gap-2"
+                title={
+                  (rewardsSummary?.sellerCreditClaimableUsd ?? 0) <= 0
+                    ? "Se podrá reclamar cuando se completen las ventas"
+                    : "Solicitar el pago a tu billetera"
+                }
+              >
+                {isClaimingSeller ? <LoadingSpinner size="sm" /> : <HandCoins size={16} />}
+                Reclamar
+              </button>
+            </div>
+
+                        {/* Detalle por orden: PLEGABLE (oculto por defecto). Se despliega
+                al clickear, igual que "Ver historial de movimientos", para no
+                ocupar media pantalla. Muestra los últimos 10 + "Cargar más". */}
+            {Array.isArray(rewardsSummary?.sellerCreditItems) &&
+              rewardsSummary.sellerCreditItems.length > 0 && (
+                <div className="mt-4">
+                  <button
+                    onClick={() => setIsSellerCreditOpen((v) => !v)}
+                    className="w-full flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-white/60 dark:bg-zinc-900/40 border border-indigo-200 dark:border-indigo-900/30 hover:bg-white dark:hover:bg-zinc-900/70 transition-colors"
+                  >
+                    <span className="flex items-center gap-2 text-sm font-bold text-indigo-700 dark:text-indigo-300">
+                      <History size={16} className="text-indigo-500" />
+                      Ver detalle de ventas ({rewardsSummary.sellerCreditItems.length})
+                    </span>
+                    <ChevronDown
+                      size={18}
+                      className={`text-indigo-400 transition-transform ${isSellerCreditOpen ? "rotate-180" : ""}`}
+                    />
+                  </button>
+
+                  {isSellerCreditOpen && (() => {
+                    const items = rewardsSummary.sellerCreditItems;
+                    const shown = items.slice(0, sellerCreditVisible);
+                    const hasMore = items.length > shown.length;
+                    // Barra de scroll interna: limita la altura visible (~10 filas)
+                    // para que la sección NO se estire si hay decenas de ventas.
+                    return (
+                      <div className="mt-3 rounded-xl border border-indigo-200 dark:border-indigo-900/30">
+                        <div className="max-h-80 overflow-y-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-indigo-100/60 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 sticky top-0 z-[1]">
+                              <tr className="text-left">
+                                <th className="px-4 py-2 font-bold text-[11px] uppercase tracking-wide">Fecha</th>
+                                <th className="px-4 py-2 font-bold text-[11px] uppercase tracking-wide">Orden</th>
+                                <th className="px-4 py-2 font-bold text-[11px] uppercase tracking-wide text-right">Monto</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-indigo-100 dark:divide-indigo-900/30 bg-white dark:bg-zinc-900/30">
+                              {shown.map((item, idx) => (
+                                <tr key={idx} className="dark:text-zinc-200">
+                                  <td className="px-4 py-2 whitespace-nowrap text-xs text-zinc-500 dark:text-zinc-400">
+                                    {item.createdAt
+                                      ? new Date(item.createdAt).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" })
+                                      : "—"}
+                                  </td>
+                                  <td className="px-4 py-2 whitespace-nowrap text-xs font-mono">
+                                    #{item.code || "------"}
+                                  </td>
+                                  <td className="px-4 py-2 text-right font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                                    US$ {Number(item.amountUsd || 0).toFixed(2)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {hasMore && (
+                          <button
+                            onClick={() => setSellerCreditVisible((n) => n + 10)}
+                            className="w-full py-2.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors border-t border-indigo-200 dark:border-indigo-900/30"
+                          >
+                            Cargar más ({items.length - shown.length} restantes)
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+          </div>
+        )}
 
         {/* Dos tarjetas: Cashback y Referidos */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1053,9 +1671,15 @@ export default function WalletPage() {
                   { key: "cashback", label: "Cashback" },
                   { key: "referral", label: "Referidos" },
                 ].map((opt) => (
-                  <button
+                                    <button
                     key={opt.key}
-                    onClick={() => setHistorySource(opt.key)}
+                    onClick={() => {
+                      setHistorySource(opt.key);
+                      // Al cambiar de filtro volvemos a mostrar solo los últimos
+                      // 10 (evita arrastrar un "cargar más" ya expandido a otro
+                      // subconjunto con menos filas).
+                      setHistoryVisible(10);
+                    }}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
                       historySource === opt.key
                         ? "bg-[#F26722] text-white"
@@ -1086,10 +1710,15 @@ export default function WalletPage() {
                     </p>
                   );
                 }
+                                // Paginación "ver más": mostramos sólo los primeros
+                // `historyVisible` para no estirar el scroll, y sumamos de a 10.
+                const shown = rows.slice(0, historyVisible);
+                const hasMore = rows.length > shown.length;
                 return (
-                  <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+                  <div className="rounded-xl border border-zinc-200 dark:border-zinc-800">
+                    <div className="max-h-96 overflow-y-auto overflow-x-auto">
                     <table className="w-full text-sm">
-                      <thead className="bg-zinc-50 dark:bg-zinc-900/60 text-zinc-500 dark:text-zinc-400">
+                      <thead className="bg-zinc-50 dark:bg-zinc-900/60 text-zinc-500 dark:text-zinc-400 sticky top-0 z-[1]">
                         <tr className="text-left">
                           <th className="px-4 py-2.5 font-bold text-xs uppercase tracking-wide">Fecha</th>
                           <th className="px-4 py-2.5 font-bold text-xs uppercase tracking-wide">Origen</th>
@@ -1098,7 +1727,7 @@ export default function WalletPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                        {rows.map((tx, idx) => {
+                        {shown.map((tx, idx) => {
                           const isEarned = tx.type === "earned";
                           return (
                             <tr key={idx} className="dark:text-zinc-200">
@@ -1143,8 +1772,17 @@ export default function WalletPage() {
                             </tr>
                           );
                         })}
-                      </tbody>
+                                            </tbody>
                     </table>
+                    </div>
+                    {hasMore && (
+                      <button
+                        onClick={() => setHistoryVisible((n) => n + 10)}
+                        className="w-full py-2.5 text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors border-t border-zinc-200 dark:border-zinc-800"
+                      >
+                        Cargar más ({rows.length - shown.length} restantes)
+                      </button>
+                    )}
                   </div>
                 );
               })()}

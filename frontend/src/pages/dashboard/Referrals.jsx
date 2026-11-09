@@ -53,8 +53,13 @@ export default function Referrals() {
   // Modal de registro/onboarding (mismo que usa el resto del sitio).
   const [onboardingOpen, setOnboardingOpen] = useState(false);
 
-  // Cotización USDT para el ejemplo simulado.
+    // Cotización USDT para el ejemplo simulado.
   const [usdRate, setUsdRate] = useState(null);
+
+  // % que se lleva el REFERIDOR en el reparto del reward (configurable, default
+  // 75). Lo leemos del backend para que el ej. simulado y la grilla muestren
+  // EXACTAMENTE lo que se va a acreditar.
+  const [referrerSharePercent, setReferrerSharePercent] = useState(75);
 
   // Estado del usuario frente al programa de referidores (gate de la vista).
   const [refStatus, setRefStatus] = useState(null); // { referralStatus, profileCompleted, ... }
@@ -74,7 +79,7 @@ export default function Referrals() {
   const [withdrawing, setWithdrawing] = useState(false);
   const [withdrawError, setWithdrawError] = useState("");
 
-  useEffect(() => {
+    useEffect(() => {
     let active = true;
     getUsdRate()
       .then((rate) => active && setUsdRate(rate))
@@ -83,6 +88,28 @@ export default function Referrals() {
       active = false;
     };
   }, []);
+
+  // Cargamos el reparto vigente (referidor/comprador) una vez con sesión.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const token = await getAccessToken?.();
+        if (!token) return;
+        const { data } = await axios.get(
+          `${import.meta.env.VITE_SERVER_URL}/api/referral`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        const share = Number(data?.referral?.referrerSharePercent);
+        if (active && Number.isFinite(share)) setReferrerSharePercent(share);
+      } catch {
+        /* default 75 */
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [getAccessToken]);
 
   const isLoggedIn = authenticated && dbUser;
 
@@ -234,16 +261,19 @@ export default function Referrals() {
     }
   };
 
-  // Reparto del ejemplo simulado (USDT que gana cada parte).
-  const { eachUsd: demoEachUsd } = calcReferralSplit(
+    // Reparto del ejemplo simulado (USDT que gana el REFERIDOR por venta).
+  const { referrerUsd: demoReferrerUsd } = calcReferralSplit(
     DEMO_PRODUCT.price,
     DEMO_PRODUCT.percent,
     usdRate,
+    referrerSharePercent,
   );
-  const demoPercentEach = Math.round((DEMO_PRODUCT.percent / 2) * 100) / 100;
+  // % que le queda al referidor sobre el reward total (fallback sin cotización).
+  const demoPercentReferrer =
+    Math.round(DEMO_PRODUCT.percent * (referrerSharePercent / 100) * 100) / 100;
   const demoRewardLabel = usdRate
-    ? formatUsdt(demoEachUsd)
-    : `${demoPercentEach}%`;
+    ? formatUsdt(demoReferrerUsd)
+    : `${demoPercentReferrer}%`;
 
   // ── FILTROS Y ORDEN (client-side) ──
   // Los productos de referidos suelen ser pocos, así que filtramos en el
@@ -254,13 +284,14 @@ export default function Referrals() {
 
   // Precio final efectivo (oferta si está activa) y recompensa en USDT por venta.
   const getPrice = (p) => Number(p?.sale?.active ? p.sale.price : p.price) || 0;
-  const getRewardUsd = (p) => {
-    const { eachUsd } = calcReferralSplit(
+    const getRewardUsd = (p) => {
+    const { referrerUsd } = calcReferralSplit(
       getPrice(p),
       Number(p?.referral?.percent) || 0,
       usdRate,
+      referrerSharePercent,
     );
-    return eachUsd;
+    return referrerUsd;
   };
 
   const visibleProducts = useMemo(() => {
@@ -298,7 +329,7 @@ export default function Referrals() {
       sorted.sort((a, b) => getPrice(b) - getPrice(a));
     }
     return sorted;
-  }, [products, query, sortBy, usdRate]);
+  }, [products, query, sortBy, usdRate, referrerSharePercent]);
 
   const isFiltering = query.trim().length > 0;
 
@@ -437,9 +468,11 @@ export default function Referrals() {
                     venta
                   </p>
                 </div>
-                <p className="text-[11px] text-gray-500 dark:text-zinc-400 mt-1">
-                  El comprador recibe el mismo monto como reintegro. El{" "}
-                  {DEMO_PRODUCT.percent}% se reparte 50/50.
+                                <p className="text-[11px] text-gray-500 dark:text-zinc-400 mt-1">
+                  El comprador también recibe su parte como reintegro. El{" "}
+                  {DEMO_PRODUCT.percent}% se reparte{" "}
+                  {Math.round(referrerSharePercent)}/{Math.round(100 - referrerSharePercent)}{" "}
+                  entre referidor y comprador.
                 </p>
                 {/* Botón de demostración (no ejecuta nada) */}
                 <button
@@ -796,7 +829,7 @@ export default function Referrals() {
                     <div className="grid grid-cols-[repeat(auto-fill,170px)] gap-4 justify-center">
                       {visibleProducts.map((product) => (
                         <div key={product._id} className="w-[170px]">
-                          <ReferralProductItem product={product} />
+                          <ReferralProductItem product={product} sharePercent={referrerSharePercent} />
                         </div>
                       ))}
                     </div>

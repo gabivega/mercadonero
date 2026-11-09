@@ -173,6 +173,37 @@ CAUSA: el �ndice privyDid_1 en la DB era unique SIN sparse (remanente de antes
 ?? CORRER EN CADA ENTORNO NUEVO (o al recrear la DB):  cd backend && node scripts/fixUserIndexes.mjs
 
 
+============ANTI-ABUSO DE GAS (gas patrocinado)============
+Contexto: la plataforma paga el gas de las smart wallets (gas drip desde la wallet
+admin). NO hay gas sponsorship premium de Crossmint (requiere plan pago). Sin
+límites, un user podría generar cientos de micro-operaciones y fundir el gas.
+
+[✔] frontend/src/config/opPolicy.js — política central (cuotas/hora + mínimos):
+    send 2/h (mín US$1) · withdraw_collateral 2/h (mín US$5) ·
+    deposit_collateral 5/h (mín US$20) · funding 15/h.
+    enforce:false → SOLO AVISA (no bloquea) en testnet.
+[✔] frontend/src/Utils/opRateLimit.js — ventana deslizante 1h en localStorage
+    por address:chain:opType. checkOpRateLimit / registerOp / describeLimit.
+[✔] frontend/src/Utils/ensureGas.js — llama POST /api/gas/ensure antes de firmar.
+[✔] backend/src/routes/gasRoutes.js — POST /api/gas/ensure (drip multi-chain,
+    es idempotente: si ya tiene gas responde skipped) + GET /api/gas/chains.
+    Montado en index.js como /api/gas.
+[✔] WalletPage.handleSend: mín + rate limit + ensureGas + registerOp.
+[✔] CollateralManager.handleDeposit/handleWithdraw: mín + rate limit + ensureGas
+    + registerOp. Inputs con min y avisos de política.
+
+[ ] PRODUCCIÓN: setear OP_POLICY.enforce = true (frontend/src/config/opPolicy.js)
+    para que las cuotas BLOQUEEN de verdad.
+[ ] PRODUCCIÓN: evaluación de paymaster con spend cap (Pimlico/Alchemy) si el
+    volumen lo justifica; hoy alcanza el drip + cuotas.
+[ ] FUTURO: mover el rate limit al backend (endpoint pre-firma por operación) para
+    que sea infalsificable desde el navegador. Hoy la barrera dura es el DRIP
+    (si no das gas, no se puede firmar) + GAS_DRIP_MAX_PER_DAY del servicio.
+[ ] Opcional: reusar allowance en depositCollateral (saltar approve si ya alcanza)
+    → ahorra 1 UserOp de gas por depósito.
+[ ] LANZAMIENTO: si se quiere monetizar retiros extra, definir fee/cobro (Camino 2).
+    Por ahora se evita el abuso con cuota + mínimo, sin cobrar.
+
 ### FLUJO FUTURO: Pago desde wallet externa (QR / mobile)
 - Idea: el comprador escanea un QR (o lo muestra) con su wallet virtual (Binance, Belo, etc.) que contenga la dirección de NUESTRA wallet de recepción + el monto EXACTO en USDT/USDC. El usuario transfiere desde su app como un pago más.
 - El backend debe DETECTAR el funding on-chain en la wallet receptora (listener de Transfer / polling de balance) y procesar la orden automáticamente cuando el monto coincide.

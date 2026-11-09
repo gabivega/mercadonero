@@ -13,5 +13,7 @@
 //
 // Se mantiene como constante de código (no variable de entorno) a propósito:
 // así el gate es determinístico y no depende de configuración del deploy. Si se
-// prefiere controlarlo por env, basta leer process.env acá.
-export const REWARDS_CHECKOUT_ENABLED = false;
+// prefiere controlarlo por env, basta leer process.env acá. Se lee la env
+// primero para poder activar/desactivar en pruebas sin recompilar.
+export const REWARDS_CHECKOUT_ENABLED =
+  String(process.env.REWARDS_CHECKOUT_ENABLED ?? "true") !== "false";

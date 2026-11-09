@@ -36,8 +36,14 @@ const referralConfigSchema = new Schema(
     // % sugerido por defecto en el formulario del vendedor.
     defaultPercent: { type: Number, default: 10 },
 
-    // % MÁXIMO que un vendedor puede configurar por producto (tope duro).
+        // % MÁXIMO que un vendedor puede configurar por producto (tope duro).
     maxPercent: { type: Number, default: 20 },
+
+    // Reparto del reward entre quien comparte (REFERIDOR) y quien compra
+    // (REFERIDO). Por defecto 75/25: el referidor se lleva el 75% del reward y
+    // el comprador el 25%. Antes era 50/50 fijo. Se expresa como el % que se
+    // lleva el REFERIDOR (0-100); el comprador recibe (100 - este valor).
+    referrerSharePercent: { type: Number, default: 75, min: 0, max: 100 },
 
     // Tope del reward (USD) que puede generar una única orden. 0 = sin tope.
     maxRewardUsdPerOrder: { type: Number, default: 0 },

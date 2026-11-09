@@ -5,9 +5,11 @@
 // Reproduce la mecánica del backend (referralService):
 //   - El VENDEDOR ofrece un % de reintegro por producto (product.referral.percent).
 //   - Ese % se calcula sobre el SUBTOTAL del producto (precio final, sin envío)
-//     y se reparte 50/50:
-//       * mitad para quien COMPARTIÓ el enlace (referidor)
-//       * mitad para el COMPRADOR (reintegro)
+//     y se reparte según `referrerSharePercent` (configurable, default 75/25):
+//       * 75% para quien COMPARTIÓ el enlace (referidor)
+//       * 25% para el COMPRADOR (reintegro)
+//     El reparto real lo define `ReferralConfig.referrerSharePercent` en el
+//     backend; los componentes lo leen del status/config y lo pasan acá.
 //
 // Todo se expresa en USDT (la recompensa vive en USD). Acá convertimos el
 // precio en ARS a USD con la cotización cripto (misma fuente que el cashback).
@@ -17,25 +19,47 @@ import { getUsdRate } from "./cashbackUtils";
 /**
  * Calcula el reparto del referido para un producto, en USDT.
  *
- * @param {number} priceArs  precio final del producto en ARS (sin envío)
- * @param {number} percent   % total ofrecido por el vendedor (ej: 10)
- * @param {number} usdRate   cotización ARS por 1 USDT
- * @returns {{ totalUsd:number, eachUsd:number }}
+ * Reparto CONFIGURABLE (por defecto 75/25 referidor/referido). El backend
+ * define el % real en `ReferralConfig.referrerSharePercent`; acá lo recibimos
+ * para previsualizar exactamente lo que se va a acreditar.
+ *
+ * @param {number} priceArs       precio final del producto en ARS (sin envío)
+ * @param {number} percent        % total ofrecido por el vendedor (ej: 10)
+ * @param {number} usdRate        cotización ARS por 1 USDT
+ * @param {number} [sharePercent] % que se lleva el REFERIDOR (default 75).
+ *                                El comprador recibe (100 - sharePercent).
+ * @returns {{ totalUsd:number, referrerUsd:number, buyerUsd:number, eachUsd:number }}
  */
-export function calcReferralSplit(priceArs, percent, usdRate) {
+export function calcReferralSplit(priceArs, percent, usdRate, sharePercent = 75) {
   const price = Number(priceArs) || 0;
   const pct = Number(percent) || 0;
   const rate = Number(usdRate) || 0;
 
   if (price <= 0 || pct <= 0 || rate <= 0) {
-    return { totalUsd: 0, eachUsd: 0 };
+    return { totalUsd: 0, referrerUsd: 0, buyerUsd: 0, eachUsd: 0 };
   }
 
   const totalUsd = Math.round(((price / rate) * (pct / 100)) * 100) / 100;
-  // Reparto 50/50, redondeado a 2 decimales (igual criterio que el backend).
-  const eachUsd = Math.round((totalUsd / 2) * 100) / 100;
 
-  return { totalUsd, eachUsd };
+  // Reparto configurable. Clampeamos a 0-100 por seguridad (default 75).
+  const rawShare = Number(sharePercent);
+  const share = Number.isFinite(rawShare)
+    ? Math.min(100, Math.max(0, rawShare))
+    : 75;
+
+  // Mismo criterio que el backend: el referidor se redondea y el comprador
+  // se deriva como diferencia (la suma cuadra al centavo).
+  const referrerUsd = Math.round(totalUsd * (share / 100) * 100) / 100;
+  const buyerUsd = Math.round((totalUsd - referrerUsd) * 100) / 100;
+
+  return {
+    totalUsd,
+    referrerUsd,
+    buyerUsd,
+    // Compatibilidad: `eachUsd` se mantiene pero AHORA es la parte del
+    // REFERIDOR (la más relevante para el copy "ganá X por venta").
+    eachUsd: referrerUsd,
+  };
 }
 
 /**

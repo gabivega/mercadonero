@@ -205,7 +205,7 @@ const SearchResults = () => {
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20">
             <LoadingSpinner size="lg" text="Buscando productos..." />
-            <p className="mt-4 text-zinc-500 font-bold uppercase text-xs tracking-widest">Cargando Nero...</p>
+            <p className="mt-4 text-zinc-500 font-bold uppercase text-xs tracking-widest">Cargando...</p>
           </div>
         ) : (
           <>

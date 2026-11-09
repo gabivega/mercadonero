@@ -4,13 +4,13 @@ import User from "../models/User.js";
  * Middleware que SIEMPRE aplica a la creación de publicaciones, tanto single
  * como masiva (bulk).
  *
- * Lógica (MVP):
- *  - Si la publicación es de pago / envolucra escrow (listingType === 'product'),
- *    el vendedor DEBE haber completado el onboarding vendedor (shop.active === true).
- *    Si no, rechazamos con 403 para que no se pueda hacer bypass por API.
- *  - Si es un clasificado (listingType !== 'product'), NO exigimos onboarding
- *    vendedor completo (no interviene el pago). Todo lo demás se resuelve
- *    igual que el checkout (datos básicos), pero eso no bloquea la creación.
+ * Lógica (WAITING LIST / MVP de tiendas invitadas):
+ *  - TODA publicación (productos de pago Y clasificados) exige que el vendedor
+ *    haya completado el onboarding (shop.active === true) y que su tienda esté
+ *    APROBADA por un admin (shop.approved === true). Mientras la tienda esté en
+ *    lista de espera (active && !approved) se rechaza con blocked:"approval".
+ *  - El onboarding YA NO exige cuenta bancaria: se administra desde el perfil.
+ *  - Los productos de pago (listingType 'product') además exigen wallet Web3.
  *
  * AddOn futuro: las cuentas verificadas premium podrán activar validaciones
  * más exigentes (titularidad bancaria real), que van en el completion (KYC).
@@ -27,19 +27,12 @@ export default async function requireSellerOnboarding(req, res, next) {
       listingType = "product"; // la carga masiva siempre es de productos de pago
     }
 
-    // 1b. Si no pudimos determinar el tipo, no bloqueamos de forma estricta
-    //     (lo validará el controller con la lógica normal). Protegemos solo
-    //     cuando sabemos que es un producto de pago.
-    if (listingType !== "product") {
-      return next();
-    }
-
     // 2. Comprobar el onboarding vendedor del usuario autenticado.
-    //    La fuente de verdad de cuentas bancarias es user.bankAccounts (el
-    //    perfil), no shop.bankAccounts. Se mantiene shop como fallback de
-    //    migración para vendedores antiguos.
+    //    En esta etapa TODA publicación (productos de pago y clasificados) requiere
+    //    onboarding completo (shop.active) + aprobación del admin (shop.approved):
+    //    el acceso a vender está limitado a tiendas invitadas (waiting list).
     const user = await User.findById(req.user._id).select(
-      "shop.active shop.approved shop.approvalReason bankAccounts shop.bankAccounts walletAddress",
+      "shop.active shop.approved shop.approvalReason walletAddress",
     );
     if (!user) {
       return res.status(404).json({ success: false, message: "Usuario no encontrado." });
@@ -47,25 +40,20 @@ export default async function requireSellerOnboarding(req, res, next) {
 
     const shopActive = Boolean(user.shop?.active);
     const shopApproved = Boolean(user.shop?.approved);
-    const hasBankAccount =
-      Array.isArray(user.bankAccounts) && user.bankAccounts.length > 0;
-    const hasLegacyShopBank =
-      Array.isArray(user.shop?.bankAccounts) && user.shop.bankAccounts.length > 0;
 
-    // 2a. Falta completar el onboarding (datos / cuenta bancaria).
-    if (!shopActive || (!hasBankAccount && !hasLegacyShopBank)) {
+    // 2a. Falta completar el onboarding (datos básicos + tienda).
+    if (!shopActive) {
       return res.status(403).json({
         success: false,
         blocked: "onboarding",
         message:
-          "Para poder publicar necesitamos que completes algunos datos. No compartiremos tus datos con nadie, ofrecemos una plataforma segura para todos los usuarios.",
+          "Para poder publicar necesitamos que completes algunos datos de tu cuenta y de tu tienda.",
       });
     }
 
-    // 2b. Onboarding completo, pero la tienda aún no fue aprobada por un admin.
-    //     En esta etapa la publicación de productos de pago está sujeta a
-    //     aprobación manual. No abrimos el onboarding (ya está completo); el
-    //     front muestra "tu tienda está en revisión".
+    // 2b. Onboarding completo, pero la tienda aún está en LISTA DE ESPERA
+    //     (no aprobada por un admin). No hay nada más que completar: el
+    //     front muestra "serás notificado cuando estés habilitado".
     if (!shopApproved) {
       return res.status(403).json({
         success: false,
@@ -73,23 +61,19 @@ export default async function requireSellerOnboarding(req, res, next) {
         message:
           user.shop?.approvalReason?.trim()
             ? `Tu tienda todavía no está habilitada para publicar: ${user.shop.approvalReason.trim()}`
-            : "Tu tienda está en revisión. Un administrador la habilitará pronto; te avisaremos cuando puedas publicar.",
+            : "Estás en la lista de espera. Serás notificado cuando estés habilitado para vender en Mercado Nero.",
       });
     }
 
-    // 3. WALLET WEB3: el vendedor debe tener una wallet vinculada. La garantía
-    //    (colateral) se gestiona on-chain con la wallet del vendedor, y sin ella
-    //    el comprador no puede finalizar la compra. Lo exigimos ANTES de publicar
-    //    para evitar el error "El vendedor no tiene una wallet válida".
-    if (!user.walletAddress) {
-      return res.status(403).json({
-        success: false,
-        blocked: "wallet",
-        message:
-          "Para publicar y recibir pagos necesitás tener una wallet Web3 vinculada. Creá o conectá tu billetera desde 'Mi Billetera' y volvé a intentar.",
-      });
-    }
-
+        // 3. WALLET WEB3: YA NO se exige para CREAR la publicación.
+    //    Antes bloqueábamos con blocked:"wallet" y eso cortaba el flujo: el
+    //    vendedor perdía todo el formulario para ir a crear la billetera. Ahora
+    //    permitimos crear el producto SIEMPRE (tienda aprobada) y, si el
+    //    vendedor no tiene wallet, el producto queda PUBLICADO pero OCULTO al
+    //    público: `getProducts`/`getProductById` ya filtran los productos de
+    //    pago de vendedores sin `walletAddress` (ver productController). Así el
+    //    vendedor no pierde su trabajo y aparece en el catálogo en cuanto
+    //    vincule la billetera (sin re-publicar).
     next();
   } catch (error) {
     console.error("Error en requireSellerOnboarding:", error);

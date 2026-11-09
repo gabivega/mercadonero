@@ -1,30 +1,37 @@
 import User from "../models/User.js";
 import Product from "../models/Product.js";
-import {
-  validateBankAccount,
-  validateCUIT,
-  checkTitular,
-} from "../services/validationService.js";
+
+// -- VALIDACION DE TELEFONO (defensa en profundidad) --
+// El front sanitiza el input, pero la API puede llamarse directo. Replicamos la
+// regla E.164 del validador del frontend (crossmintWallet.normalizePhone):
+// tolera espacios/guiones/parentesis, exige prefijo + con codigo de pais.
+// Devuelve { ok, value, error }. `value` normalizado (sin separadores).
+function normalizePhone(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return { ok: false, error: "Ingresa tu numero de telefono." };
+  const cleaned = raw.replace(/[\s().-]/g, "");
+  if (!/^\+[1-9]\d{6,14}$/.test(cleaned)) {
+    return {
+      ok: false,
+      error: "Ingresa el numero con codigo de pais y prefijo +. Ej: +5491123456789.",
+    };
+  }
+  return { ok: true, value: cleaned };
+}
 
 // ────────────────────────────────────────────────────────────────────────
-// ONBOARDING VENDEDOR
+// ONBOARDING VENDEDOR (WAITING LIST)
 // ────────────────────────────────────────────────────────────────────────
-// Completa los datos que un vendedor necesita para poder publicar productos
-// (publicaciones de pago con escrow). El front bloquea la publicación hasta
-// que se complete. Acá validamos sintaxis de CBU/CVU y CUIT. La titularidad
-// real (checkTitular) queda en stand by para cuentas verificadas premium.
+// En esta etapa la venta esta limitada a tiendas invitadas. El onboarding
+// solo recopila datos basicos del usuario y de la tienda: NO pide datos
+// bancarios (esos se administran desde el perfil, BankAccountSection). Al
+// completarlo, la tienda queda en LISTA DE ESPERA (shop.active=true +
+// shop.approved=false) hasta que un admin la habilite.
 // ────────────────────────────────────────────────────────────────────────
 export const completeSellerOnboarding = async (req, res) => {
   try {
     const userId = req.user._id;
     const {
-      bankName,
-      accountType,
-      holderName,
-      cuitCuil,
-      cbuCvu,
-            accountNumberType,
-      alias,
       shopName,
       shopDescription,
       city,
@@ -37,35 +44,22 @@ export const completeSellerOnboarding = async (req, res) => {
       phone,
     } = req.body || {};
 
-        // Detección automática CBU vs CVU por cantidad de dígitos:
-    // 22 dígitos → CBU (cuenta bancaria) · 23 dígitos → CVU (billetera virtual).
-    const cbuCvuClean = String(cbuCvu || "").replace(/[\s-]/g, "");
-    const accountTypeValue = cbuCvuClean.length === 23 ? "CVU" : "CBU";
-    const bankValidation = validateBankAccount(accountTypeValue, cbuCvuClean);
-    if (!bankValidation.valid) {
-      return res.status(400).json({ success: false, field: "cbuCvu", message: bankValidation.reason });
-    }
-
-    const cuitValidation = validateCUIT(cuitCuil);
-    if (!cuitValidation.valid) {
-      return res.status(400).json({ success: false, field: "cuitCuil", message: cuitValidation.reason });
-    }
-
-        const required = { bankName, holderName, cuitCuil, cbuCvu, alias, shopName, city, province };
+            // ── WAITING LIST ──────────────────────────────────────────────────────
+    // En esta etapa las publicaciones estan limitadas a tiendas invitadas.
+    // El onboarding YA NO pide datos bancarios: solo datos basicos del usuario
+    // y de la tienda. Al completarlo la tienda queda en LISTA DE ESPERA
+    // (shop.active=true + shop.approved=false) hasta que un admin la habilite.
+    // La cuenta bancaria se administra aparte desde el perfil (BankAccountSection).
+    const required = { shopName, city, province };
     const missing = Object.entries(required).find(([, v]) => !v || !String(v).trim());
     if (missing) {
       const [field] = missing;
       const labels = {
-        bankName: "el nombre del banco",
-        holderName: "el titular de la cuenta",
-        cuitCuil: "el CUIT/CUIL",
-        cbuCvu: "el CBU/CVU",
-        alias: "el alias de la cuenta",
         shopName: "el nombre de la tienda",
         city: "la ciudad",
         province: "la provincia",
       };
-      return res.status(400).json({ success: false, field, message: `Completá ${labels[field] || field} para continuar.` });
+      return res.status(400).json({ success: false, field, message: `Completa ${labels[field] || field} para continuar.` });
     }
 
     const user = await User.findById(userId);
@@ -77,45 +71,16 @@ export const completeSellerOnboarding = async (req, res) => {
     if (firstName) updates.firstName = firstName;
     if (lastName) updates.lastName = lastName;
     if (dni) updates.dni = dni;
-    if (phone) updates.phone = phone;
+    if (phone) {
+      const vPhone = normalizePhone(phone);
+      if (!vPhone.ok) {
+        return res.status(400).json({ success: false, field: "phone", message: vPhone.error });
+      }
+      updates.phone = vPhone.value;
+    }
     if (firstName && lastName && dni && phone) updates.profileCompleted = true;
 
-            // ── CUENTA BANCARIA ─────────────────────────────────────────────
-    // 🎯 FUENTE DE VERDAD ÚNICA: `bankAccounts` del objeto raíz del usuario.
-    // El perfil (BankAccountSection) administra estas cuentas para compradores
-    // Y vendedores. Acá guardamos la cuenta del onboarding en ese MISMO array,
-    // con el MISMO formato que usa el perfil (cbuCvu, cuitCuil, alias), para no
-    // mantener dos colecciones duplicadas (bankAccounts vs shop.bankAccounts)
-    // que se desincronizan y generan bugs al mostrar los datos del vendedor.
-    const newBankAccount = {
-      bankName,
-      accountType: accountTypeValue,
-      cbuCvu: cbuCvuClean,
-      cuitCuil: String(cuitCuil || "").replace(/[\s-]/g, ""),
-            holderName,
-      // El alias es obligatorio (bankAccounts.alias required:true en el modelo).
-      alias: String(alias).trim(),
-      isDefault: true,
-      titularVerified: checkTitular,
-    };
-
-    // Evitamos cuentas duplicadas: si ya existe una con el mismo CBU/CVU, la
-    // actualizamos; si no, la agregamos al array.
-    const currentAccounts = Array.isArray(user.bankAccounts) ? user.bankAccounts : [];
-    const existingIdx = currentAccounts.findIndex(
-      (a) => String(a.cbuCvu || a.cbu || "") === String(newBankAccount.cbuCvu),
-    );
-
-    let bankAccounts;
-    if (existingIdx >= 0) {
-      bankAccounts = currentAccounts.slice();
-      bankAccounts[existingIdx] = { ...bankAccounts[existingIdx], ...newBankAccount };
-    } else {
-      bankAccounts = [...currentAccounts, newBankAccount];
-    }
-    updates.bankAccounts = bankAccounts;
-
-    updates["shop.active"] = true;
+                updates["shop.active"] = true;
     updates["shop.name"] = shopName.trim();
     if (shopDescription) updates["shop.description"] = shopDescription.trim();
     updates["shop.location"] = { city, province };
@@ -123,19 +88,19 @@ export const completeSellerOnboarding = async (req, res) => {
     if (taxCondition && ["Monotributista", "Responsable Inscripto", "Exento", "Consumidor Final"].includes(taxCondition)) {
       updates["shop.taxCondition"] = taxCondition;
     }
-    // 💣 Eliminamos cualquier cuenta previa en shop.bankAccounts para apuntar
-    // todo a la fuente de verdad única (user.bankAccounts).
-    updates["shop.bankAccounts"] = [];
+    // La tienda queda PENDIENTE de aprobacion (waiting list). Asegura que un
+    // re-onboarding no deje approved=true si antes estaba aprobada pero se
+    // volvio a mandar (por seguridad forzamos false hasta revision del admin).
+    updates["shop.approved"] = false;
     updates.isSeller = true;
 
-        const updatedUser = await User.findByIdAndUpdate(userId, { $set: updates }, { new: true, runValidators: true });
+    const updatedUser = await User.findByIdAndUpdate(userId, { $set: updates }, { new: true, runValidators: true });
 
     res.status(200).json({
       success: true,
-      // El onboarding quedó completo, pero la tienda debe ser APROBADA por un
-      // admin antes de poder publicar productos de pago.
+      // El onboarding quedo completo y la tienda entro en LISTA DE ESPERA.
       message:
-        "¡Datos guardados! Tu tienda quedó pendiente de aprobación. Te avisaremos cuando un administrador la habilite.",
+        "Listo. Seras notificado cuando estes habilitado para vender en Mercado Nero.",
       user: updatedUser,
       shopActive: true,
       shopApproved: false,
@@ -226,7 +191,13 @@ export const updateShop = async (req, res) => {
     if (firstName) updates.firstName = firstName;
     if (lastName) updates.lastName = lastName;
     if (dni) updates.dni = dni;
-    if (phone) updates.phone = phone;
+    if (phone) {
+      const vPhone = normalizePhone(phone);
+      if (!vPhone.ok) {
+        return res.status(400).json({ success: false, field: "phone", message: vPhone.error });
+      }
+      updates.phone = vPhone.value;
+    }
     if (firstName && lastName && dni && phone) updates.profileCompleted = true;
 
     updates["shop.name"] = shopName.trim();
