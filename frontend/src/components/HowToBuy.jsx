@@ -19,14 +19,14 @@ export default function HowToBuy() {
     {
       id: 2,
       title: "Buscar y elegir tu producto",
-      detail: "Explorá el catálogo usando los filtros avanzados. Revisá las fotos de alta definición, especificaciones y reputación del vendedor.",
+      detail: "Explorá el catálogo usando los filtros avanzados. Revisá las fotos de alta definición, especificaciones y reputación del vendedor. Elegí el método de envío o punto de retiro",
       icon: Search,
       iconColor: "text-orange-500 bg-orange-50 dark:bg-orange-950/30",
     },
     {
       id: 3,
       title: "Pagar con Compra Protegida",
-      detail: "Transferís directamente al vendedor. Un contrato inteligente se encarga de proteger tu compra durante todo el proceso. Si tenés algun problema, se te reintegra el dinero.",
+      detail: "Pagás por transferencia o cripto. Un contrato inteligente se encarga de proteger tu compra durante todo el proceso. Si tenés algun problema, se te reintegra el dinero.",
       icon: ShieldCheck,
       iconColor: "text-green-500 bg-green-50 dark:bg-green-950/30",
     },
@@ -50,7 +50,7 @@ export default function HowToBuy() {
             />
           </h2>
           <p className="text-xs md:text-sm text-gray-500 dark:text-zinc-400 font-medium max-w-2xl">
-            Cada transacción en el marketplace cuenta con nuestro sistema de custodia respaldado por contratos inteligentes. Para publicaciones de vehículos, inmuebles o servicios, coordinás directo con el anunciante.
+Te registrás fácil, rápido y sin dar tus datos biométricos. Todas las compras están protegidas por contratos inteligentes, aunque pagues con cripto o transferencia bancaria.
           </p>
         </div>
 

@@ -10,6 +10,7 @@ import {
   withdrawMyReferral,
 } from "../controllers/referralController.js";
 import { createReferralLink } from "../controllers/referralLinkController.js";
+import { getReferralKit } from "../controllers/referralKitController.js";
 
 // Estado del usuario frente al programa de referidores (gate de la vista).
 // Va ANTES de "/" para no colisionar con rutas genéricas.
@@ -20,6 +21,10 @@ router.post("/request", verifyAuth, attachUser, requestReferral);
 
 // Crear/reutilizar enlace corto para compartir un producto (solo aprobados).
 router.post("/link", verifyAuth, attachUser, createReferralLink);
+
+// Kit promocional (imagen 1080x1080 lista para X/Twitter) con el QR del enlace.
+// Devuelve un JPG; lleva la atribución del afiliado -> cache privado (no CDN).
+router.get("/kit/:productId", verifyAuth, attachUser, getReferralKit);
 
 // Consultar mis referidos (balance, histórico, tope de % que aplica).
 router.get("/", verifyAuth, attachUser, getMyReferral);

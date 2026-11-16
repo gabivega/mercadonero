@@ -404,28 +404,43 @@ export const usePools = () => {
    * @param {number} [args.chainId]
    * @returns {Promise<{ order: object }>}
    */
-  const createGroupOrder = useCallback(
-    async ({ createPool, joinPoolId, units = 1, sellerId, token, chainId, shippingAddress }) => {
+        const createGroupOrder = useCallback(
+    async ({ createPool, joinPoolId, productId, units = 1, sellerId, token, chainId, shippingAddress, deliveryMethod = "shipping", shippingQuote }) => {
       if (!ready || !authenticated) {
         throw new Error("Necesitás iniciar sesión para participar de un grupo.");
       }
       const headers = await getAuthHeaders();
+
+      // El backend EXIGE items[0].productId para armar el itemsSnapshot.
+      //   - Al CREAR el grupo: sale de createPool.productId.
+      //   - Al UNIRSE: el producto es el del pool (el caller pasa product._id).
+      // Antes, en el join quedaba `undefined`, y createOrder explotaba con
+      // "Producto undefined no encontrado" → 500 → "Error al procesar la orden".
+      const resolvedProductId = createPool?.productId || productId;
+
       const groupBuy = createPool
         ? { createPool: { productId: createPool.productId, units }, units }
-        : { joinPoolId, units };
+        : // Manda productId también en el join: el backend lo usa para el
+          // snapshot y para materializar el member con el producto correcto.
+          { joinPoolId, units, productId: resolvedProductId };
 
-      const productId = createPool?.productId;
       try {
         const { data } = await axios.post(
           `${import.meta.env.VITE_SERVER_URL}/api/order/create`,
           {
             sellerId,
-            items: [{ productId, quantity: units }],
+            items: [{ productId: resolvedProductId, quantity: units }],
             shippingAddress: shippingAddress || {},
             paymentMethod: "crypto",
             token,
             chainId,
-            deliveryMethod: "pickup", // el grupo no define envío aún; pickup = $0
+            // ── ENVÍO DEL GRUPO ──
+            // Antes se hardcodeaba "pickup" (= $0) y el envío NUNCA se cobraba:
+            // cada member fondeaba solo el producto. Ahora el envío se elige en
+            // el Checkout (dirección + cotización Zipnova) y se congela en el
+            // escrow junto con el producto, igual que una orden normal.
+            deliveryMethod,
+            shippingQuote: deliveryMethod === "shipping" ? shippingQuote : undefined,
             groupBuy,
           },
           { headers },

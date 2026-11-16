@@ -548,14 +548,14 @@ export default function CryptoPaymentModal({
             <div className="flex justify-between items-center">
               <div>
                 <p className="text-xs font-bold uppercase tracking-widest text-[#F26722]">
-                  Total a fondeear
+                  Total a depositar
                 </p>
                 <p className="text-3xl font-black text-zinc-800 dark:text-white mt-1">
                   {amountStr}{" "}
                   <span className="text-lg font-bold">{tokenSymbol}</span>
                 </p>
                 <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
-                  Productos + envío ({totalUsd > 0 ? "USD" : "—"})
+                  Sólo Productos (envío es aparte)
                 </p>
               </div>
               {balance !== null && (

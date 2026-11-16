@@ -10,8 +10,8 @@ import {
   CheckCircle,
   Star,
   MapPin,
-  Award,
-  MessageCircle,
+    Award,
+    MessageCircle,
 } from "lucide-react";
 import ProductCarousel from "../components/ProductCarousel"; // Reutilizamos para relacionados y compras grupales
 import ProductQuestions from "../components/ProductQuestions"; // Preguntas y respuestas
@@ -20,6 +20,7 @@ import { useCartStore } from "../store/useCartStore";
 import LoadingSpinner from "../components/LoadingSpinner";
 import Swal from "sweetalert2";
 import CashbackBadge from "../components/CashbackBadge";
+import ReferralRewardBadge from "../components/ReferralRewardBadge";
 import ReferralShareBox from "../components/ReferralShareBox";
 import SocialSellingSection from "../components/SocialSellingSection";
 import SocialSellingBanner from "../components/SocialSellingBanner";
@@ -27,12 +28,12 @@ import ShippingQuoteBox from "../components/ShippingQuoteBox";
 import PickupOption from "../components/PickupOption";
 import { useUserStore } from "../store/useUserStore";
 import { productUrl } from "../Utils/productUrl";
-// Flag global de Social Selling / Compra en grupo. HOY está en `false` para el
-// lanzamiento: ocultamos TODOS los puntos de entrada (sección grande, banner
-// compacto y carrusel de compras grupales) sin borrar el código. Al pasarlo a
-// `true` en featureFlags.js vuelven solos. Gateamos acá explícitamente (no
-// confiamos en que cada componente se auto-oculte) para no dejar la página con
-// huecos ni CTAs huérfanos.
+// Flag global de Social Selling / Compra en grupo (hoy PRENDIDO).
+// Gatea los tres puntos de entrada: la sección grande (#social-selling, columna
+// izquierda), el banner compacto de esta columna y el carrusel de compras
+// grupales. Además, cada uno exige `product.socialSelling.enabled`, así que los
+// productos sin compra grupal no muestran nada. Para apagarlo, `false` en
+// featureFlags.js y todo esto desaparece sin dejar CTAs huérfanos.
 import { SOCIAL_SELLING_ENABLED } from "../Utils/featureFlags";
 
 /**
@@ -381,17 +382,22 @@ export default function ProductDetail() {
               </div>
             </div>
 
-            <hr className="my-8 border-gray-100 dark:border-gray-800" />
-                {/* SOCIAL SELLING: Compra en Grupo (pools) — el gancho principal,
+                        <hr className="my-8 border-gray-100 dark:border-gray-800" />
+
+            {/* SOCIAL SELLING: Compra en Grupo (pools) — el gancho principal,
                 arriba de todo en el bloque ancho para que se vea ni bien se
                 accede. Solo productos con el feature habilitado por el vendedor
-                Y con el flag global prendido (apagado para el lanzamiento). */}
+                Y con el flag global prendido.
+                El `key` fuerza remount al cambiar de producto: si no, React
+                reutiliza la instancia y la lista de pools queda la del producto
+                anterior (el fetch inicial solo corre al montar). */}
             {SOCIAL_SELLING_ENABLED &&
               product.listingType === "product" &&
               product.category !== "autos-motos-y-otros" &&
               product.socialSelling?.enabled && (
                 <div className="pb-8">
                   <SocialSellingSection
+                    key={product._id}
                     product={product}
                     currentUserId={currentUserId}
                   />
@@ -559,12 +565,18 @@ export default function ProductDetail() {
                 </p> */}
               </div>
 
-              {/* Cashback (reintegro en USDT) — solo productos de pago; los
-                  clasificados (autos/inmuebles/servicios) no generan reintegro */}
+                            {/* Reintegros (USDT) — solo productos de pago; los clasificados
+                  (autos/inmuebles/servicios) no generan reintegro.
+                    - CashbackBadge: el 2.5% base de la plataforma.
+                    - ReferralRewardBadge: la parte del COMPRADOR cuando llegó
+                      por un enlace ?ref= (si el producto ofrece referido). */}
               {product.listingType === "product" && (
-                <CashbackBadge
-                  priceArs={product.sale?.active ? product.sale.price : product.price}
-                />
+                <div className="space-y-1.5">
+                  <CashbackBadge
+                    priceArs={product.sale?.active ? product.sale.price : product.price}
+                  />
+                  <ReferralRewardBadge product={product} />
+                </div>
               )}
 
               {/* Envío y Ubicación */}
@@ -727,12 +739,18 @@ export default function ProductDetail() {
                     >
                       Comprar ahora
                     </button>
-                    <button
-                      className="w-full bg-[#3483fa1a] hover:bg-[#3483fa26] text-[#3483fa] py-2.5 rounded-md font-semibold text-sm transition-colors"
-                      onClick={() => handleAddToCart()}
-                    >
-                      Agregar al carrito
-                    </button>
+                                        <button
+                                          className="w-full bg-[#3483fa1a] hover:bg-[#3483fa26] text-[#3483fa] py-2.5 rounded-md font-semibold text-sm transition-colors"
+                                          onClick={() => handleAddToCart()}
+                                        >
+                                          Agregar al carrito
+                                        </button>
+
+                                        {/* NOTA: la compra en grupo NO tiene botón acá a propósito.
+                                            El acceso es el banner "Comprá en grupo y pagá menos"
+                                            (SocialSellingBanner) que está más abajo en esta misma
+                                            columna: cumple la misma función (scroll a la sección
+                                            #social-selling), así que dos CTAs apilados sobraban. */}
                   </>
                 ) : (
                   // FLUJO DE CLASIFICADO: Contacto Directo
@@ -829,20 +847,9 @@ export default function ProductDetail() {
           {/* FILA 2: ancho completo (md:col-span-3). Opiniones y Preguntas
               aprovechan todo el ancho debajo de la zona de imágenes + compra.
               (La descripción va en la columna izquierda en desktop y acá en mobile.) */}
-          <div className="order-3 md:col-span-3 border-t border-gray-100 dark:border-gray-800 p-4 md:p-6">
-             {/* SOCIAL SELLING: Compra en Grupo (pools) — el gancho principal,
-                arriba de todo en el bloque ancho para que se vea ni bien se
-                accede. Solo productos con el feature habilitado por el vendedor. */}
-            {/* {product.listingType === "product" &&
-              product.category !== "autos-motos-y-otros" &&
-              product.socialSelling?.enabled && (
-                <div className="pb-8">
-                  <SocialSellingSection
-                    product={product}
-                    currentUserId={currentUserId}
-                  />
-                </div>
-              )}  */}
+                    <div className="order-3 md:col-span-3 border-t border-gray-100 dark:border-gray-800 p-4 md:p-6">
+            {/* (La sección de Compra en Grupo vive arriba, en la columna
+                izquierda, para que se vea junto a las imágenes.) */}
 
             {/* Descripción — SOLO en mobile/tablet. En desktop ya se muestra
                 en la columna izquierda (debajo de las imágenes) para equilibrar

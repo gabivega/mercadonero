@@ -1,9 +1,10 @@
 import React from 'react';
-import { 
+import {
   X, Package, User, ExternalLink, 
   MapPin, Calendar, ShieldCheck, AlertCircle, FileText,
   Undo2, Wrench,
 } from 'lucide-react';
+import { isOrderTotalInUsd } from '../Utils/orderAmount';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Botón de acción reutilizable: garantiza tamaños y estilos HOMOGÉNEOS para
@@ -272,13 +273,23 @@ const AdminOrderModal = ({ order, isOpen, onClose, onAction }) => {
             </div>
           </section>
 
-          {/* FINANCIAL SUMMARY DUAL */}
+                    {/* FINANCIAL SUMMARY DUAL */}
           <section className="bg-zinc-950 dark:bg-zinc-50 text-white dark:text-black p-6 rounded-[2rem] grid grid-cols-1 sm:grid-cols-2 gap-6 border border-zinc-800 dark:border-zinc-200">
             <div className="space-y-2 border-b sm:border-b-0 sm:border-r border-white/10 dark:border-black/10 pb-4 sm:pb-0 sm:pr-6">
-              <span className="text-[10px] font-black text-[#F26722] uppercase tracking-widest block">Valores en Pesos (Base ARS)</span>
+              {/* ⚠️ Cuando el comprador pagó con saldo de recompensas, el backend
+                  guarda en `totalAmount`/`productsAmount` el EFECTIVO en USD, no
+                  los pesos. Antes el bloque decía "Valores en Pesos (Base ARS)" y
+                  mostraba "US$3" como "$3": usamos la moneda real.
+                  OJO: `shippingAmount` SÍ queda siempre en ARS (el envío nunca se
+                  paga con recompensas). */}
+              <span className="text-[10px] font-black text-[#F26722] uppercase tracking-widest block">
+                {isOrderTotalInUsd(order) ? 'Valores (USD — efectivo con recompensas)' : 'Valores en Pesos (Base ARS)'}
+              </span>
               <div className="flex justify-between text-xs opacity-70">
                 <span>Monto Productos</span>
-                <span>$ {order.productsAmount}</span>
+                <span>
+                  {isOrderTotalInUsd(order) ? `US$ ${Number(order.productsAmount || 0).toFixed(2)}` : `$ ${order.productsAmount}`}
+                </span>
               </div>
               <div className="flex justify-between text-xs opacity-70">
                 <span>Costo de Envío</span>
@@ -286,7 +297,9 @@ const AdminOrderModal = ({ order, isOpen, onClose, onAction }) => {
               </div>
               <div className="flex justify-between text-base font-black italic pt-2 border-t border-white/10 dark:border-black/10">
                 <span>Total Bruto</span>
-                <span>$ {order.totalAmount}</span>
+                <span>
+                  {isOrderTotalInUsd(order) ? `US$ ${Number(order.totalAmount || 0).toFixed(2)}` : `$ ${order.totalAmount}`}
+                </span>
               </div>
             </div>
 

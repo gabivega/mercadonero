@@ -6,8 +6,11 @@ const { Schema } = mongoose;
  * Enlace corto de referido para COMPARTIR un producto.
  *
  * Cada referidor, por producto, tiene UN enlace corto reutilizable:
- *   https://mercadonero.com/r/<code>
- * que redirige (302) a /producto/<slug>?ref=<referrerId>.
+ *   prod: https://mercadonero.com/r/<code>
+ *   dev:  http://localhost:3000/r/<code>   (la base la resuelve el controller
+ *         según NODE_ENV / PUBLIC_API_URL, ver referralLinkController.js)
+ * que redirige (302) a /producto/<slug>?ref=<referrerId> en el frontend
+ * (dev: http://localhost:5173, prod: https://mercadonero.com).
  *
  * Sirve para:
  *   - Links "lindos" y cortos para postear en X/WhatsApp/Telegram.
@@ -62,3 +65,4 @@ const ReferralLink =
   mongoose.model("ReferralLink", referralLinkSchema);
 
 export default ReferralLink;
+

@@ -169,8 +169,9 @@ export default function ProductCard({ product }) {
   // Precio más económico disponible comprando en grupo (tier de más compradores).
   const ssTiers = product.socialSelling?.tiers || {};
   const ssBestPrice = ssTiers[5] ?? ssTiers[4] ?? ssTiers[3] ?? ssTiers[2] ?? null;
-  const isSocialSelling =
-    product.listingType === "product" && !!product.socialSelling?.enabled;
+  // const isSocialSelling =
+  //   product.listingType === "product" && !!product.socialSelling?.enabled;
+  const isSocialSelling = false; // Desactivamos temporalmente la sección de Social Selling hasta que esté lista para producción.
 
   return (
     <div
@@ -196,7 +197,7 @@ export default function ProductCard({ product }) {
         )}
 
                 {/* Badge de Compra en Grupo (Social Selling) */}
-        {product.listingType === "product" &&
+        {/* {product.listingType === "product" &&
           product.socialSelling?.enabled && (
             <div
               className="absolute bottom-2 right-2 flex items-center gap-1 text-white text-[10px] font-black uppercase tracking-wide px-2 py-1 rounded-full shadow-sm"
@@ -206,7 +207,7 @@ export default function ProductCard({ product }) {
               <Users size={11} />
               Grupo
             </div>
-          )}
+          )} */}
 
         {/* Hover Actions */}
                 <div className="absolute inset-0 bg-black/0 hover:bg-black/10 transition-colors flex items-end justify-center gap-2 pb-3 opacity-0 hover:opacity-100">

@@ -39,19 +39,42 @@ const allowedOrigins = [
   'http://localhost:5173'
 ];
 
+// ── DEV: permitir el origen de LAN ───────────────────────────────────────
+// El QR del kit promocional se escanea con un CELULAR, que abre el front por
+// la IP de la maquina (ej. http://192.168.0.17:5173) y NO por localhost (en
+// el telefono, "localhost" apunta al propio telefono).
+//
+// Sin esto el celular carga la pagina pero cada llamada a la API falla por
+// CORS y la ficha queda vacia. Solo aplica en desarrollo.
+//
+// Se evalua como FUNCION (no como lista estatica) para aceptar cualquier IP
+// privada sin reiniciar el server cuando cambia la IP de la maquina.
+const isPrivateLanOrigin = (origin) => {
+  if (process.env.NODE_ENV === "production") return false;
+  // http://192.168.x.x:5173 / http://10.x.x.x:5173 / http://172.16-31.x.x:5173
+  return /^http:\/\/(?:192\.168|10|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}:(?:5173|4173)$/.test(
+    origin || ""
+  );
+};
+
 // En tu server.js o app.js
 app.use(cors({
  origin: function (origin, callback) {
     // Permite peticiones sin origen (como apps móviles o curl)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'El cliente CORS para este sitio no permite el acceso desde el origen especificado.';
-      return callback(new Error(msg), false);
+    if (allowedOrigins.includes(origin) || isPrivateLanOrigin(origin)) {
+      return callback(null, true);
     }
-    return callback(null, true);
+    const msg = 'El cliente CORS para este sitio no permite el acceso desde el origen especificado.';
+    return callback(new Error(msg), false);
   }, // La URL de tu app de Vite
   methods: ['GET', 'POST','PATCH','DELETE', 'PUT'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  // Sin exposedHeaders, el navegador NO deja leer cabeceras custom del
+  // response cuando el origen es distinto (front 5173 -> API 3000). El kit
+  // de referidos devuelve metadata util (URL corta y clicks) en headers,
+  // asi que las exponemos explicitamente.
+  exposedHeaders: ['X-Kit-Short-Url', 'X-Kit-Clicks', 'Retry-After', 'ETag']
 }));
 app.use(express.json());
 

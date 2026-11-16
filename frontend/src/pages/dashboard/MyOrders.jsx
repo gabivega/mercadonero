@@ -2,6 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { ShoppingBag, Tag, Clock, ChevronRight, AlertCircle, Users } from 'lucide-react';
+// Flag global de Compra en Grupo. Mientras esté apagado, la solapa "Grupos
+// activos" NO se muestra (mismo flag que usa ProductForm/ProductDetail). El
+// código de la solapa queda intacto: al prender el flag vuelve sola.
+import { SOCIAL_SELLING_ENABLED } from "../../Utils/featureFlags";
 import { usePrivy } from "../../Utils/authClient";
 import LoadingSpinner from "../../components/LoadingSpinner";
 import SellerPoolCard from "../../components/SellerPoolCard";
@@ -117,21 +121,25 @@ export default function MyOrders() {
             </span>
           )}
         </button>
-        <button
-          onClick={() => setTab("pools")}
-          className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all ${
-            tab === "pools"
-              ? "bg-[#F26722] text-white"
-              : "bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-          }`}
-        >
-          <Users size={14} /> Grupos activos
-          {pools.length > 0 && (
-            <span className={`text-[10px] px-1.5 rounded-full ${tab === "pools" ? "bg-white/25" : "bg-zinc-200 dark:bg-zinc-700"}`}>
-              {pools.length}
-            </span>
-          )}
-        </button>
+                {/* Solapa "Grupos activos": oculta mientras SOCIAL_SELLING_ENABLED sea
+            false (la compra grupal no está disponible para el público). */}
+        {SOCIAL_SELLING_ENABLED && (
+          <button
+            onClick={() => setTab("pools")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all ${
+              tab === "pools"
+                ? "bg-[#F26722] text-white"
+                : "bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+            }`}
+          >
+            <Users size={14} /> Grupos activos
+            {pools.length > 0 && (
+              <span className={`text-[10px] px-1.5 rounded-full ${tab === "pools" ? "bg-white/25" : "bg-zinc-200 dark:bg-zinc-700"}`}>
+                {pools.length}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* ── Solapa: ÓRDENES ── */}
@@ -207,7 +215,9 @@ export default function MyOrders() {
       )}
 
       {/* ── Solapa: GRUPOS ACTIVOS ── */}
-      {tab === "pools" && (
+      {/* Gateada por el flag: si la compra grupal está apagada, nunca se
+          renderiza aunque 	ab haya quedado en "pools" por algún estado viejo. */}
+      {SOCIAL_SELLING_ENABLED && tab === "pools" && (
         poolsLoading ? (
           <div className="p-8 text-center">
             <LoadingSpinner size="lg" text="Cargando grupos..." />

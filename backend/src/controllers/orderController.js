@@ -1,4 +1,4 @@
-﻿import Order from "../models/Order.js";
+import Order from "../models/Order.js";
 import Product from "../models/Product.js";
 import { calculateOrderFinancials } from "../../../frontend/src/Utils/OrderUtils.js";
 import {
@@ -477,8 +477,49 @@ const releaseOrderRewardsReservation = async (order, opts = {}) => {
 };
 
 const createOrder = async (req, res) => {
-  try {                                const { sellerId, items, shippingAddress, paymentMethod = "bank_transfer", token = "USDT", deliveryMethod = "shipping", pickupLocation = null, referrerId = null, shippingQuote = null } = req.body;
+    try {                                const { sellerId, items, shippingAddress, paymentMethod = "bank_transfer", token = "USDT", deliveryMethod = "shipping", pickupLocation = null, referrerId = null, shippingQuote = null } = req.body;
     const buyerId = req.user._id;
+
+    // ════════════════════════════════════════════════════════════════════
+    // COMPRA GRUPAL = SOLO ESCROW CRYPTO (decisión de negocio, blindaje).
+    // Un grupo congela el monto del tier vigente al unirse y, al cerrar, REINTEGRA
+    // on-chain la diferencia (lockedUsd - precioFinal*units). Ese reintegro sólo
+    // existe en el escrow crypto. Una transferencia bancaria es irreversible y no
+    // permite devolver la diferencia de forma atómica (sería un problema
+    // contable). Por eso rechazamos ACÁ cualquier `groupBuy` sin método crypto.
+    // El front siempre manda crypto para grupos; este guard evita que un bypass
+    // del cliente (o un bug) cree una orden bancaria marcada como grupal.
+    // ════════════════════════════════════════════════════════════════════
+    if (req.body?.groupBuy && paymentMethod !== "crypto") {
+      return res.status(400).json({
+        success: false,
+        message:
+          "La compra en grupo sólo admite pago con cripto (escrow). " +
+          "El reintegro del precio final se hace on-chain y no es posible con " +
+          "transferencia bancaria.",
+      });
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    // NORMALIZACIÓN DEL PAYLOAD DE GRUPO (create vs join).
+    // El FRONT manda `groupBuy.createPool = { productId, units }` (o
+    // `groupBuy.joinPoolId`), pero el MODELO persiste `createPoolProductId`.
+    // Sin esta traducción, `groupBuy.createPoolProductId` quedaba undefined y
+    // materializeGroupBuyOrder (que lee createPoolProductId) no creaba el Pool:
+    // el grupo desaparecía. Mapeamos acá, en el único punto de entrada.
+    // ════════════════════════════════════════════════════════════════════
+    if (req.body?.groupBuy) {
+      const gb = req.body.groupBuy;
+      const productIdFromCreate =
+        gb.createPoolProductId || gb.createPool?.productId || null;
+      req.body.groupBuy = {
+        ...gb,
+        createPoolProductId: productIdFromCreate,
+        createPool: gb.createPool || null, // se mantiene para computeGroupUnitPriceArs
+        joinPoolId: gb.joinPoolId || null,
+        units: Number(gb.units || gb.createPool?.units || 1),
+      };
+    }
 
     // Método de entrega efectivo: "shipping" (default) o "pickup" (retiro en
     // sucursal, GRATIS). Normalizamos por seguridad (solo esos dos valores).
@@ -530,12 +571,53 @@ const createOrder = async (req, res) => {
       });
     }
 
-    // 1. Obtener los IDs de los productos para buscarlos en la DB
-    const productIds = items.map((item) => item.productId);
+        // 1. Obtener los IDs de los productos para buscarlos en la DB
+    // ════════════════════════════════════════════════════════════════════
+    // DEFENSA EN PROFUNDIDAD PARA EL JOIN DE GRUPO.
+    // Al UNIRSE a un pool, el cliente puede no mandar items[0].productId (el
+    // producto vive en el Pool). Si llega `groupBuy.joinPoolId` sin un
+    // productId válido, lo resolvemos desde el propio Pool para no romper con
+    // "Producto undefined no encontrado". Si tampoco se puede resolver → 400
+    // claro (no 500).
+    // ════════════════════════════════════════════════════════════════════
+    if (
+      req.body?.groupBuy?.joinPoolId &&
+      (!Array.isArray(items) ||
+        items.length === 0 ||
+        !items[0]?.productId)
+    ) {
+      try {
+        const Pool = (await import("../models/Pool.js")).default;
+        const pool = await Pool.findById(req.body.groupBuy.joinPoolId)
+          .select("product")
+          .lean();
+        if (pool?.product) {
+          req.body.items = [
+            { productId: String(pool.product), quantity: items?.[0]?.quantity || req.body?.groupBuy?.units || 1 },
+          ];
+        }
+      } catch (poolErr) {
+        console.warn(
+          "[GroupBuy] No se pudo resolver el producto desde joinPoolId:",
+          poolErr?.message,
+        );
+      }
+    }
+
+    // Releo `items` por si la resolución de arriba lo reconstruyó.
+    const effectiveItems = Array.isArray(req.body.items) ? req.body.items : items;
+    const productIds = effectiveItems.map((item) => item.productId).filter(Boolean);
+    if (productIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "No se pudo determinar el producto de la orden. Refrescá la página e intentá de nuevo.",
+      });
+    }
     const dbProducts = await Product.find({ _id: { $in: productIds } });
 
     // 2. Construir el itemsSnapshot validando datos reales
-    const itemsSnapshot = items.map((cartItem) => {
+    const itemsSnapshot = effectiveItems.map((cartItem) => {
       const actualProduct = dbProducts.find(
         (p) => p._id.toString() === cartItem.productId,
       );
@@ -1916,6 +1998,26 @@ const cancelOrder = async (req, res) => {
       return res
         .status(403)
         .json({ message: "No tenés permisos para cancelar esta orden." });
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    // BLINDAJE COMPRA GRUPAL: PARTICIPAR ES IRREVERSIBLE.
+    // Al fondear su parte en un grupo, el comprador contrae un COMPROMISO de
+    // compra. No puede cancelar ni "arrepentirse" unilateralmente: si pudiera,
+    // podría especular (sumarse al precio barato y salirse si no se llena) y,
+    // peor, quedarse con el reintegro dejando al vendedor expuesto.
+    // La única salida es del SISTEMA: el pool se llena (venta), expira con un
+    // solo member (refund automático) o el ADMIN resuelve una disputa.
+    // ════════════════════════════════════════════════════════════════════
+    if (order.isGroupBuy || order.payment?.groupBuy === true) {
+      return res.status(403).json({
+        success: false,
+        blocked: "group_buy",
+        message:
+          "Participar en un grupo de compra es irreversible. Tu parte queda " +
+          "retenida hasta que el grupo se llene (o expire). Si no se completa, " +
+          "se te reembolsa automáticamente on-chain.",
+      });
     }
 
     // ════════════════════════════════════════════════════════════════

@@ -31,10 +31,31 @@ export default function SocialPoolCard({
   const { label, isExpired } = useCountdown(pool.expiresAt);
   const [copied, setCopied] = useState(false);
 
-  const filled = pool.members?.length || 0;
+    const filled = pool.members?.length || 0;
   const target = pool.targetBuyers || 5;
   const isMember = pool.members?.some((m) => m._id === currentUserId);
   const isFull = filled >= target;
+
+  // ── PRECIO AL QUE PAGARÍA QUIEN SE SUMA AHORA ──
+  // En compra grupal nadie paga "el precio de ahora" (lo que tiene congelado el
+  // creador): el precio baja solo cuando entra gente. Lo que le importa a quien
+  // está mirando es cuánto pagaría SI se suma (filled + 1). Usamos los tiers
+  // del producto; si el pool no los trae (product no poblado), caemos al propio
+  // currentUnitPrice (que computa el backend para "hoy").
+  const nextTierPrice = (() => {
+    const tiers = pool.product?.socialSelling?.tiers;
+    const base = pool.product?.price || pool.targetUnitPrice || 0;
+    if (!tiers) return pool.currentUnitPrice || null;
+    const n = filled + 1; // cuántos compradores habría si me sumo
+    if (tiers[n] != null) return Number(tiers[n]);
+    // Mayor tier definido <= n (misma lógica que priceForBuyers del backend)
+    const keys = Object.keys(tiers)
+      .map(Number)
+      .filter((k) => Number.isFinite(k) && k <= n)
+      .sort((a, b) => b - a);
+    if (keys.length > 0) return Number(tiers[keys[0]]);
+    return Number(base) || pool.currentUnitPrice || null;
+  })();
 
   const handleShare = async (e) => {
     e.stopPropagation();
@@ -89,16 +110,15 @@ export default function SocialPoolCard({
             <p className="text-sm font-bold dark:text-white truncate">
               {filled}/{target} compradores
             </p>
-            <p className="text-[11px] text-gray-400 truncate">
+                        <p className="text-[11px] text-gray-400 truncate">
               Creado por @
-              {[
-                pool.creator?.firstName,
-                pool.creator?.lastName,
-              ]
-                .map((v) => (typeof v === "string" ? v.trim() : ""))
-                .filter(Boolean)
-                .join(" ") ||
-                pool.creator?.username ||
+              {/* Preferimos el @username (más corto e identificable). Solo si
+                  falta caemos al nombre completo del creator. */}
+              {pool.creator?.username ||
+                [pool.creator?.firstName, pool.creator?.lastName]
+                  .map((v) => (typeof v === "string" ? v.trim() : ""))
+                  .filter(Boolean)
+                  .join(" ") ||
                 "vendedor"}
             </p>
           </div>
@@ -129,13 +149,13 @@ export default function SocialPoolCard({
               {formatMoney(pool.targetUnitPrice)}
             </span>
       </div>
-          {!isFull && pool.currentUnitPrice && (
+                    {!isFull && nextTierPrice && (
             <div className="leading-tight">
               <p className="text-[9px] uppercase font-black text-gray-400 tracking-widest">
-                Ahora
+                Unite y pagá
               </p>
               <span className="text-lg font-black dark:text-white">
-                {formatMoney(pool.currentUnitPrice)}
+                {formatMoney(nextTierPrice)}
               </span>
             </div>
           )}

@@ -10,7 +10,7 @@ const { Schema } = mongoose;
  *
  *   - El VENDEDOR decide, por producto, qué % de reintegro (reward) ofrece
  *     (product.referral.percent). Ese % sale de su margen/colateral.
- *   - El reconpmensa se reparte 50/50: la mitad para quien COMPARTIÓ el enlace
+ *   - El reward se reparte 75/25 (default): 75% para quien COMPARTIÓ el enlace
  *     (referidor) y la mitad para el COMPRADOR (reintegro).
  *   - El % total on-chain NO cambia: en el flujo normal (pago ARS + colateral
  *     USDT) el backend pasa al contrato un fee por orden = feeNero + reward.

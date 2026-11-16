@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 
 import Swal from "sweetalert2";
 import { usePrivy } from "../../Utils/authClient";
@@ -47,7 +47,7 @@ export default function CreateProduct() {
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
 
   // Estado del vendedor frente al acceso a publicar (waiting list):
-  //  - onboardingComplete = completo datos basicos + tienda (shop.active)
+  //  - onboardingComplete = completó datos básicos + tienda (shop.active)
   //  - shopApproved       = un admin lo habilito (shop.approved)
   //  - hasWallet          = tiene wallet Web3 (solo necesaria para publicar
   //                         productos de pago, no para clasificados)
@@ -65,8 +65,8 @@ export default function CreateProduct() {
     taxCondition: dbUser?.shop?.taxCondition || "",
   };
 
-  // MURO DE ENTRADA: si esta autenticado pero NO completo el onboarding, el
-  // modal se abre solo (antes de ver cualquier formulario). Asi el vendedor no
+  // MURO DE ENTRADA: si está autenticado pero NO completo el onboarding, el
+  // modal se abre solo (antes de ver cualquier formulario). Así el vendedor no
   // carga todo un producto para descubrir al final que no puede publicar.
   useEffect(() => {
     if (authenticated && user && dbUser && !onboardingComplete) {
@@ -75,12 +75,12 @@ export default function CreateProduct() {
   }, [authenticated, user, dbUser, onboardingComplete]);
 
   // Al terminar el onboarding: el vendedor queda en LISTA DE ESPERA. No hay
-  // reintento de publicacion; solo refrescamos el usuario en el store.
+  // reintento de publicación; solo refrescamos el usuario en el store.
   const handleOnboardingComplete = async () => {
     await syncUser();
   };
 
-  // Funcion unificada para errores
+  // Función unificada para errores
   const showError = (msg) => {
     Swal.fire({
       title: "Ups",
@@ -94,13 +94,13 @@ export default function CreateProduct() {
   };
 
   const handleSubmit = async (productData) => {
-    // El acceso a publicar ya se bloqueo a nivel de render (waiting list). Aca
-    // solo validamos imagenes y enviamos. El backend revalida onboarding,
-    // aprobacion y wallet.
+    // El acceso a publicar ya se bloqueó a nivel de render (waiting list). Aca
+    // solo validamos imágenes y enviamos. El backend revalida onboarding,
+    // aprobación y wallet.
     if (!productData.images || productData.images.length === 0) {
       return Swal.fire({
         title: "Faltan fotos",
-        text: "Debes cargar al menos una imagen para que los compradores vean tu publicacion.",
+        text: "Debés cargar al menos una imagen para que los compradores vean tu publicación.",
         icon: "warning",
         background: "#1A1A1A",
         color: "#ffffff",
@@ -132,15 +132,15 @@ export default function CreateProduct() {
       );
 
       if (data.success) {
-        // Si el vendedor aun no vinculo wallet, el producto de pago queda
-        // oculto al publico. Se lo avisamos para que sepa por que no aparece.
+        // Si el vendedor aún no vinculó wallet, el producto de pago queda
+        // oculto al público. Se lo avisamos para que sepa por qué no aparece.
         const ocultoPorWallet =
           productData.listingType !== "classified" && !hasWallet;
         Swal.fire({
-          title: "Publicacion exitosa",
+          title: "Publicación exitosa",
           text: ocultoPorWallet
-            ? "Tu publicacion fue creada. Como todavia no tenes wallet vinculada, quedara OCULTA para compradores hasta que vincules tu billetera. Podes hacerlo desde Mi Billetera cuando quieras."
-            : "Tu articulo estara disponible tras la aprobacion de los administradores.",
+            ? "Tu publicación fue creada. Como todavía no tenés wallet vinculada, quedará OCULTA para compradores hasta que vincules tu billetera. Podés hacerlo desde Mi Billetera cuando quieras."
+            : "Tu artículo estará disponible tras la aprobación de los administradores.",
           icon: "success",
           background: "#1A1A1A",
           color: "#ffffff",
@@ -156,11 +156,11 @@ export default function CreateProduct() {
         throw new Error(data.message || "Error al publicar");
       }
     } catch (error) {
-      console.error("Error en la publicacion:", error);
+      console.error("Error en la publicación:", error);
       const data = error.response?.data;
       const errorMsg = data?.message || error.message;
 
-      // Si el backend bloquea porque la tienda no esta aprobada (waiting list).
+      // Si el backend bloquea porque la tienda no está aprobada (waiting list).
       if (data?.blocked === "approval") {
         Swal.fire({
           title: "Lista de espera",
@@ -176,19 +176,19 @@ export default function CreateProduct() {
         return;
       }
 
-      // Falta onboarding (no deberia ocurrir por el gate de render).
+      // Falta onboarding (no debería ocurrir por el gate de render).
       if (data?.blocked === "onboarding") {
         setIsOnboardingOpen(true);
         setIsSubmitting(false);
         return;
       }
 
-      // Fallback legacy: si un backend viejo aun bloqueara por wallet, no
+      // Fallback legacy: si un backend viejo aún bloqueara por wallet, no
       // cortamos el flujo con una redireccion; solo avisamos.
       if (data?.blocked === "wallet") {
         setIsSubmitting(false);
         return Swal.fire({
-          title: "Necesitas vincular tu wallet",
+          title: "Necesitás vincular tu wallet",
           text: errorMsg,
           icon: "info",
           background: "#1A1A1A",
@@ -207,7 +207,7 @@ export default function CreateProduct() {
 
   if (!ready) return null;
 
-  // Si no esta autenticado, mostramos llamada a la accion
+  // Si no está autenticado, mostramos llamada a la accion
   if (!authenticated || !user) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in duration-300">
@@ -216,12 +216,12 @@ export default function CreateProduct() {
         </div>
 
         <h2 className="text-3xl font-black uppercase tracking-tighter dark:text-white mb-4">
-          Quieres empezar a vender?
+          ¿Querés empezar a vender?
         </h2>
 
         <p className="text-zinc-500 dark:text-zinc-400 max-w-md mb-8 text-lg">
-          Publica tus productos en Mercado Nero y llega a miles de compradores.
-          Primero debes iniciar sesion para comenzar.
+          Publicá tus productos en Mercado Nero y llegá a miles de compradores.
+          Primero debés iniciar sesión para comenzar.
         </p>
 
         <div className="space-y-4">
@@ -229,12 +229,12 @@ export default function CreateProduct() {
             onClick={()=> setIsLoginOpen(true)}
             className="group flex items-center gap-3 px-8 py-4 bg-[#F26722] text-white rounded-2xl font-black uppercase tracking-[0.2em] text-sm hover:scale-105 active:scale-95 transition-all shadow-lg shadow-[#F26722]/20"
           >
-            Iniciar Sesion
+            Iniciar Sesión
             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </button>
 
           <p className="text-sm text-zinc-400 dark:text-zinc-500">
-            No tienes cuenta? Se crea automaticamente al iniciar sesion. Sin contrasena ni datos biometricos.
+            No tenés cuenta? Se crea automáticamente al iniciar sesión. Sin contraseña ni datos biométricos.
           </p>
         </div>
         <SupabaseLogin
@@ -269,7 +269,7 @@ export default function CreateProduct() {
 
   // MURO DE ENTRADA (WAITING LIST): mientras el usuario cargue antes de estar
   // aprobado, mostramos una pantalla informativa. El modal de onboarding se
-  // abre solo (useEffect) si todavia no completo los datos.
+  // abre solo (useEffect) si todavía no completó los datos.
   if (!shopApproved) {
     const alreadyApplied = onboardingComplete && !shopApproved;
     return (
@@ -281,13 +281,13 @@ export default function CreateProduct() {
             </div>
             <h2 className="text-2xl font-black dark:text-white">
               {alreadyApplied
-                ? "Estas en la lista de espera"
-                : "Vender en Mercado Nero es por invitacion"}
+                ? "Estás en la lista de espera"
+                : "Vender en Mercado Nero es por invitación"}
             </h2>
             <p className="text-sm text-amber-700 dark:text-amber-300 leading-relaxed max-w-md mx-auto">
               {alreadyApplied
-                ? "Ya recibimos tus datos. Un administrador esta revisando tu tienda. Seras notificado cuando estes habilitado para vender en Mercado Nero."
-                : "Completa tus datos para sumarte a la lista de espera. Cuando tu tienda sea habilitada, vas a poder publicar productos, vehiculos, inmuebles y servicios."}
+                ? "Ya recibimos tus datos. Un administrador está revisando tu tienda. Serás notificado cuando estés habilitado para vender en Mercado Nero."
+                : "Completá tus datos para sumarte a la lista de espera. Cuando tu tienda sea habilitada, vas a poder publicar productos, vehículos, inmuebles y servicios."}
             </p>
             {!alreadyApplied && (
               <button
@@ -319,21 +319,21 @@ export default function CreateProduct() {
   }
 
   // APROBADO: ahora si mostramos los avisos de wallet + selector/formularios.
-  // Aviso de wallet NO BLOQUEANTE: el vendedor puede crear la publicacion igual
-  // (no pierde el formulario). Si no tiene wallet, la publicacion de pago queda
-  // PUBLICADA pero OCULTA al publico hasta que vincule la billetera (el backend
+  // Aviso de wallet NO BLOQUEANTE: el vendedor puede crear la publicación igual
+  // (no pierde el formulario). Si no tiene wallet, la publicación de pago queda
+  // PUBLICADA pero OCULTA al público hasta que vincule la billetera (el backend
   // ya filtra en getProducts/getProductById por seller.walletAddress).
   const walletNotice = dbUser && !hasWallet && (
     <div className="flex items-start gap-3 p-4 rounded-2xl border border-amber-300/60 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10">
       <AlertTriangle className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" size={20} />
       <div>
         <p className="font-bold text-sm text-amber-800 dark:text-amber-300">
-          Todavia no tenes wallet: tu publicacion quedara oculta
+          Todavía no tenés wallet: tu publicación quedará oculta
         </p>
         <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5 leading-relaxed">
-          Podes crear la publicacion ahora sin problema. Tene en cuenta que los <b>Productos</b> de pago no seran
-          visibles para compradores hasta que vincules una billetera (los clasificados no la necesitan). Podes
-          publicar primero y vincular tu billetera despues desde{" "}
+          Podés crear la publicación ahora sin problema. Tené en cuenta que los <b>Productos</b> de pago no serán
+          visibles para compradores hasta que vincules una billetera (los clasificados no la necesitan). Podés
+          publicar primero y vincular tu billetera después desde{" "}
           <span
             className="underline font-semibold cursor-pointer hover:text-amber-900 dark:hover:text-amber-200"
             onClick={() => navigate("/billetera")}
@@ -345,7 +345,7 @@ export default function CreateProduct() {
     </div>
   );
 
-  // Si esta autenticado y no hay formType, mostramos el selector
+  // Si está autenticado y no hay formType, mostramos el selector
   if (!formType) {
     return (
       <DashboardLayout>
@@ -363,7 +363,7 @@ export default function CreateProduct() {
     );
   }
 
-  // Si esta autenticado y hay formType, mostramos el formulario
+  // Si está autenticado y hay formType, mostramos el formulario
   return (
     <DashboardLayout>
       <div className="max-w-4xl mx-auto p-6 space-y-10">
@@ -372,7 +372,7 @@ export default function CreateProduct() {
         {/* HEADER */}
         <header>
           <h2 className="text-3xl font-black dark:text-white flex items-center gap-3">
-            <Plus className="text-blue-600" size={32} /> Crear Publicacion
+            <Plus className="text-blue-600" size={32} /> Crear Publicación
           </h2>
           <div onClick={() => setFormType(null)} className="flex items-center gap-2 mt-4 cursor-pointer">
             <ArrowLeft className="text-blue-600" size={20} />

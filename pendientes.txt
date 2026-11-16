@@ -1,4 +1,32 @@
-﻿Features-
+﻿============ COMPRA GRUPAL: FROZEN (no lanzar en MVP) ============
+ESTADO: APAGADA via featureFlags.js -> SOCIAL_SELLING_ENABLED = false.
+    - Toda la UI de grupos queda oculta: ProductDetail (seccion + CTA + carrusel),
+    Header (link), PoolCarousel, ComprasGrupales (redirige), PoolDetail (redirige),
+    SocialSellingSection (return null), ProductForm (toggle oculto),
+    MyOrders dashboard vendedor (pestana "Grupos activos" oculta),
+    Purchases dashboard comprador (pestana "Mis grupos" oculta),
+    OrderDetail (isGroupBuyOrder forzado a false -> no muestra GroupBuySummary),
+    Home (carrusel "Comprá en grupo" ya comentado en el JSX).
+  - No se pueden crear productos con grupo (toggle oculto -> enabled:false).
+  - El flujo de pago/escrow sigue en el codigo pero NO es alcanzable desde la UI.
+  - El Checkout NO tiene modo grupo implementado (se descarto para el MVP).
+
+PARA RETOMAR (plan decidido antes de freezar):
+  - ENVIO EN GRUPO = OPCION B: reutilizar el Checkout real con direccion + Zipnova.
+    create/join navegan a /checkout/<sellerId>?group=new|<poolId>&productId=...
+    El Checkout detecta el query param, fuerza pago crypto, usa el envio real y
+    llama createGroupOrder({deliveryMethod, shippingQuote, shippingAddress}).
+    Ver usePools.createGroupOrder (ya acepta deliveryMethod + shippingQuote).
+  - Cada member paga SU envio (producto+tier + envio congelados en el escrow).
+  - Transferencia bancaria para grupos: NO (solo crypto). Guard en createOrder ya existe.
+  - REVISAR: poolController closePool usa product.shipping.cost fijo via
+    createPendingOrderForPoolMember; si cada member ya fondeo su orden con Zipnova,
+    es idempotente (no duplica). Validar al reactivar.
+
+PENDIENTE TECNICO al reactivar: testear TODO el flujo (crear, unirse, tier escalonado,
+  cierre, reintegros, envio por zona, disputas) antes de prender el flag.
+
+Features-
 **Admin Dashboard y funcionalidades (liberar ordenes)**
 **cancelar ordenes como comprador/vendedor **
 **contabilizar cantidad de ordenes realizadas/compras y ordenes canceladas (penalizar o implementar sistema)**
@@ -209,3 +237,8 @@ límites, un user podría generar cientos de micro-operaciones y fundir el gas.
 - El backend debe DETECTAR el funding on-chain en la wallet receptora (listener de Transfer / polling de balance) y procesar la orden automáticamente cuando el monto coincide.
 - UI propuesta: botón "Pagar desde wallet externa" en el modal de pago crypto que muestre el QR.
 - Estado: NO implementado. Dejar como gancho/comentario en el código.
+
+
+##SOBRE CLAIMS DE VENDEDORES POR VENTAS PAGADAS CON SALDO DE RECOMPENSAS:
+REVISAR QUE FIGURA EN EL LISTADO EN LA WALLET, OREDENES canceladas
+EL CLAIM SE HACE Y EL ADMIN NO RECIBE NADA

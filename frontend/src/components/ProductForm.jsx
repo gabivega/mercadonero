@@ -18,6 +18,11 @@ import {
 import ProductImageUploadModal from "../components/ProductImageuploader";
 import ProductFinancialsSummary from "./ProductFinancialsSummary";
 import { deformatMoney, formatMoney } from "../Utils/currencyFormatter";
+// Flag global de Compra en Grupo / Social Selling. Si está apagado, la sección
+// NO se muestra en el formulario y el producto se publica con enabled:false.
+// Es el mismo flag que ya usa ProductDetail para ocultar la sección pública:
+// un solo lugar de verdad (ver Utils/featureFlags.js).
+import { SOCIAL_SELLING_ENABLED } from "../Utils/featureFlags";
 
 const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
     const [product, setProduct] = useState({
@@ -48,8 +53,8 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
       },
     },
     // ── REFERIDOS (reintegros por compartir) ──────────────────────────
-    // El vendedor ofrece un % de reintegro que se reparte 50/50 entre quien
-    // comparte el enlace (referidor) y el comprador. Ese % sale de su margen
+        // El vendedor ofrece un % de reintegro que se reparte 75/25 entre quien
+    // comparte el enlace (referidor, 75%) y el comprador (25%). Ese % sale de su margen
     // (se le descuenta del colateral). Default 10%, tope 20% (config global).
     referral: {
       enabled: false,
@@ -369,7 +374,7 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
   };
 
     // Preview informativo: no tenemos la cotización USD acá (vive en el precio
-  // del producto), así que mostramos el desglose en % → 50/50.
+  // del producto), así que mostramos el desglose en % → 75/25.
   const referralPercent = Number(product.referral?.percent) || 0;
   const referralValid =
     !product.referral?.enabled ||
@@ -389,11 +394,15 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
   const referralBasePriceUsd = hasUsdRate ? referralBasePriceArs / usdRate : 0;
   // Monto total que se reparte (equivale al % ofrecido sobre el precio).
   const referralTotalRewardUsd = referralBasePriceUsd * (referralPercent / 100);
-  // Reparto 50/50: mitad referidor, mitad comprador.
-  const referralEachUsd = referralTotalRewardUsd / 2;
+    // Reparto 75/25: el REFERIDOR se lleva el 75% y el COMPRADOR el 25%.
+  // Debe coincidir con `ReferralConfig.referrerSharePercent` del backend.
+  const REFERRER_SHARE = 0.75;
+  const referralReferrerUsd = referralTotalRewardUsd * REFERRER_SHARE;
+  const referralBuyerUsd = referralTotalRewardUsd * (1 - REFERRER_SHARE);
   // Equivalente en ARS (referencia) del total/reparto.
   const referralTotalRewardArs = referralTotalRewardUsd * (usdRate || 0);
-  const referralEachArs = referralEachUsd * (usdRate || 0);
+  const referralReferrerArs = referralReferrerUsd * (usdRate || 0);
+  const referralBuyerArs = referralBuyerUsd * (usdRate || 0);
   // Gramaje/formato en USD.
   const usd = (n) => `US$ ${Number(n).toFixed(2)}`;
 
@@ -1224,7 +1233,11 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
           }}
         />
 
-                {/* SECCIÓN SOCIAL SELLING (COMPRA EN GRUPO / POOLS) */}
+                                {/* SECCIÓN SOCIAL SELLING (COMPRA EN GRUPO / POOLS) —
+            Gateada por el flag global: con SOCIAL_SELLING_ENABLED=false la
+            sección NO se renderiza (el vendedor no puede habilitarla) y el
+            producto se envía con socialSelling.enabled = false por defecto. */}
+        {SOCIAL_SELLING_ENABLED && (
         <section className="bg-white dark:bg-[#1A1A1A] p-8 rounded-[32px] border border-gray-100 dark:border-gray-800 space-y-6">
           <div className="flex items-center justify-between">
             <div>
@@ -1333,9 +1346,10 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                   Tiempo que tiene el grupo para completarse antes de expirar.
                 </p>
               </div>
-            </div>
+                        </div>
                     )}
         </section>
+        )}
 
         {/* SECCIÓN REFERIDOS (REINTEGROS POR COMPARTIR) */}
         <section className="bg-white dark:bg-[#1A1A1A] p-8 rounded-[32px] border border-gray-100 dark:border-gray-800 space-y-6">
@@ -1346,8 +1360,8 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
               </h2>
                             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Ofrecé un % de reintegro y que tus clientes te traigan nuevos
-                compradores. Se reparte <b>50/50</b> entre quien comparte el
-                enlace y el comprador.
+                                compradores. Se reparte <b>75/25</b>: el 75% para quien comparte el
+                enlace y el 25% para el comprador.
                 <br />
                 <span className="text-amber-500">
                   Excluyente con la Compra en Grupo.
@@ -1376,7 +1390,7 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
 
           {product.referral.enabled && (
             <div className="animate-in fade-in slide-in-from-top-2 duration-300 space-y-6">
-              {/* Aviso explicativo del modelo 50/50 */}
+              {/* Aviso explicativo del modelo 75/25 */}
               <div className="flex items-start gap-3 p-4 bg-emerald-500/5 rounded-2xl border border-emerald-500/20">
                 <span className="text-emerald-500 text-lg leading-none">💸</span>
                 <p className="text-xs text-emerald-700 dark:text-emerald-400">
@@ -1452,14 +1466,17 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="p-3 rounded-xl bg-white dark:bg-[#252525] border border-gray-100 dark:border-gray-800">
                       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                        Para quien comparte
+                                                Para quien comparte
                       </p>
                       <p className="text-sm font-black text-emerald-500">
-                        {hasUsdRate ? usd(referralEachUsd) : "—"}
+                        {hasUsdRate ? usd(referralReferrerUsd) : "—"}
+                        <span className="ml-1 text-[10px] font-bold text-gray-400">
+                          75%
+                        </span>
                       </p>
                       {hasUsdRate && (
                         <p className="text-[10px] text-gray-400">
-                          ≈ ${formatMoney(Math.round(referralEachArs))}
+                          ≈ ${formatMoney(Math.round(referralReferrerArs))}
                         </p>
                       )}
                     </div>
@@ -1468,11 +1485,14 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                         Para el comprador
                       </p>
                       <p className="text-sm font-black text-emerald-500">
-                        {hasUsdRate ? usd(referralEachUsd) : "—"}
+                        {hasUsdRate ? usd(referralBuyerUsd) : "—"}
+                        <span className="ml-1 text-[10px] font-bold text-gray-400">
+                          25%
+                        </span>
                       </p>
                       {hasUsdRate && (
                         <p className="text-[10px] text-gray-400">
-                          ≈ ${formatMoney(Math.round(referralEachArs))}
+                          ≈ ${formatMoney(Math.round(referralBuyerArs))}
                         </p>
                       )}
                     </div>
@@ -1481,7 +1501,7 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                   <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
                     De cada venta,{" "}
                     <b>{hasUsdRate ? usd(referralTotalRewardUsd) : "ese %"}</b>{" "}
-                    salen de tu margen y se reparten 50/50 en USDT. Se descuenta
+                    salen de tu margen y se reparten 75/25 en USDT. Se descuenta
                     de tu garantía (colateral) al liberarse la orden.
                   </p>
                 </div>

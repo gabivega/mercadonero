@@ -72,6 +72,56 @@ export function formatUsdt(amount) {
 }
 
 /**
+ * REINTEGRO EXTRA DEL COMPRADOR por haber llegado por un enlace de referido.
+ *
+ * Es la contraparte de `calcReferralSplit` pero pensada para la ficha del
+ * producto: el comprador NO necesita saber cuánto se lleva el referidor, sólo
+ * CUÁNTO le acreditan a él. Ese monto es `totalReward * (100 - referrerShare)`.
+ *
+ * Devuelve, además, el % efectivo para el comprador (para el fallback sin
+ * cotización) y un booleano `applies` (si hay algo que mostrar).
+ *
+ * @param {number}  priceArs            precio final (oferta aplicada) en ARS
+ * @param {number}  percent             % total ofrecido por el vendedor
+ * @param {number}  usdRate             cotización ARS por 1 USDT
+ * @param {number} [referrerSharePercent] % del REFERIDOR (default 75). El
+ *                                       comprador recibe el resto (25).
+ * @returns {{ applies:boolean, buyerUsd:number, buyerPercent:number }}
+ */
+export function buyerReferralReward(
+  priceArs,
+  percent,
+  usdRate,
+  referrerSharePercent = 75,
+) {
+  const totalPercent = Number(percent) || 0;
+
+  // Reparto: lo que NO se lleva el referidor es del comprador.
+  const rawShare = Number(referrerSharePercent);
+  const referrerShare = Number.isFinite(rawShare)
+    ? Math.min(100, Math.max(0, rawShare))
+    : 75;
+  const buyerPercent =
+    Math.round((totalPercent - totalPercent * (referrerShare / 100)) * 100) /
+    100;
+
+  // El monto exacto se deriva de la MISMA función que usa el resto del front
+  // (y que replica el backend), así nunca se desfasan los centavos.
+  const { buyerUsd } = calcReferralSplit(
+    priceArs,
+    totalPercent,
+    usdRate,
+    referrerShare,
+  );
+
+  return {
+    applies: totalPercent > 0 && buyerPercent > 0,
+    buyerUsd: Number(buyerUsd) || 0,
+    buyerPercent,
+  };
+}
+
+/**
  * Construye el enlace compartible del producto con el `?ref=` del referidor.
  * (Enlace LARGO. Preferí `fetchReferralShortUrl` para compartir: es más corto
  * y trackea clics. Este queda como fallback si el corto falla.)
@@ -82,6 +132,8 @@ export function formatUsdt(amount) {
  * @returns {string} URL absoluta con ?ref=<referrerId>
  */
 export function buildReferralUrl(product, referrerId, baseUrl) {
+  // Base = origin actual del navegador (en dev http://localhost:5173, en prod
+  // https://mercadonero.com). Sin browser caemos al dominio de prod.
   const base =
     baseUrl ||
     (typeof window !== "undefined"

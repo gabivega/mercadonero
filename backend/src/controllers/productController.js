@@ -1,8 +1,12 @@
 import Product from "../models/Product.js";
 import User from "../models/User.js";
 import mongoose from "mongoose";
+import Pool from "../models/Pool.js";
 import { buildProductSlug, accentInsensitivePattern } from "../utils/slugify.js";
-import { resolveProductReferral } from "../services/referralService.js";
+import {
+  resolveProductReferral,
+  getReferralConfig,
+} from "../services/referralService.js";
 
 // Acepta un id (ObjectId) o un slug SEO. Devuelve el filtro de búsqueda
 // adecuado para Mongo. Los slugs siempre contienen guiones y letras, por lo
@@ -849,10 +853,71 @@ export const getProductById = async (req, res) => {
     // defecto pueden no tenerla. En ese caso, la completamos en la respuesta
     // con la ubicación de despacho del vendedor (shop.location) para mostrar
     // "Ciudad, Provincia" (ej: "Rosario, Santa Fe") sin migrar la base.
-    if (!product.location?.city && product.seller?.shop?.location?.city) {
+        if (!product.location?.city && product.seller?.shop?.location?.city) {
       product.location = {
         city: product.seller.shop.location.city,
         province: product.seller.shop.location.province || "",
+      };
+    }
+
+    // ── REPARTO DEL REFERIDO (dato público de la config) ──
+    // El comprador necesita saber CUÁNTO de su reintegro le corresponde a él
+    // cuando llega por un enlace (?ref=). Ese reparto vive en la config global
+    // (`ReferralConfig.referrerSharePercent`, ej. 75/25) y NO en el producto,
+    // así que lo exponemos acá SOLO cuando el producto ofrece referido. Lo
+    // devolvemos en el mismo lugar que `referral` para que el front lo use sin
+    // un request extra. Es un número público (no hay secretos).
+    if (product.referral?.enabled && product.referral?.percent > 0) {
+      try {
+        const config = await getReferralConfig();
+        product.referral = {
+          ...(typeof product.referral.toObject === "function"
+            ? product.referral.toObject()
+            : product.referral),
+          referrerSharePercent: Number.isFinite(
+            Number(config?.referrerSharePercent),
+          )
+            ? Number(config.referrerSharePercent)
+            : 75,
+          // Activa/desactiva global: si están apagados, el front NO debe
+          // mostrar la caja de referidos aunque el producto la tenga prendida.
+          programEnabled: config?.enabled !== false,
+        };
+      } catch (e) {
+        console.error("[Referral] No se pudo leer la config global:", e.message);
+      }
+    }
+
+
+    // ── GRUPOS ACTIVOS (SOCIAL SELLING) ──────────────────────────────
+    // El front (SocialSellingBanner / SocialSellingSection) lee
+    // `product.socialSelling.activePoolsCount` para avisar "hay N grupos
+    // abiertos". Ese campo NUNCA existía en el backend, así que siempre
+    // llegaba undefined → el banner mostraba 0 aunque hubiera grupos. Lo
+    // computamos acá (un solo count, indexado por product+status) para no
+    // forzar al front a un request extra por producto.
+    //
+    // Solo contamos grupos con al menos un member fondeado y aún abiertos:
+    // los "open" sin fondeo no son visibles porque el Pool nace recién al
+    // confirmarse el pago on-chain (ver materializeGroupBuyOrder).
+    try {
+      const now = new Date();
+      const activePoolsCount = await Pool.countDocuments({
+        product: product._id,
+        status: "open",
+        expiresAt: { $gt: now }, // ignora los vencidos (expiración lazy)
+      });
+      const socialSelling =
+        typeof product.socialSelling?.toObject === "function"
+          ? product.socialSelling.toObject()
+          : product.socialSelling || {};
+      product.socialSelling = { ...socialSelling, activePoolsCount };
+    } catch (poolErr) {
+      // Best-effort: si falla el conteo, el producto igual se devuelve.
+      console.error("[Product] No se pudo contar pools activos:", poolErr.message);
+      product.socialSelling = {
+        ...(product.socialSelling || {}),
+        activePoolsCount: 0,
       };
     }
 

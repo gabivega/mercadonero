@@ -304,15 +304,14 @@ export default function PoolDetail() {
                 <Sparkles size={16} style={{ color: ACCENT }} />
               </h1>
               <p className="text-xs text-gray-500">
-                Creado por @
-                {[
-                  pool.creator?.firstName,
-                  pool.creator?.lastName,
-                ]
-                  .map((v) => (typeof v === "string" ? v.trim() : ""))
-                  .filter(Boolean)
-                  .join(" ") ||
-                  pool.creator?.username ||
+                                Creado por @
+                {/* Preferimos el @username (identifica mejor). Fallback al
+                    nombre completo y, último, "vendedor". */}
+                {pool.creator?.username ||
+                  [pool.creator?.firstName, pool.creator?.lastName]
+                    .map((v) => (typeof v === "string" ? v.trim() : ""))
+                    .filter(Boolean)
+                    .join(" ") ||
                   "vendedor"}
               </p>
             </div>

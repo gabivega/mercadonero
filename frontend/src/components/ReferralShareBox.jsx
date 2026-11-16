@@ -1,7 +1,7 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import axios from "axios";
 import { usePrivy } from "../Utils/authClient";
-import { Share2, Check, Sparkles, Zap, Loader2 } from "lucide-react";
+import { Share2, Check, Sparkles, Zap, Loader2, ImageDown } from "lucide-react";
 import {
   getUsdRate,
   calcReferralSplit,
@@ -13,9 +13,9 @@ import { showCopiedToast } from "../Utils/copiedToast";
 import { useUserStore } from "../store/useUserStore";
 
 // Copy de ventas: gancho directo + refuerzo de reciprocidad.
-const SHARE_TITLE = "CompartÃ­ este producto y ganÃ¡";
+const SHARE_TITLE = "Compartí este producto y ganá";
 const SHARE_SUBTITLE =
-  "Cada persona que compre con tu enlace te deja plata en tu wallet. Sin lÃ­mites.";
+  "Cada persona que compre con tu enlace te deja plata en tu wallet. Sin límites.";
 const BUYER_BADGE = "Reintegro asegurado";
 
 export default function ReferralShareBox({ product }) {
@@ -25,11 +25,13 @@ export default function ReferralShareBox({ product }) {
   // Solo los referidores APROBADOS pueden ver la caja de compartir.
   const isApprovedReferrer = dbUser?.referralStatus === "approved";
 
-    const [usdRate, setUsdRate] = useState(null);
+      const [usdRate, setUsdRate] = useState(null);
   const [copied, setCopied] = useState(false);
   const [loadingLink, setLoadingLink] = useState(false);
+  // Estado del botón "Descargar kit": generación de la imagen 1080x1080.
+  const [loadingKit, setLoadingKit] = useState(false);
   // % que se lleva el REFERIDOR (reparto configurable, default 75). Lo trae el
-  // backend desde ReferralConfig.referrerSharePercent para que la previsualizaciÃ³n
+  // backend desde ReferralConfig.referrerSharePercent para que la previsualización
   // coincida EXACTA con lo que se acredita al completar la orden.
   const [referrerSharePercent, setReferrerSharePercent] = useState(75);
   // Referidor que nos trajo (si vinimos por un ?ref=). Mostramos al comprador
@@ -72,24 +74,32 @@ export default function ReferralShareBox({ product }) {
 
   if (!referralEnabled) return null;
 
-  const price = product?.sale?.active ? product.sale.price : product.price;
-    const { referrerUsd, buyerUsd } = calcReferralSplit(
+    const price = product?.sale?.active ? product.sale.price : product.price;
+  // Reparto que viene PÚBLICO en el producto (lo expone el backend). Es la
+  // fuente preferida; el valor traído del endpoint autenticado y el default 75
+  // quedan solo como respaldo. Sin esto, el box mostraba el 100% del reward
+  // como si fuera la ganancia del referidor (sobreestimando).
+  const productShare = Number(product?.referral?.referrerSharePercent);
+  const effectiveShare = Number.isFinite(productShare)
+    ? productShare
+    : referrerSharePercent;
+  const { referrerUsd, buyerUsd } = calcReferralSplit(
     price,
     product.referral.percent,
     usdRate,
-    referrerSharePercent,
+    effectiveShare,
   );
-  // % que representa cada parte del reward total (para el fallback sin cotizaciÃ³n).
+  // % que representa cada parte del reward total (para el fallback sin cotización).
   const totalPercent = Number(product.referral.percent) || 0;
-  const referrerPercent = Math.round(totalPercent * (referrerSharePercent / 100) * 100) / 100;
+  const referrerPercent = Math.round(totalPercent * (effectiveShare / 100) * 100) / 100;
   const buyerPercent = Math.round((totalPercent - referrerPercent) * 100) / 100;
 
-  // Monto si ya tenemos cotizaciÃ³n; si no, el % (nunca un $0).
+  // Monto si ya tenemos cotización; si no, el % (nunca un $0).
   const gananciaLabel = usdRate ? formatUsdt(referrerUsd) : `${referrerPercent}%`;
   const compradorLabel = usdRate ? formatUsdt(buyerUsd) : `${buyerPercent}%`;
 
   // Copia el enlace al portapapeles con varios fallbacks (clipboard API â†’
-  // execCommand). Devuelve true sÃ³lo si realmente se copiÃ³.
+  // execCommand). Devuelve true sólo si realmente se copió.
   const copyToClipboard = async (text) => {
     if (navigator?.clipboard?.writeText) {
       try {
@@ -117,9 +127,9 @@ export default function ReferralShareBox({ product }) {
     }
   };
 
-  // Pide el enlace corto (/r/<code>) al backend vÃ­a helper compartido.
-  // Ãšnica fuente de verdad para "compartir" (mismo enlace que la grilla de
-  // /referidos). Ante fallo, cae al enlace largo automÃ¡ticamente.
+  // Pide el enlace corto (/r/<code>) al backend vía helper compartido.
+  // única fuente de verdad para "compartir" (mismo enlace que la grilla de
+  // /referidos). Ante fallo, cae al enlace largo automáticamente.
   const fetchShortLink = async () => {
     return fetchReferralShortUrl(product, getAccessToken, myId);
   };
@@ -136,7 +146,7 @@ export default function ReferralShareBox({ product }) {
     }
     if (!shareUrl) return;
 
-    // 1) API nativa de compartir (mÃ³vil). En desktop caemos a copiar.
+    // 1) API nativa de compartir (móvil). En desktop caemos a copiar.
     const canUseNativeShare =
       typeof navigator !== "undefined" &&
       typeof navigator.share === "function" &&
@@ -146,8 +156,8 @@ export default function ReferralShareBox({ product }) {
     if (canUseNativeShare) {
       try {
         await navigator.share({
-          title: product?.name || "MirÃ¡ este producto",
-          text: "Â¡MirÃ¡ esto! ComprÃ¡ con mi enlace y los dos ganamos ðŸ¤‘",
+          title: product?.name || "Mirá este producto",
+          text: "¡Mirá esto! Comprá con mi enlace y los dos ganamos ðŸ¤‘",
           url: shareUrl,
         });
         return;
@@ -157,19 +167,78 @@ export default function ReferralShareBox({ product }) {
       }
     }
 
-    // 2) Fallback: copiar al portapapeles.
+        // 2) Fallback: copiar al portapapeles.
     const ok = await copyToClipboard(shareUrl);
     if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2200);
-      showCopiedToast("Con tu enlace ganÃ¡s en cada compra");
+      showCopiedToast("Con tu enlace ganás en cada compra");
+    }
+  };
+
+  // ── DESCARGA DEL KIT PROMOCIONAL ────────────────────────────────────────
+  // Pide el JPG 1080x1080 al backend (GET /api/referral/kit/:productId) y
+  // fuerza la descarga en el navegador.
+  //
+  // ¿Por qué con `blob` en vez de un simple <a href>? Porque el endpoint
+  // requiere el header Authorization: un <a> no puede mandar headers, y el
+  // browser mostraría la imagen en vez de bajarla. Bajamos el binario con
+  // axios y lo entregamos como blob descargable.
+  const handleDownloadKit = async () => {
+    if (!authenticated || !myId || loadingKit) return;
+
+    setLoadingKit(true);
+    try {
+      const token = await getAccessToken?.();
+      if (!token) throw new Error("sin-sesion");
+
+      const res = await axios.get(
+        `${import.meta.env.VITE_SERVER_URL}/api/referral/kit/${product._id}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          responseType: "blob",
+        },
+      );
+
+      // El nombre viene en Content-Disposition; si no, lo armamos con el slug.
+      const disposition = res.headers?.["content-disposition"] || "";
+      const match = disposition.match(/filename="([^"]+)"/i);
+      const fileName =
+        match?.[1] ||
+        `mercadonero-${product?.slug || product?._id || "kit"}.jpg`;
+
+      const blobUrl = URL.createObjectURL(res.data);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Liberamos el blob un instante después: si lo revocamos en el acto,
+      // algunos navegadores cancelan la descarga.
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1500);
+    } catch (err) {
+      // 429 = rate limit del backend (6 kits/min). 403 = no es referidor.
+      const status = err?.response?.status;
+      const mensaje =
+        status === 429
+          ? "Generaste muchos kits seguidos. Esperá un minuto."
+          : status === 403
+            ? "Necesitás ser referidor aprobado."
+            : err?.response?.data?.message ||
+              "No pudimos generar la imagen. Probá de nuevo.";
+      // Si el error vino como Blob (responseType blob), hay que leerlo aparte.
+      // Lo resolvemos mostrando el mensaje genérico, que ya es claro.
+      showCopiedToast(mensaje);
+    } finally {
+      setLoadingKit(false);
     }
   };
 
   return (
     <div className="space-y-3">
       {/* â”€â”€ BANDA PARA EL COMPRADOR â”€â”€
-          Si el visitante llegÃ³ por un enlace ?ref=, le mostramos el reintegro
+          Si el visitante llegó por un enlace ?ref=, le mostramos el reintegro
           que tiene esperando. Se muestra a cualquiera (no requiere ser referidor). */}
       {incomingRef && (
         <div className="flex items-start gap-3 p-4 rounded-xl bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 border border-emerald-500/40">
@@ -178,7 +247,7 @@ export default function ReferralShareBox({ product }) {
           </div>
           <div className="min-w-0">
             <p className="text-sm font-black text-emerald-700 dark:text-emerald-300 leading-tight">
-              Â¡TenÃ©s un reintegro extra esperando!
+              ¡Tenés un reintegro extra esperando!
             </p>
             <p className="text-xs text-emerald-700/80 dark:text-emerald-400/90 mt-0.5">
               Por comprar con tu enlace de referidos, al concretar esta compra te acreditamos{" "}
@@ -203,13 +272,13 @@ export default function ReferralShareBox({ product }) {
                 {SHARE_TITLE}{" "}
                 <span className="text-[#F26722]">{gananciaLabel}</span> por venta
               </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              {/* <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                 {SHARE_SUBTITLE}
-              </p>
+              </p> */}
             </div>
           </div>
 
-          <button
+                    <button
             type="button"
             onClick={handleShare}
             disabled={loadingLink}
@@ -223,17 +292,41 @@ export default function ReferralShareBox({ product }) {
               <Share2 size={16} />
             )}
             {loadingLink
-              ? "Generando enlaceâ€¦"
+              ? "Generando enlace…"
               : copied
-                ? "Â¡Enlace copiado!"
+                ? "¡Enlace copiado!"
                 : "Compartir y ganar"}
           </button>
 
-          {/* Micro-incentivo de reciprocidad: refuerza que el otro tambiÃ©n gana. */}
-          <p className="text-[11px] text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
-            <Sparkles size={12} className="text-[#F26722]" />
-            Tu contacto tambiÃ©n recibe su reintegro. Los dos ganan: por eso
-            compran.
+          {/* Descarga del kit 1080x1080 listo para X/Twitter: la imagen ya
+              trae el QR con el enlace de este afiliado, así que no hay que
+              pegarlo a mano. Estilo secundario (borde) para que no compita
+              con el CTA principal de compartir. */}
+          <button
+            type="button"
+            onClick={handleDownloadKit}
+            disabled={loadingKit}
+            className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-lg border-2 border-[#F26722]/40 hover:border-[#F26722] bg-transparent hover:bg-[#F26722]/10 text-[#F26722] dark:text-orange-400 text-sm font-bold transition-all disabled:opacity-60"
+          >
+            {loadingKit ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <ImageDown size={16} />
+            )}
+            {loadingKit ? "Generando imagen…" : "Descargar kit para redes"}
+          </button>
+          <p className="text-[11px] text-gray-400 dark:text-gray-500 text-center -mt-1">
+            Imagen 1080×1080 con tu QR listo para Instagram y X.
+          </p>
+
+          {/* Micro-incentivo de reciprocidad: refuerza que el otro también gana. */}
+          <p className="text-[11px] text-gray-400 dark:text-gray-500 flex items-start gap-1.5 leading-snug">
+            <Sparkles size={12} className="text-[#F26722] shrink-0" />
+            <span>
+              El comprador recibe{" "}
+              <b className="text-gray-600 dark:text-gray-300">{compradorLabel}</b>{" "}
+              adicional de reintegro.
+            </span>
           </p>
         </div>
       )}

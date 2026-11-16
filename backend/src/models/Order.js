@@ -117,6 +117,14 @@ const orderSchema = new Schema(
         "awaiting_collateral",
         "pending_payment",
         "verifying_payment",
+        // ── COMPRA GRUPAL: DINERO RETENIDO, VENTA AÚN INEXISTENTE ──────
+        // Se fondeó el escrow de un member de grupo (o se creó el grupo),
+        // PERO el grupo todavía está juntando compradores. La venta NO existe
+        // hasta que el pool cierre con ≥2 miembros: recién ahí pasa a "paid".
+        // Motivo: si el grupo expira con un solo miembro, se reembolsa on-chain
+        // y el vendedor NUNCA debió ver una venta. Sin este estado, el vendedor
+        // veía como venta pagada algo que iba a desaparecer.
+        "group_funded",
         "paid",
         "shipped",
         // El comprador confirmó la recepción. NO es el cierre definitivo:
@@ -139,6 +147,7 @@ const orderSchema = new Schema(
             "awaiting_collateral",
             "pending_payment",
             "verifying_payment",
+            "group_funded",
             "paid",
             "shipped",
             "reception_confirmed",
@@ -217,7 +226,7 @@ const orderSchema = new Schema(
       platformFeeUsd: { type: Number, required: true },
       // Desglose (auditoría). baseFeeUsd es la comisión fija de Nero (3%);
       // referralFeeUsd es el % del producto destinado al Programa de Referidos
-      // (referidor + comprador, 50/50). Si no hay referido, referralFeeUsd = 0
+      // (referidor + comprador, 75/25 por defecto). Si no hay referido, referralFeeUsd = 0
       // y platformFeeUsd === baseFeeUsd.
       baseFeeUsd: { type: Number, default: 0 },
       referralFeeUsd: { type: Number, default: 0 },
@@ -250,7 +259,7 @@ const orderSchema = new Schema(
     // REFERIDOS (reintegros por compartir) - auditoría por orden
     // Cuando la orden nace referida (el comprador llegó por un enlace ?ref=)
     // guardamos quién refirió y el % ofrecido por el producto. Al completarse
-    // se acredita el reward repartido 50/50 (ver referralService).
+    // se acredita el reward repartido 75/25 (ver referralService).
     // ────────────────────────────────────────────────
     referral: {
       // Usuario que compartió el enlace (referidor). null = sin referido.

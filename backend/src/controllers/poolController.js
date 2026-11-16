@@ -1,8 +1,6 @@
 import Pool from "../models/Pool.js";
 import Product from "../models/Product.js";
 import User from "../models/User.js";
-import { createNotification } from "../services/notificationService.js";
-import { sendPoolActivityToVendor } from "../services/sendEmail.js";
 import { getTdc } from "../services/tdcService.js";
 import Order from "../models/Order.js";
 import { getEscrowChainConfig, ESCROW_DEFAULT_CHAIN_ID } from "../config/chains.js";
@@ -17,69 +15,18 @@ import {
   createPendingOrderForPoolMember,
   finalizePoolOrdersFinalPrice,
 } from "./groupBuyOrderController.js";
-
-/**
- * Avisa al vendedor (in-app + email) que hubo actividad en un grupo de compra.
- * NUNCA debe romper el flujo principal: todo va con catch silencioso.
- *
- * @param {object} opts
- * @param {object} opts.pool      Pool ya guardado (con product poblado o no)
- * @param {"created"|"joined"} opts.action
- * @param {object} opts.actorUser Usuario comprador (con firstName/lastName/username)
- */
-const notifyVendorPoolActivity = async ({ pool, action, actorUser }) => {
-  try {
-    const productName =
-      pool.product?.name || pool.productName || "tu producto";
-    const buyerName =
-      [actorUser?.firstName, actorUser?.lastName]
-        .filter(Boolean)
-        .join(" ")
-        .trim() ||
-      actorUser?.username ||
-      "Un comprador";
-
-    const isCreated = action === "created";
-    const verb = isCreated ? "creó" : "se sumó a";
-    const buyerId = actorUser?._id || actorUser;
-
-    // ── Notificación in-app al vendedor ──
-    createNotification({
-      recipient: pool.seller,
-      type: isCreated ? "pool_created" : "pool_joined",
-      title: isCreated
-        ? "Nuevo grupo de compra"
-        : "Nuevo integrante en un grupo",
-      message: isCreated
-        ? `${buyerName} ${verb} un grupo para "${productName}".`
-        : `${buyerName} ${verb} un grupo de "${productName}".`,
-      data: {
-        poolId: pool._id,
-        productId: pool.product?._id || pool.product,
-        buyerId,
-        membersCount: pool.members?.length || 0,
-      },
-    }).catch((err) => console.error("Falló notificación de grupo:", err));
-
-    // ── Email al vendedor (best-effort) ──
-    const vendor = await User.findById(pool.seller).select(
-      "email firstName shop",
-    );
-    if (vendor?.email) {
-      sendPoolActivityToVendor({
-        vendorEmail: vendor.email,
-        action,
-        productName,
-        buyerName,
-        membersCount: pool.members?.length || 0,
-        targetBuyers: pool.targetBuyers,
-        currentUnitPrice: pool.currentUnitPrice,
-      }).catch((err) => console.error("Falló email de grupo:", err));
-    }
-  } catch (error) {
-    console.error("[notifyVendorPoolActivity] Error:", error);
-  }
-};
+// ── Helpers compartidos con groupBuyOrderController ────────────────────
+// `priceForBuyers` y `notifyVendorPoolActivity` ANTES vivían definidos acá
+// SIN exportarse, y groupBuyOrderController los usaba sin importarlos →
+// ReferenceError en materializeGroupBuyOrder que quedaba silenciado por el
+// catch de confirmEscrowFunding (el comprador fondeaba on-chain pero el Pool
+// NUNCA se creaba / no aparecía en el grupo). Se centralizaron en
+// services/poolHelpers.js para evitar duplicación y el import circular
+// poolController ⇄ groupBuyOrderController.
+import {
+  priceForBuyers,
+  notifyVendorPoolActivity,
+} from "../services/poolHelpers.js";
 
 const ACTION_WINDOW_MS = 1000 * 60 * 60 * 24; // (no usado aún; reservado)
 
@@ -109,24 +56,6 @@ const resolvePaymentToken = (token, escrowChain) => {
   );
 };
 const requireGroupContract = () => true; // no-op (compat)
-
-/**
- * Devuelve el precio unitario (ARS) para un pool según la cantidad de
- * PERSONAS (compradores). Usa los tiers del producto; si no hay tier exacto
- * para esa cantidad, cae al precio base.
- */
-const priceForBuyers = (tiers, buyersCount, basePrice) => {
-  if (tiers && tiers[buyersCount] != null) return Number(tiers[buyersCount]);
-  // Si no hay tier exacto, probamos el mayor tier definido <= buyersCount.
-  if (tiers) {
-    const keys = Object.keys(tiers)
-      .map((k) => Number(k))
-      .filter((k) => Number.isFinite(k) && k <= buyersCount)
-      .sort((a, b) => b - a);
-    if (keys.length > 0) return Number(tiers[keys[0]]);
-  }
-  return Number(basePrice) || 0;
-};
 
 /**
  * Calcula el monto (en USDT) que un comprador debe congelar on-chain:
@@ -889,6 +818,27 @@ export const leavePool = async (req, res) => {
       });
     }
 
+    // ════════════════════════════════════════════════════════════════════
+    // BLINDAJE: QUIEN YA FONDEÓ NO PUEDE SALIRSE DEL GRUPO.
+    // Antes, este endpoint solo borraba el member del array: el escrow on-chain
+    // quedaba retenido (nadie lo reembolsaba) y el comprador escapaba de su
+    // compromiso. Eso es exactamente la especulación que queremos evitar:
+    // "me anoto barato y si no se llena, me voy". Si entró y fondeó, se queda
+    // hasta que el grupo se llene o expire (ahí SÍ se reembolsa el sistema).
+    // ════════════════════════════════════════════════════════════════════
+    const myMember = pool.members.find(
+      (m) => m.user.toString() === userId.toString(),
+    );
+    if (myMember && myMember.escrowStatus !== "pending") {
+      return res.status(403).json({
+        success: false,
+        blocked: "group_buy",
+        message:
+          "Ya fondeaste tu parte en este grupo, así que no podés salirte. " +
+          "Si el grupo no se completa, se te reembolsa automáticamente.",
+      });
+    }
+
     const before = pool.members.length;
     pool.members = pool.members.filter(
       (m) => m.user.toString() !== userId.toString(),
@@ -1152,6 +1102,35 @@ export const closePool = async (req, res) => {
 
     // Grupo >= 2: el grupo se cierra. Las órdenes ya están fondeadas; el
     // reintegro escalonado se ejecuta en el settle al confirmar recepción.
+
+    // ── LAS ÓRDENES DEL GRUPO PASAN A SER VENTAS REALES ──────────────
+    // Mientras el grupo estuvo abierto, cada orden quedó en "group_funded":
+    // el dinero estaba retenido pero NO era una venta (podía expirar). Recién
+    // AHORA, con el grupo cerrado y ≥2 compradores, la compra grupal se
+    // concreta: cada orden pasa a "paid" con su precio final ya escalonado
+    // (finalizePoolOrdersFinalPrice acaba de fijarlo). Sin este paso el
+    // vendedor nunca veía la venta y el comprador la tenía "colgada".
+    //
+    // El REINTEGRO (lockedUsd - precioFinal*units) NO se acredita acá: viaja
+    // on-chain en el settle del escrow al confirmar recepción
+    // (adminCompleteOrder → order.groupBuy.refundUsd). Decisión de negocio:
+    // reintegro on-chain, nunca saldo interno (evita custodia y abusos).
+    let paidUpdated = 0;
+    for (const o of fin.orders) {
+      if (o.status === "group_funded") {
+        o.status = "paid";
+        o.statusHistory.push({
+          status: "paid",
+          changedAt: new Date(),
+          comment: `Grupo cerrado con ${pool.members?.length || 0} compradores. Precio final US$ ${Number(
+            finalUnitPriceUsd || 0,
+          ).toFixed(2)}/u. Tu orden pasa a ser una venta confirmada.`,
+        });
+        await o.save();
+        paidUpdated += 1;
+      }
+    }
+
     pool.status = "filled";
     pool.filledAt = pool.filledAt || new Date();
     pool.closedAt = new Date();

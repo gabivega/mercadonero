@@ -12,7 +12,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { usePrivy } from "../Utils/authClient";
-import { formatMoney } from "../Utils/currencyFormatter";
+import { formatOrderAmountCompact } from "../Utils/orderAmount";
 import LoadingSpinner from "./LoadingSpinner";
 
 // Etiquetas legibles para cada estado que devuelve el backend
@@ -387,10 +387,10 @@ const AdminCollateralAudit = () => {
                       >
                         {meta.short}
                       </span>
-                      <div className="mt-1 text-[11px] text-zinc-400">
+                                            <div className="mt-1 text-[11px] text-zinc-400">
                         {order.status}
                         {order.totalAmount
-                          ? ` · $${formatMoney(order.totalAmount)}`
+                          ? ` · ${formatOrderAmountCompact(order).text}`
                           : ""}
                       </div>
                     </td>

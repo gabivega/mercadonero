@@ -140,6 +140,29 @@ export const makeCreateCryptoOrder = () => {
             ? Number((financials.escrowAmountUsd - financials.platformFeeUsd).toFixed(2))
             : financials.sellerNetReleaseUsd,
       },
+      // ════════════════════════════════════════════════════════════════
+      // COMPRA GRUPAL: persistir la INTENCIÓN en la orden.
+      // BUG QUE ESTO CORRIGE: `groupBuy` llegaba al handler pero NUNCA se
+      // asignaba al documento. La orden se guardaba como venta individual
+      // (isGroupBuy:false, sin groupBuy.createPoolProductId), así que al
+      // fondear el guard `if (order.isGroupBuy)` era false →
+      // materializeGroupBuyOrder NUNCA corría → el Pool nunca se creaba y el
+      // grupo no aparecía en ningún lado. Lo persistimos acá para que:
+      //   - isGroupBuy quede true (filtros/visibilidad/estado group_funded),
+      //   - createPoolProductId / joinPoolId sobrevivan hasta confirmEscrowFunding,
+      //   - payment.groupBuy active los guards de settle en updateOrder.
+      ...(groupBuy
+        ? {
+            isGroupBuy: true,
+            groupBuy: {
+              createPoolProductId: groupBuy.createPoolProductId || null,
+              joinPoolId: groupBuy.joinPoolId || null,
+              units: Number(groupBuy.units || 1),
+              // lockedUsd / unitPriceUsd / refundUsd se fijan al materializar
+              // y al cerrar el pool (precio escalonado).
+            },
+          }
+        : {}),
     });
 
     const savedCryptoOrder = await newOrderCrypto.save();
@@ -247,8 +270,21 @@ export const confirmEscrowFunding = async (req, res) => {
         ? order.financials.escrowAmountUsd
         : order.financials.totalUsd + order.financials.shippingCostUsd;
     order.payment.fundedAt = new Date();
-    order.statusHistory.push({ status: "paid", changedAt: new Date(), comment: `El comprador abonó con cripto (${order.payment.token || "USDT"}). Fondos retenidos en el contrato de escrow.` });
-    order.status = "paid";
+    // ── ESTADO SEGÚN ORIGEN: venta individual vs grupo ────────────────
+    // Compra grupal: el dinero quedó retenido on-chain, pero la VENTA NO
+    // EXISTE todavía. El grupo sigue juntando compradores y, si expira con un
+    // solo miembro, se reembolsa (refund). Marcarla "paid" hacía que el
+    // vendedor viera una venta pagada que podía desaparecer. Pasa a "paid"
+    // recién al cerrarse el pool con ≥2 miembros (finalizePoolOrdersFinalPrice).
+    const fundedStatus = order.isGroupBuy ? "group_funded" : "paid";
+    order.statusHistory.push({
+      status: fundedStatus,
+      changedAt: new Date(),
+      comment: order.isGroupBuy
+        ? `Escrow fondeado (${order.payment.token || "USDT"}) para un grupo de compra. Los fondos quedan retenidos hasta que el grupo se cierre.`
+        : `El comprador abonó con cripto (${order.payment.token || "USDT"}). Fondos retenidos en el contrato de escrow.`,
+    });
+    order.status = fundedStatus;
     order.paymentVerifiedAt = new Date();
 
     const seller = await User.findById(order.seller);
@@ -262,14 +298,28 @@ export const confirmEscrowFunding = async (req, res) => {
         buyerName: "el comprador",
       }).catch((err) => console.error("Falló email venta crypto al vendedor:", err));
     }
+    // ── AVISO AL VENDEDOR ─────────────────────────────────────────────
+    // DIFERENCIADO a propósito: en un grupo NO hay venta ni hay nada que
+    // despachar todavía. Si avisáramos "ya podés despachar", el vendedor
+    // despacharía mercadería de un grupo que puede expirar sin llenarse.
     if (seller) {
-      createNotification({
-        recipient: seller._id,
-        type: "payment_confirmed",
-        title: "El comprador pagó la orden",
-        message: `El comprador depositó el dinero en el contrato para la orden #${order._id.toString().slice(-6).toUpperCase()}. Ya podés despachar.`,
-        data: { orderId: order._id, totalAmount: order.totalAmount },
-      }).catch((err) => console.error("Falló notif fondeo a vendedor:", err));
+      if (order.isGroupBuy) {
+        createNotification({
+          recipient: seller._id,
+          type: "pool_joined",
+          title: "Nuevo integrante en un grupo de compra",
+          message: `Un comprador fondeó su parte en un grupo del producto #${order._id.toString().slice(-6).toUpperCase()}. El grupo sigue abierto: NO despaches hasta que se llene.`,
+          data: { orderId: order._id, isGroupBuy: true },
+        }).catch((err) => console.error("Falló notif grupo a vendedor:", err));
+      } else {
+        createNotification({
+          recipient: seller._id,
+          type: "payment_confirmed",
+          title: "El comprador pagó la orden",
+          message: `El comprador depositó el dinero en el contrato para la orden #${order._id.toString().slice(-6).toUpperCase()}. Ya podés despachar.`,
+          data: { orderId: order._id, totalAmount: order.totalAmount },
+        }).catch((err) => console.error("Falló notif fondeo a vendedor:", err));
+      }
     }
 
     await order.save();
@@ -293,7 +343,13 @@ export const confirmEscrowFunding = async (req, res) => {
       }
     }
 
-    return res.status(200).json({ success: true, message: "Escrow verificado y orden activada. El vendedor puede despachar.", order });
+    return res.status(200).json({
+      success: true,
+      message: order.isGroupBuy
+        ? "Escrow verificado. Tu parte quedó retenida hasta que el grupo se cierre."
+        : "Escrow verificado y orden activada. El vendedor puede despachar.",
+      order,
+    });
   } catch (error) {
     console.error("Error al confirmar fondeo del escrow:", error);
     res.status(500).json({ success: false, message: error.message });

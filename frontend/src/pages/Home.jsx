@@ -89,11 +89,11 @@ export default function Home() {
       )}
 
       {/* Comprá en grupo — productos (estándar) con Social Selling habilitado */}
-      <ProductCarousel
+      {/* <ProductCarousel
         title="Comprá en grupo y ahorrá"
         category="social-selling"
         sectionId="social-selling"
-      />
+      /> */}
 
       {/* Offers Products Carousel */}
       {validProducts.length > 0 && (

@@ -36,9 +36,9 @@ const ProductSchema = new Schema(
     },
         // ── REFERIDOS (reintegros por compartir) ──────────────────────────
     // El vendedor define qué % de reintegro (reward) ofrece por este producto.
-    // Ese % se calcula sobre el SUBTOTAL USD (sin envío) y se reparte 50/50:
-    //   - mitad para quien COMPARTIÓ el enlace (referidor)
-    //   - mitad para el COMPRADOR (reintegro)
+    // Ese % se calcula sobre el SUBTOTAL USD (sin envío) y se reparte 75/25
+    //   - 75% para quien COMPARTIÓ el enlace (referidor), configurable en ReferralConfig
+    //   - 25% para el COMPRADOR (reintegro); el reparto real vive en ReferralConfig
     // El % extra lo cubre el vendedor: en el flujo normal (pago ARS + colateral
     // USDT) se le descuenta del colateral on-chain (fee = comisión + reward).
     // Solo aplica a productos de pago (listingType === "product").

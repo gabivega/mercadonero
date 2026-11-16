@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePrivy } from "../Utils/authClient";
 import axios from 'axios';
@@ -27,8 +27,8 @@ import {
 const MAX_LINKS = 5;
 const MAX_IMAGES = 3;
 
-// Mapa de categorÃ­as/subcategorÃ­as oficiales de la plataforma (fuente Ãºnica de verdad).
-// Los vendedores NO pueden inventar categorÃ­as: deben usar exactamente estos slugs.
+// Mapa de categorías/subcategorías oficiales de la plataforma (fuente única de verdad).
+// Los vendedores NO pueden inventar categorías: deben usar exactamente estos slugs.
 const categoryMap = new Map(
   allCategories.map((cat) => [
     cat.slug,
@@ -47,7 +47,7 @@ export const ImportSection = () => {
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [pendingBulk, setPendingBulk] = useState(null);
   const onboardingComplete = Boolean(dbUser?.shop?.active);
-    // Para publicar productos de pago se requiere ademÃ¡s la APROBACIÃ“N del admin.
+    // Para publicar productos de pago se requiere además la APROBACIÓN del admin.
   const shopApproved = Boolean(dbUser?.shop?.approved);
   // Sin wallet: la carga masiva (productos de pago) se puede hacer igual, pero
   // los productos quedaran OCULTOS hasta vincular la billetera (ver backend).
@@ -100,7 +100,7 @@ export const ImportSection = () => {
     const downloadTemplate = () => {
       const template = [
         {
-          titulo: 'Parlante Bluetooth PortÃ¡til',
+          titulo: 'Parlante Bluetooth Portátil',
           marca: 'JBL',
           categoria: 'electronica-audio-y-video',
           subcategoria: 'audio',
@@ -109,7 +109,7 @@ export const ImportSection = () => {
           precio_oferta: '99000',
           estado: 'new',
           stock: '10',
-          descripcion: 'Parlante portÃ¡til con baterÃ­a de 20 horas y resistencia al agua IPX7. Perfecto para exteriores.',
+          descripcion: 'Parlante portátil con batería de 20 horas y resistencia al agua IPX7. Perfecto para exteriores.',
           imagen1: 'https://example.com/parlante1.jpg',
           imagen2: 'https://example.com/parlante2.jpg',
           imagen3: '',
@@ -124,7 +124,7 @@ export const ImportSection = () => {
           tiempo_despacho: '24h',
         },
         {
-          titulo: 'Cargador InalÃ¡mbrico Universal',
+          titulo: 'Cargador Inalámbrico Universal',
           marca: 'Samsung',
           categoria: 'celulares-y-telefonos',
           subcategoria: 'accesorios-para-celulares',
@@ -133,7 +133,7 @@ export const ImportSection = () => {
           precio_oferta: '',
           estado: 'new',
           stock: '25',
-          descripcion: 'Cargador inalÃ¡mbrico de 15W con carga rÃ¡pida. Compatible con iPhone y Android.',
+          descripcion: 'Cargador inalámbrico de 15W con carga rápida. Compatible con iPhone y Android.',
           imagen1: 'https://example.com/cargador.jpg',
           imagen2: '',
           imagen3: '',
@@ -155,7 +155,7 @@ export const ImportSection = () => {
       XLSX.writeFile(wb, 'plantilla-productos-nero.xlsx');
     };
 
-    // â”€â”€ DESCARGA DEL LISTADO OFICIAL DE CATEGORÃAS â”€â”€
+    // â”€â”€ DESCARGA DEL LISTADO OFICIAL DE CATEGORÍAS â”€â”€
     const downloadCategoriesList = () => {
       const rows = [];
       allCategories.forEach((cat) => {
@@ -197,9 +197,9 @@ export const ImportSection = () => {
         : conditionRaw.includes('reacond') ? 'refurbished' : 'new';
       const stock = Number(get('stock')) || 1;
 
-      const isDigital = ['si', 'sÃ­', 'true', '1', 's'].includes(get('envio_digital').trim().toLowerCase());
+      const isDigital = ['si', 'sí', 'true', '1', 's'].includes(get('envio_digital').trim().toLowerCase());
       const digitalUrl = get('link_digital');
-      const freeShipping = !isDigital && ['si', 'sÃ­', 'true', '1', 's'].includes(get('envio_gratis').trim().toLowerCase());
+      const freeShipping = !isDigital && ['si', 'sí', 'true', '1', 's'].includes(get('envio_gratis').trim().toLowerCase());
       const shippingCost = Number(get('costo_envio')) || 0;
       const weight = Number(get('peso_kg')) || 0;
       const length = Number(get('largo_cm')) || 0;
@@ -208,10 +208,10 @@ export const ImportSection = () => {
       const shippingTimeRaw = get('tiempo_despacho');
       const shippingTime = shippingTimeRaw.includes('48') ? '48h'
         : shippingTimeRaw.includes('72') ? '72h'
-        : shippingTimeRaw.includes('mas') || shippingTimeRaw.includes('mÃ¡s') ? 'more'
+        : shippingTimeRaw.includes('mas') || shippingTimeRaw.includes('más') ? 'more'
         : '24h';
 
-      // URLs de imÃ¡genes (mÃ¡ximo 3)
+      // URLs de imágenes (máximo 3)
       const imageUrls = [get('imagen1'), get('imagen2'), get('imagen3')]
         .filter(Boolean)
         .slice(0, MAX_IMAGES);
@@ -219,25 +219,25 @@ export const ImportSection = () => {
       const needsBrand = !['inmuebles', 'servicios'].includes(category);
 
       // Validaciones
-      if (!name) errors.push(`Fila ${index + 2}: falta el tÃ­tulo.`);
-      else if (name.length < 5) errors.push(`Fila ${index + 2}: el tÃ­tulo es demasiado corto (mÃ­n. 5 caracteres).`);
-            if (!description) errors.push(`Fila ${index + 2}: falta la descripciÃ³n.`);
+      if (!name) errors.push(`Fila ${index + 2}: falta el título.`);
+      else if (name.length < 5) errors.push(`Fila ${index + 2}: el título es demasiado corto (mín. 5 caracteres).`);
+            if (!description) errors.push(`Fila ${index + 2}: falta la descripción.`);
 
-      // ValidaciÃ³n estricta contra las categorÃ­as/subcategorÃ­as oficiales de la plataforma.
-      // No se permiten categorÃ­as inventadas: solo los slugs del listado oficial.
+      // Validación estricta contra las categorías/subcategorías oficiales de la plataforma.
+      // No se permiten categorías inventadas: solo los slugs del listado oficial.
       if (!category) {
-        errors.push(`Fila ${index + 2}: falta la categorÃ­a.`);
+        errors.push(`Fila ${index + 2}: falta la categoría.`);
       } else if (!categoryMap.has(category)) {
-        errors.push(`Fila ${index + 2}: la categorÃ­a '${category}' no existe en la plataforma. UsÃ¡ un slug oficial (ej. 'celulares-y-telefonos'). DescargÃ¡ el listado de categorÃ­as.`);
+        errors.push(`Fila ${index + 2}: la categoría '${category}' no existe en la plataforma. Usá un slug oficial (ej. 'celulares-y-telefonos'). Descargá el listado de categorías.`);
       } else if (subCategory && !categoryMap.get(category).has(subCategory)) {
-        errors.push(`Fila ${index + 2}: la subcategorÃ­a '${subCategory}' no pertenece a '${category}'. RevisÃ¡ el listado oficial.`);
+        errors.push(`Fila ${index + 2}: la subcategoría '${subCategory}' no pertenece a '${category}'. Revisá el listado oficial.`);
       }
       if (needsBrand && !brand) errors.push(`Fila ${index + 2}: falta la marca.`);
       if (price <= 0) errors.push(`Fila ${index + 2}: el precio debe ser mayor a cero.`);
       if (salePrice > 0 && salePrice >= price) errors.push(`Fila ${index + 2}: el precio de oferta debe ser menor al precio original.`);
 
       imageUrls.forEach((url) => {
-        try { new URL(url); } catch { errors.push(`Fila ${index + 2}: URL de imagen invÃ¡lida: ${url}`); }
+        try { new URL(url); } catch { errors.push(`Fila ${index + 2}: URL de imagen inválida: ${url}`); }
       });
 
       const data = {
@@ -283,7 +283,7 @@ export const ImportSection = () => {
         const sheet = workbook.Sheets[sheetName];
         const jsonRows = XLSX.utils.sheet_to_json(sheet);
 
-        if (jsonRows.length === 0) throw new Error('El archivo estÃ¡ vacÃ­o o no tiene filas con datos.');
+        if (jsonRows.length === 0) throw new Error('El archivo está vacío o no tiene filas con datos.');
 
         const rows = jsonRows.map((row, i) => mapRow(row, i));
         setParsedRows(rows);
@@ -294,8 +294,8 @@ export const ImportSection = () => {
         Swal.fire({
           title: 'Archivo cargado',
           html: `<p class="text-sm text-gray-400">Se detectaron <b class="text-white">${rows.length}</b> fila(s).<br/>
-            <span class="text-green-400">âœ… ${validCount} vÃ¡lidas</span><br/>
-            <span class="text-red-400">âš ï¸ ${errorCount} con errores</span></p>`,
+            <span class="text-green-400">âœ… ${validCount} válidas</span><br/>
+            <span class="text-red-400">⚠️ ${errorCount} con errores</span></p>`,
           icon: 'info',
           background: '#1A1A1A',
           color: '#ffffff',
@@ -306,7 +306,7 @@ export const ImportSection = () => {
         console.error(err);
         Swal.fire({
           title: 'Error al leer el archivo',
-          text: err.message || 'Asegurate de que sea un archivo Excel (.xlsx/.xls) o CSV vÃ¡lido.',
+          text: err.message || 'Asegurate de que sea un archivo Excel (.xlsx/.xls) o CSV válido.',
           icon: 'error',
           background: '#1A1A1A',
           color: '#ffffff',
@@ -319,11 +319,11 @@ export const ImportSection = () => {
       }
     };
 
-    // â”€â”€ ENVIAR PRODUCTOS VÃLIDOS AL BACKEND â”€â”€
+    // â”€â”€ ENVIAR PRODUCTOS VÁLIDOS AL BACKEND â”€â”€
                 const handleBulkSubmit = async (force = false) => {
           // â”€â”€ BLOQUEO DE ONBOARDING VENDEDOR â”€â”€
           // La carga masiva SIEMPRE crea productos de pago (listingType 'product').
-          // Si no completÃ³ el onboarding (y no viene forzado desde el modal ya cerrado),
+          // Si no completó el onboarding (y no viene forzado desde el modal ya cerrado),
           // guardamos el draft y abrimos el modal.
           if (!onboardingComplete && !force) {
             setPendingBulk(parsedRows);
@@ -351,7 +351,7 @@ export const ImportSection = () => {
 
       if (validProducts.length === 0) {
         Swal.fire({
-          title: 'Sin productos vÃ¡lidos',
+          title: 'Sin productos válidos',
           text: 'Corrige los errores en el archivo y vuelve a cargarlo.',
           icon: 'warning',
           background: '#1A1A1A',
@@ -375,10 +375,10 @@ export const ImportSection = () => {
         setFileName('');
 
         Swal.fire({
-          title: data.success ? 'Â¡ImportaciÃ³n completada!' : 'ImportaciÃ³n parcial',
+          title: data.success ? '¡Importación completada!' : 'Importación parcial',
           html: `<p class="text-sm text-gray-400">
             <span class="text-green-400">âœ… ${data.created} producto(s) importado(s)</span><br/>
-            ${data.failed > 0 ? `<span class="text-red-400">âš ï¸ ${data.failed} con errores</span>` : ''}
+            ${data.failed > 0 ? `<span class="text-red-400">⚠️ ${data.failed} con errores</span>` : ''}
           </p>`,
           icon: data.failed > 0 ? 'warning' : 'success',
           background: '#1A1A1A',
@@ -421,7 +421,7 @@ export const ImportSection = () => {
         }
 
         if (data?.blocked === "approval") {
-          // La tienda estÃ¡ en revisiÃ³n (no aprobada por un admin todavÃ­a).
+          // La tienda está en revisión (no aprobada por un admin todavía).
           Swal.fire({
             title: "Estas en la lista de espera",
             text: errorMsg,
@@ -453,15 +453,15 @@ export const ImportSection = () => {
     const validCount = parsedRows.filter((r) => !r.hasErrors).length;
     const errorCount = parsedRows.length - validCount;
 
-    // âš ï¸ IMPORTACIÃ“N POR LINK (Mercado Libre) â€” se mantiene deshabilitada
+    // ⚠️ IMPORTACIÓN POR LINK (Mercado Libre) — se mantiene deshabilitada
     const handleImport = async () => {
     if (!isImporting) {
       setIsImporting(true);
       setTimeout(() => setIsImporting(false), 600);
     }
     return Swal.fire({
-      title: 'ImportaciÃ³n temporalmente deshabilitada',
-      text: 'La sincronizaciÃ³n con Mercado Libre estÃ¡ momentÃ¡neamente suspendida por cambios en sus polÃ­ticas de acceso. Estamos trabajando para reactivarla con una soluciÃ³n estable. DisculpÃ¡ las molestias.',
+      title: 'Importación temporalmente deshabilitada',
+      text: 'La sincronización con Mercado Libre está momentáneamente suspendida por cambios en sus políticas de acceso. Estamos trabajando para reactivarla con una solución estable. Disculpá las molestias.',
       icon: 'info',
       background: '#1A1A1A',
       color: '#ffffff',
@@ -473,7 +473,7 @@ export const ImportSection = () => {
   return (
     <>
     <div className="mb-8 w-full transition-all duration-300 mt-5">
-      {/* BotÃ³n Toggle */}
+      {/* Botón Toggle */}
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={`w-full flex items-center justify-between p-5 rounded-[24px] border transition-all duration-300 ${
@@ -487,7 +487,7 @@ export const ImportSection = () => {
             <Import size={20} />
           </div>
           <div className="text-left">
-            <span className="block font-black text-sm uppercase tracking-wider">Carga Masiva e ImportaciÃ³n</span>
+            <span className="block font-black text-sm uppercase tracking-wider">Carga Masiva e Importación</span>
             {!isOpen && <span className="text-[10px] opacity-60 uppercase font-bold">Excel / CSV, Mercado Libre, Amazon...</span>}
           </div>
         </div>
@@ -510,7 +510,7 @@ export const ImportSection = () => {
                   <h3 className="font-black text-[11px] uppercase tracking-wider dark:text-white text-gray-500">Optimiza tu inventario</h3>
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 max-w-[280px]">
-                  SincronizÃ¡ tus productos de otras plataformas en segundos.
+                  Sincronizá tus productos de otras plataformas en segundos.
                 </p>
               </div>
 
@@ -555,7 +555,7 @@ export const ImportSection = () => {
                   <div>
                     <h4 className="font-black text-sm dark:text-white uppercase tracking-tight">Carga masiva con Excel/CSV</h4>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                      Usa la plantilla como guÃ­a. MÃ­nimo las columnas: titulo, marca, categoria, precio, descripcion
+                      Usa la plantilla como guía. Mínimo las columnas: titulo, marca, categoria, precio, descripcion
                     </p>
                   </div>
                 </div>
@@ -570,10 +570,10 @@ export const ImportSection = () => {
                   <button
                     onClick={downloadCategoriesList}
                     className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 font-bold text-xs transition-all"
-                    title="DescargÃ¡ el listado oficial con los slugs de categorÃ­as y subcategorÃ­as que podÃ©s usar"
+                    title="Descargá el listado oficial con los slugs de categorías y subcategorías que podés usar"
                   >
                     <FileDown size={16} />
-                    CategorÃ­as oficiales
+                    Categorías oficiales
                   </button>
                 </div>
               </div>
@@ -596,12 +596,12 @@ export const ImportSection = () => {
                   ))}
                 </div>
                                 <p className="text-[10px] text-gray-400 mt-2">
-                  ðŸ’¡ PodÃ©s dejar <b>imagen1, imagen2, imagen3</b> vacÃ­as y cargar las fotos luego desde el editor del producto. MÃ¡ximo 3 URLs por producto.
+                  ðŸ’¡ Podés dejar <b>imagen1, imagen2, imagen3</b> vacías y cargar las fotos luego desde el editor del producto. Máximo 3 URLs por producto.
                 </p>
                 <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1.5 flex items-start gap-1">
                   <AlertTriangle size={11} className="flex-shrink-0 mt-px" />
                   <span>
-                    Las columnas <b>categoria</b> y <b>subcategoria</b> deben usar <b>exactamente</b> los slugs del listado oficial de la plataforma. No se aceptan categorÃ­as inventadas. DescargÃ¡ el listado en "CategorÃ­as oficiales".
+                    Las columnas <b>categoria</b> y <b>subcategoria</b> deben usar <b>exactamente</b> los slugs del listado oficial de la plataforma. No se aceptan categorías inventadas. Descargá el listado en "Categorías oficiales".
                   </span>
                 </p>
               </div>
@@ -614,17 +614,17 @@ export const ImportSection = () => {
                   <div>
                     <h4 className="font-black text-sm dark:text-white uppercase tracking-tighter flex items-center gap-2">
                       <FileSpreadsheet size={16} className="text-blue-500" />
-                      PrevisualizaciÃ³n <span className="text-gray-400 normal-case">Â· {fileName}</span>
+                      Previsualización <span className="text-gray-400 normal-case">· {fileName}</span>
                     </h4>
                     <p className="text-xs mt-0.5">
-                      <span className="text-green-500 font-bold">{validCount} vÃ¡lida(s)</span>
-                      {errorCount > 0 && <span className="text-red-500 font-bold"> Â· {errorCount} con errores</span>}
+                      <span className="text-green-500 font-bold">{validCount} válida(s)</span>
+                      {errorCount > 0 && <span className="text-red-500 font-bold"> · {errorCount} con errores</span>}
                     </p>
                   </div>
                   <button
                     onClick={() => { setParsedRows([]); setFileName(''); }}
                     className="p-2 rounded-lg bg-gray-100 dark:bg-white/5 text-gray-500 hover:text-red-500 transition-colors"
-                    title="Limpiar previsualizaciÃ³n"
+                    title="Limpiar previsualización"
                   >
                     <Trash2 size={16} />
                   </button>
@@ -636,9 +636,9 @@ export const ImportSection = () => {
                     <thead className="bg-gray-50 dark:bg-white/5 sticky top-0">
                       <tr className="text-[10px] uppercase tracking-wider text-gray-500">
                         <th className="p-3">#</th>
-                        <th className="p-3">TÃ­tulo</th>
+                        <th className="p-3">Título</th>
                         <th className="p-3">Precio</th>
-                        <th className="p-3">ImÃ¡genes</th>
+                        <th className="p-3">Imágenes</th>
                         <th className="p-3">Estado</th>
                       </tr>
                     </thead>
@@ -646,7 +646,7 @@ export const ImportSection = () => {
                       {parsedRows.map((row, i) => (
                         <tr key={i} className={`border-t border-gray-50 dark:border-gray-800 ${row.hasErrors ? 'bg-red-500/5' : ''}`}>
                           <td className="p-3 font-mono text-gray-400">{i + 2}</td>
-                          <td className="p-3 font-semibold dark:text-white truncate max-w-[180px]">{row.data.name || 'â€” sin tÃ­tulo â€”'}</td>
+                          <td className="p-3 font-semibold dark:text-white truncate max-w-[180px]">{row.data.name || '— sin título —'}</td>
                           <td className="p-3 text-blue-600 font-bold">${Number(row.data.price).toLocaleString()}</td>
                           <td className="p-3 font-mono text-gray-500">{row.data.images.length}/3</td>
                           <td className="p-3">
@@ -684,11 +684,11 @@ export const ImportSection = () => {
                                 <p className="text-[10px] text-gray-400 dark:text-gray-500 flex items-start gap-1.5 max-w-md">
                   <AlertTriangle size={12} className="flex-shrink-0 mt-px" />
                   <span>
-                    Los productos importados quedan <b>En revisiÃ³n</b> hasta que un
-                    administrador los apruebe. PodÃ©s verlos y editarlos desde tu panel.
+                    Los productos importados quedan <b>En revisión</b> hasta que un
+                    administrador los apruebe. Podés verlos y editarlos desde tu panel.
                     {!hasWallet && (
                       <>
-                        {' '}AdemÃ¡s, como todavÃ­a no tenÃ©s wallet vinculada, quedarÃ¡n
+                        {' '}Además, como todavía no tenés wallet vinculada, quedarán
                         <b> ocultos para compradores</b> hasta que la vincules desde{' '}
                         <button
                           type="button"
@@ -770,7 +770,7 @@ export const ImportSection = () => {
                 <div className="mt-4 flex items-center justify-between">
                   <p className="text-[10px] text-gray-400 dark:text-gray-500 flex items-center gap-1">
                     <AlertTriangle size={12} />
-                    Traemos tÃ­tulo, precio, fotos y descripciÃ³n.
+                    Traemos título, precio, fotos y descripción.
                   </p>
                   <button
                     onClick={handleImport}

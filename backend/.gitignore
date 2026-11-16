@@ -6,3 +6,6 @@ dist/
 coverage/
 *.log
 .DS_Store
+
+# Cache de fuentes del generador de kits (se baja sola del CDN)
+storage/

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Eye, RefreshCw, ExternalLink, Undo2, ChevronLeft, ChevronRight } from 'lucide-react';
 import axios from 'axios';
 import { usePrivy } from "../Utils/authClient";
-import { formatMoney } from '../Utils/currencyFormatter';
+import { formatOrderAmountCompact } from '../Utils/orderAmount';
 import AdminOrderModal from './AdminOrderModal';
 import LoadingSpinner from './LoadingSpinner';
 import Swal from 'sweetalert2';
@@ -481,7 +481,25 @@ const handleOpenModal = (order) => {
                   <td className="px-4 py-3">
                     <div className="text-sm font-bold">{sellerName}</div>
                   </td>
-                  <td className="px-4 py-3 font-black text-sm">${formatMoney(order.totalAmount)}</td>
+                  {/* No usar formatMoney(order.totalAmount) a secas: en órdenes
+                      con saldo de recompensas el backend guarda USD en ese
+                      campo. Mostramos la moneda real (ARS por defecto, USD con
+                      badge cuando corresponde) para no confundir al admin. */}
+                  <td className="px-4 py-3 font-black text-sm">
+                    {(() => {
+                      const { text, currency } = formatOrderAmountCompact(order);
+                      return currency === 'USD' ? (
+                        <span className="inline-flex items-center gap-1">
+                          {text}
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 not-italic">
+                            USD
+                          </span>
+                        </span>
+                      ) : (
+                        text
+                      );
+                    })()}
+                  </td>
                   <td className="px-4 py-3">
                     <div className="text-sm text-zinc-500 flex flex-col">
                       <p>{new Date(order.createdAt).toLocaleDateString()}</p>

@@ -16,12 +16,12 @@ export default function HelpBuyer() {
       content: (
         <>
           <p className="mb-2">
-            Comprar en Mercado Nero es un proceso híbrido diseñado para darte la máxima seguridad sin intermediarios centralizados. Consta de tres pasos simples:
+            Comprar en Mercado Nero es un proceso simple diseñado para darte la máxima seguridad sin intermediarios centralizados.
           </p>
           <ol className="list-decimal pl-4 space-y-1">
             <li>Seleccionás el producto y avanzás en la plataforma.</li>
-            <li>Realizás una **transferencia bancaria directa** al CBU/CVU o alias del vendedor.</li>
-            <li>El vendedor verifica el pago, despacha tu producto y vos confirmás la recepción cuando te llega para dar el cierre seguro.</li>
+            <li>Realizás una transferencia bancaria directa al CBU/CVU o alias del vendedor o pagas con cripto directo de tu wallet web3.</li>
+            <li>El vendedor verifica el pago, despacha tu producto y vos confirmás la recepción cuando te llega para dar cierre al proceso..</li>
           </ol>
         </>
       ),
@@ -32,44 +32,63 @@ export default function HelpBuyer() {
       content: (
         <>
           <p className="mb-2">
-            Tu compra está protegida por un **Contrato Inteligente (Smart Contract)** inmutable en la blockchain. Para poder publicar cualquier producto, la plataforma le exige obligatoriamente al vendedor dejar un **colateral en garantía** (fondos bloqueados en la red).
+            Tu compra está protegida por un Contrato Inteligente inmutable en la blockchain. Para poder recibir pagos por transferencia, la plataforma le exige obligatoriamente al vendedor dejar un colateral en garantía por el equivalante a la orden.
+          </p>
+          <p className="mb-2">
+            Si pagás con cripto, tu dinero queda retenido en un contrato inteligente y se libera al vendedor una vez que recibas el producto.
           </p>
           <p>
-            Si el vendedor decide no enviarte el producto o intentar una estafa, su colateral permanece congelado y se abre una disputa para resarcir los daños. El vendedor arriesga su propio dinero, lo que garantiza que cumpla con su parte.
-          </p>
+            Si el vendedor decide no enviarte el producto o intentar una estafa, su colateral o tu dinero permanece retenido y se abre una disputa para reintegrarte.
+          </p>        
         </>
       ),
     },
     {
-      question: "¿Cómo y a quién le realizo el pago?",
+      question: "¿Cómo y a quién le realizo el pago por transferencia?",
       icon: ArrowRightLeft,
       content: (
         <>
           <p className="mb-2">
-            El pago del producto se realiza mediante **transferencia directa desde tu homebanking o billetera virtual** (Mercado Pago, Ualá, banco tradicional, etc.) hacia la cuenta bancaria que el vendedor tenga vinculada.
+            Si elegís pagar mediante transferencia bancaria, cuando completes el checkout se van a mostrar los datos bancarios del vendedor.
+          </p>
+          <p className="mb-2">
+            Sólo está permitido realizar transferencias desde tu propia cuenta (tiene que coincidir con tus datos de usuario) y por el monto exacto de la orden. Si alguno de los datos no coincide, el vendedor no ejecutará la orden.<br/>
           </p>
           <p>
-            Al comprar, el sistema te mostrará los datos de facturación y el alias del vendedor. No pagás comisiones extra por la transferencia y el dinero va directo al comerciante, garantizando rapidez y evitando demoras de plataformas intermediarias.
+            Esto significa que no podes utilizar cuentas de terceros, en caso de intentarlo tu cuenta será suspendida definitivamente.
+
           </p>
         </>
       ),
     },
     {
-      question: "¿Por qué tengo que conectar mi wallet con Privy?",
+      question: "¿Cómo se puede abonar con criptomonedas?",
       icon: Wallet,
       content: (
-        <p>
-          Aunque pagues con transferencia bancaria tradicional, **necesitás una identidad criptográfica para interactuar con las garantías de la plataforma**. Privy te genera una billetera digital segura de forma transparente. Con ella vas a firmar digitalmente la confirmación de que el producto llegó bien, informando directamente al contrato inteligente para que libere el colateral del vendedor. Vos tenés el control absoluto del flujo.
+        <>
+        <p className="mb-2">
+          Primero tenes que activar tu wallet web3 desde la seccion "billetera". No tiene costo alguno y no custodiamos esos fondos: sólo vos podes acceder y autorizar transacciones.
         </p>
+        <p className="mb-2">
+          Una vez creada, copias tu direccion para poder depositar USDC por redes polygon o BASE y USDT mediante la red BSC. Si depositás otros tokens o mediante otras redes no habilitadas, podrias perder tu saldo. Podes transferirte desde cualquier exchange o wallets como Binance, Belo, Ripio, Lemon etc.
+        </p>
+        <p className="mb-2">
+          Cuando tengas saldo en tu wallet, podes elegir en el checkout el método de pago y autorizar la transacción desde tu wallet web3. Vas a recibir un email con un codigo otp para autorizar la transaccion.
+        </p>
+        </>
       ),
     },
     {
       question: "¿Cómo se coordinan los envíos y la entrega?",
       icon: Truck,
-      content: (
-        <p>
-          Los métodos de envío (Correo Argentino, Andreani, moto mensajería o retiro en persona) están detallados por el vendedor en la publicación. Una vez que realizás la transferencia y el vendedor la confirma, la plataforma habilita un canal para el seguimiento del despacho. El vendedor tiene la obligación de cargar el código de seguimiento para que puedas monitorear tu paquete.
+      content: (<>
+        <p className="mb-2">
+          Cada vendedor decide que método de envío ofrecer. Como comprador, podes elegir dependiendo las opciones ofrecidas y la disponibilidad de tu zona. El envío puede ser gratis o con costo adicional, lo cual está detallado en el checkout.
         </p>
+        <p className="mb-2">
+         El vendedor es responsable de otorgar el numero de seguimiento del envío y de cumplir con los tiempos de entrega. 
+        </p>
+        </>
       ),
     },
     {
@@ -78,10 +97,13 @@ export default function HelpBuyer() {
       content: (
         <>
           <p className="mb-2">
-            Si el producto presenta fallas o no coincide con la descripción, **no debes marcar la orden como completada**. Tenés un botón explícito para abrir una disputa. Al hacerlo, el colateral del vendedor queda totalmente bloqueado en la blockchain.
+            Si el producto presenta fallas o no coincide con la descripción, no debes marcar la orden como completada. Tenés un botón explícito para abrir una disputa. Al hacerlo, el colateral del vendedor queda totalmente bloqueado en la blockchain hasta que se resuelva el conflicto.
           </p>
-          <p>
-            Deberás coordinar con el vendedor la devolución del artículo. Una vez que le reenvíes el paquete, el vendedor procederá a devolverte el dinero a tu cuenta bancaria y recién ahí se destrabará el conflicto, liberando su garantía. Tu derecho como comprador está respaldado criptográficamente.
+          <p className="mb-2"> 
+            Un moderador va a revisar el caso y tomará la determinación final. Si el fallo es a tu favor, el vendedor pierde su colateral y se te reintegra el dinero. Si el fallo es a favor del vendedor, se libera el colateral y la orden queda cerrada.
+          </p>
+          <p >
+            La plataforma busca proteger tanto a compradores como vendedores de posibles estafas
           </p>
         </>
       ),

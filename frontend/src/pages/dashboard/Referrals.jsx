@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import {
   Award,
-  Share2,
   Coins,
   Gift,
   Sparkles,
@@ -27,6 +26,7 @@ import { useUserStore } from "../../store/useUserStore";
 import { useSyncUser } from "../../Utils/userSync";
 import AuthOnboarding from "../../components/AuthOnboarding";
 import ReferralProductItem from "../../components/ReferralProductItem";
+import ReferralDemoGrid from "../../components/ReferralDemoGrid";
 import LoadingSpinner from "../../components/LoadingSpinner";
 import {
   getUsdRate,
@@ -34,15 +34,12 @@ import {
   formatUsdt,
 } from "../../Utils/referralUtils";
 
-const ACCENT = "#F26722";
+// ─────────────────────────────────────────────────────────────────────────────
+// OJO: los datos del ejemplo para visitantes (sin login) viven en
+// `ReferralDemoGrid` (5 productos hardcodeados). Acá sólo se calculan los
+// productos REALES de la grilla del referidor aprobado.
+// ─────────────────────────────────────────────────────────────────────────────
 
-// Datos del EJEMPLO simulado que mostramos a los visitantes (no logueados).
-// Es una demo con un producto ficticio para explicar la mecánica sin back.
-const DEMO_PRODUCT = {
-  name: "Auriculares Bluetooth Pro",
-  price: 120000, // ARS
-  percent: 10, // % que ofrecería el vendedor
-};
 
 export default function Referrals() {
   const { authenticated, getAccessToken } = usePrivy();
@@ -261,20 +258,6 @@ export default function Referrals() {
     }
   };
 
-    // Reparto del ejemplo simulado (USDT que gana el REFERIDOR por venta).
-  const { referrerUsd: demoReferrerUsd } = calcReferralSplit(
-    DEMO_PRODUCT.price,
-    DEMO_PRODUCT.percent,
-    usdRate,
-    referrerSharePercent,
-  );
-  // % que le queda al referidor sobre el reward total (fallback sin cotización).
-  const demoPercentReferrer =
-    Math.round(DEMO_PRODUCT.percent * (referrerSharePercent / 100) * 100) / 100;
-  const demoRewardLabel = usdRate
-    ? formatUsdt(demoReferrerUsd)
-    : `${demoPercentReferrer}%`;
-
   // ── FILTROS Y ORDEN (client-side) ──
   // Los productos de referidos suelen ser pocos, así que filtramos en el
   // front: respuesta instantánea y sin roundtrips.
@@ -411,79 +394,35 @@ export default function Referrals() {
               </div>
               <p className="text-xs md:text-sm text-gray-500 dark:text-zinc-400 leading-relaxed">
                 Al cerrarse la orden, vas a recibir en tu wallet el porcentaje
-                ofrecido por el vendedor; el comprador recibe el mismo monto como
-                reintegro.
+                ofrecido por el vendedor; tu contacto también recibe su reintegro.
               </p>
             </div>
           </div>
         </div>
 
-        {/* ── EJEMPLO SIMULADO (para no logueados; refuerza la mecánica) ── */}
+                {/* ── GRILLA DE EJEMPLO (para no logueados; refuerza la mecánica) ──
+            Mostramos 5 cards IDÉNTICAS a las que ve un referidor aprobado
+            (misma ProductCard + misma franja de ganancia), pero con datos
+            hardcodeados. Al tocar cualquier card o "Compartir y ganar" se abre
+            el registro (no se puede compartir sin sesión). */}
         {!isLoggedIn && (
           <div>
             <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-[#F26722]" /> Así se ve en un
-              producto
+              <Sparkles className="w-5 h-5 text-[#F26722]" /> Así se ven los
+              productos para referir
             </h3>
-            <p className="text-xs text-gray-500 dark:text-zinc-400 mb-4">
-              Ejemplo ilustrativo. En la práctica ves esto mismo en cada producto
-              habilitado para referir.
+            <p className="text-xs text-gray-500 dark:text-zinc-400 mb-5">
+              Ejemplos ilustrativos con montos reales según el reparto vigente
+              ({Math.round(referrerSharePercent)}/
+              {Math.round(100 - referrerSharePercent)}). Cuando seas referidor
+              vas a ver así cada producto habilitado.
             </p>
 
-            <div className="relative rounded-2xl border border-gray-100 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-900/50 p-5">
-              {/* Badge de ejemplo */}
-              <div className="absolute -top-3 right-4 bg-zinc-800 text-zinc-100 dark:bg-zinc-100 dark:text-zinc-900 px-2 py-0.5 rounded text-[9px] font-mono uppercase tracking-widest font-bold">
-                Ejemplo
-              </div>
-
-              <div className="flex items-center gap-4">
-                {/* Ícono del producto ficticio */}
-                <div className="w-16 h-16 rounded-xl bg-white dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 flex items-center justify-center shrink-0">
-                  <Gift size={26} className="text-[#F26722]" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-bold text-gray-800 dark:text-zinc-100 truncate">
-                    {DEMO_PRODUCT.name}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-zinc-400">
-                    ${DEMO_PRODUCT.price.toLocaleString("es-AR")} · el vendedor
-                    ofrece {DEMO_PRODUCT.percent}%
-                  </p>
-                </div>
-              </div>
-
-              {/* Bloque de compartir simulado */}
-              <div
-                className="mt-4 rounded-xl border p-4"
-                style={{
-                  borderColor: `${ACCENT}40`,
-                  backgroundColor: `${ACCENT}0d`,
-                }}
-              >
-                <div className="flex items-center gap-2">
-                  <Gift size={16} style={{ color: ACCENT }} />
-                  <p className="text-sm text-gray-800 dark:text-zinc-100 font-black">
-                    Ganás{" "}
-                    <span style={{ color: ACCENT }}>{demoRewardLabel}</span> por
-                    venta
-                  </p>
-                </div>
-                                <p className="text-[11px] text-gray-500 dark:text-zinc-400 mt-1">
-                  El comprador también recibe su parte como reintegro. El{" "}
-                  {DEMO_PRODUCT.percent}% se reparte{" "}
-                  {Math.round(referrerSharePercent)}/{Math.round(100 - referrerSharePercent)}{" "}
-                  entre referidor y comprador.
-                </p>
-                {/* Botón de demostración (no ejecuta nada) */}
-                <button
-                  type="button"
-                  disabled
-                  className="mt-3 w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-[#F26722] text-white text-sm font-bold opacity-80 cursor-not-allowed"
-                >
-                  <Share2 size={16} /> Compartir y ganar
-                </button>
-              </div>
-            </div>
+            <ReferralDemoGrid
+              usdRate={usdRate}
+              sharePercent={referrerSharePercent}
+              onShare={() => setOnboardingOpen(true)}
+            />
           </div>
         )}
 

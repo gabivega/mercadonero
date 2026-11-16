@@ -20,7 +20,7 @@
 ### Retenido en el MVP (ya implementado en código)
 - Transferencia bancaria + crypto multichain.
 - Cashback en todas las compras (bank + crypto).
-- Sistema de referidos con reparto 50/50.
+- Sistema de referidos con reparto 75/25 (referidor/comprador).
 - Carga masiva de productos por Excel.
 - Chat entre usuarios (gate: solo con orden activa).
 - Notificaciones in-app + email.
@@ -38,7 +38,7 @@
 - [ ] **Transferencia bancaria**: creación de orden, colateral lock/release en las 3 redes (Polygon Amoy, BSC testnet, Base Sepolia).
 - [ ] **Crypto multichain**: fondeo de escrow → release manual admin → cancelación → refund.
 - [ ] **Cashback**: acredita correctamente en **ambos** flujos (bank y crypto). Verificar `cashbackService.accrueCashbackForOrder` en `adminCompleteOrder`.
-- [ ] **Referidos 50/50**: atribución por `?ref=`, split referidor/comprador, acreditación al completar.
+- [ ] **Referidos 75/25**: atribución por `?ref=`, split referidor/comprador (config `referrerSharePercent`), acreditación al completar.
 - [ ] **Carga masiva Excel**: probar importación real (operador lo hace manual).
 - [ ] **Chat**: verificar gate "solo con orden activa".
 - [ ] **Notificaciones in-app + email**: revisar que no haya dominios/remitentes de dev.
@@ -74,7 +74,7 @@
 ### 1.6 Onboarding / comunicación
 - [ ] Guía de creación de wallet (Crossmint) — mayor fricción técnica del comprador.
 - [ ] Mensaje claro: el código de verificación llega de **Crossmint**, no de Mercado Nero.
-- [ ] Guía de uso del programa de recompensas (2.5% + 50/50).
+- [ ] Guía de uso del programa de recompensas (2.5% cashback + referidos 75/25).
 - [ ] Email de bienvenida.
 - [ ] **Waiting list** para captar interés mientras dura la beta cerrada (form → colección → panel admin para invitar).
 
@@ -103,8 +103,8 @@
       Recomendación: **afuera** para la beta cerrada (suma complejidad de
       precios escalonados/tiers sin validar). Revisar que su remoción no arrastre
       lógica compartida con el flujo crypto normal (`groupBuy` / `SocialSellingSection`).
-- [ ] Reparto de referidos: dejar **50/50 fijo** (estado actual, recomendado) vs
-      dar todo al referidor. Recomendación: mantener 50/50 sin datos que justifiquen el cambio.
+- [x] Reparto de referidos: **75/25** (referidor/comprador) como estado actual,
+      configurable en `ReferralConfig.referrerSharePercent`. Antes era 50/50 fijo.
 
 ---
 

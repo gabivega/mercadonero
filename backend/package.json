@@ -27,7 +27,9 @@
     "mongoose": "^9.2.1",
     "node-cron": "^4.2.1",
     "nodemon": "^3.1.11",
-    "resend": "^6.19.0"
+    "qrcode": "^1.5.4",
+    "resend": "^6.19.0",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-chai-matchers": "^2.1.2",
@@ -42,4 +44,3 @@
     "solc": "^0.8.20"
   }
 }
-

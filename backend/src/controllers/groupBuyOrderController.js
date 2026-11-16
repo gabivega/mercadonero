@@ -25,6 +25,15 @@
 import Order from "../models/Order.js";
 import Product from "../models/Product.js";
 import Pool from "../models/Pool.js";
+import User from "../models/User.js";
+// Helpers compartidos con poolController (antes vivían privados en
+// poolController y acá se usaban SIN importarlos → ReferenceError en
+// materializeGroupBuyOrder que, silenciado por el catch de confirmEscrowFunding,
+// dejaba el Pool sin crear cuando el comprador YA había fondeado on-chain).
+import {
+  priceForBuyers,
+  notifyVendorPoolActivity,
+} from "../services/poolHelpers.js";
 
 /**
  * Crea la orden crypto PROVISIONAL de un member del grupo.
@@ -400,6 +409,61 @@ export const materializeGroupBuyOrder = async (order, fundTxHash = "") => {
     order.groupBuy.memberId = newMember._id;
     order.groupBuy.joinPoolId = null; // intención consumida
     await order.save();
+
+
+    // ── CIERRE AUTOMÁTICO AL LLENARSE EL GRUPO ────────────────────────
+    // Al entrar el comprador que completa `targetBuyers` (5), el grupo se
+    // cierra SOLO: se fija el precio final escalonado en TODAS las órdenes y
+    // cada una pasa de "group_funded" a "paid" (recién ahí es una venta real).
+    //
+    // El reintegro (lockedUsd - precioFinal*units) NO se ejecuta acá: queda
+    // calculado en order.groupBuy.refundUsd y viaja on-chain en el settle del
+    // escrow al confirmar recepción (adminCompleteOrder). Reinicio on-chain,
+    // nunca saldo interno: evita custodia y abusos.
+    //
+    // Best-effort: si algo falla, el pool queda "filled" y el admin puede
+    // cerrarlo a mano con closePool (misma lógica, mismo resultado).
+    if (saved.status === "filled" && !saved.closedAt) {
+      try {
+        // finalUnit = tier del total de compradores (ya calculado arriba).
+        const finalUnitPriceUsd =
+          priceForBuyers(
+            saved.product?.socialSelling?.tiers || {},
+            saved.members.length,
+            saved.baseUnitPrice,
+          ) || saved.currentUnitPrice || saved.baseUnitPrice || 0;
+
+        const fin = await finalizePoolOrdersFinalPrice({
+          pool: saved,
+          finalUnitPriceUsd,
+          feeBps: 0, // el fee real se recalcula en el settle/closePool
+        });
+
+        for (const o of fin.orders) {
+          if (o.status === "group_funded") {
+            o.status = "paid";
+            o.statusHistory.push({
+              status: "paid",
+              changedAt: new Date(),
+              comment: `Grupo completo (${saved.members.length}/${saved.targetBuyers}). Precio final US$ ${Number(finalUnitPriceUsd).toFixed(2)}/u. Orden confirmada como venta.`,
+            });
+            await o.save();
+          }
+        }
+
+        saved.closedAt = new Date();
+        saved.finalUnitPriceUsd = finalUnitPriceUsd;
+        await saved.save();
+        console.log(
+          `[GroupBuy] Pool ${saved._id} lleno y cerrado automáticamente (${fin.updated} órdenes).`,
+        );
+      } catch (autoCloseErr) {
+        console.error(
+          "[GroupBuy] Falló el cierre automático; queda para closePool manual:",
+          autoCloseErr?.message || autoCloseErr,
+        );
+      }
+    }
 
     notifyVendorPoolActivity({
       pool: saved,

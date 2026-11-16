@@ -401,9 +401,9 @@ const userSchema = new Schema(
 
     // ────────────────────────────────────────────────
     // REFERIDOS (reintegros por compartir enlaces)
-    // El reward de cada orden referida se reparte 50/50: la mitad para quien
-    // compartió el enlace (este usuario como referidor) y la mitad para el
-    // comprador. Todo se acredita off-chain (BD), igual que el cashback.
+    // El reward de cada orden referida se reparte 75/25 (configurable en
+    // ReferralConfig): 75% para quien compartió el enlace (este usuario como
+    // referidor) y 25% para el comprador. Todo off-chain (BD), igual que el cashback.
     // ────────────────────────────────────────────────
     referral: {
       balance: { type: Number, default: 0 },   // Saldo acumulado disponible (USD) como referidor

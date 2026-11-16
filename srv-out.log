@@ -1,0 +1,6 @@
+◇ injected env (0) from .env // tip: ◈ secrets for agents [www.dotenvx.com]
+◇ injected env (0) from .env // tip: ⌘ enable debugging { debug: true }
+MongoDB connected
+[Cron] Limpieza de órdenes DESACTIVADA (seteá ENABLE_ORDER_CLEANUP_CRON=true para activarla).
+[ElitSync] Cron DESACTIVADO (seteá ENABLE_ELIT_SYNC_CRON=true para activarlo).
+Server running on port 3000
