@@ -49,8 +49,11 @@ const [isOpen, setIsOpen] = useState(isExpanded);
     />
   </h2>
   <p className="text-sm md:text-base text-gray-600 dark:text-zinc-400 font-medium leading-relaxed">
-    Los productos publicados en Mercado Nero cuentan con protección para el comprador. 
-    Para servicios, inmuebles y vehículos podés crear un aviso clasificado.
+    Todos los productos publicados en Mercado Nero cuentan con protección para el comprador.
+   
+  </p>
+    <p className="text-sm md:text-base text-gray-600 dark:text-zinc-400 font-medium leading-relaxed">
+    Cobrás tus ventas por adelantado mientras el comprador permanece protegido.
   </p>
 </div>
 

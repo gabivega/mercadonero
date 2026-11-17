@@ -54,9 +54,11 @@ export default function HelpBuyer() {
           <p className="mb-2">
             Sólo está permitido realizar transferencias desde tu propia cuenta (tiene que coincidir con tus datos de usuario) y por el monto exacto de la orden. Si alguno de los datos no coincide, el vendedor no ejecutará la orden.<br/>
           </p>
-          <p>
+          <p className="mb-2">
             Esto significa que no podes utilizar cuentas de terceros, en caso de intentarlo tu cuenta será suspendida definitivamente.
-
+          </p>
+          <p>
+            Es importante que solo transfieras a la cuenta otorgada por el sistema en el checkout cuando se crea la orden. En ese momento está garantizado que el vendedor tiene su colateral en garantía y que tu dinero queda protegido por el contrato inteligente.
           </p>
         </>
       ),
@@ -99,11 +101,14 @@ export default function HelpBuyer() {
           <p className="mb-2">
             Si el producto presenta fallas o no coincide con la descripción, no debes marcar la orden como completada. Tenés un botón explícito para abrir una disputa. Al hacerlo, el colateral del vendedor queda totalmente bloqueado en la blockchain hasta que se resuelva el conflicto.
           </p>
+          <p className="mb-2">
+            Recomendamos filmar el procedimiento de la apertura del paquete para contar con evidencia en caso de que haya algun problema.
+          </p>
           <p className="mb-2"> 
-            Un moderador va a revisar el caso y tomará la determinación final. Si el fallo es a tu favor, el vendedor pierde su colateral y se te reintegra el dinero. Si el fallo es a favor del vendedor, se libera el colateral y la orden queda cerrada.
+            Un moderador va a revisar el caso y tomará la determinación final. Si el fallo es a tu favor, el vendedor pierde su colateral y se te reintegra el dinero. Si el fallo es a favor del vendedor, se libera su colateral o pago y la orden queda cerrada.
           </p>
           <p >
-            La plataforma busca proteger tanto a compradores como vendedores de posibles estafas
+            La plataforma busca proteger tanto a compradores como vendedores de posibles estafas, pero la eficacia depende de que los usuarios colaboren con evidencia y reporten cualquier inconveniente de manera oportuna.
           </p>
         </>
       ),

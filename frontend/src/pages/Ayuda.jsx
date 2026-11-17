@@ -77,12 +77,18 @@ export default function Ayuda() {
       question: "¿Qué pasa si el producto llega roto, fallado o no es lo que pedí?",
       icon: AlertTriangle,
       content: (
-        <>
+         <>
           <p className="mb-2">
-            Si el producto presenta fallas o no coincide con la descripción, **no debes marcar la orden como completada**. Tenés un botón explícito para abrir una disputa. Al hacerlo, el colateral del vendedor queda totalmente bloqueado en la blockchain.
+            Si el producto presenta fallas o no coincide con la descripción, no debes marcar la orden como completada. Tenés un botón explícito para abrir una disputa. Al hacerlo, el colateral del vendedor queda totalmente bloqueado en la blockchain hasta que se resuelva el conflicto.
           </p>
-          <p>
-            Deberás coordinar con el vendedor la devolución del artículo. Una vez que le reenvíes el paquete, el vendedor procederá a devolverte el dinero a tu cuenta bancaria y recién ahí se destrabará el conflicto, liberando su garantía. Tu derecho como comprador está respaldado criptográficamente.
+          <p className="mb-2">
+            Recomendamos filmar el procedimiento de la apertura del paquete para contar con evidencia en caso de que haya algun problema.
+          </p>
+          <p className="mb-2"> 
+            Un moderador va a revisar el caso y tomará la determinación final. Si el fallo es a tu favor, el vendedor pierde su colateral y se te reintegra el dinero. Si el fallo es a favor del vendedor, se libera su colateral o pago y la orden queda cerrada.
+          </p>
+          <p >
+            La plataforma busca proteger tanto a compradores como vendedores de posibles estafas, pero la eficacia depende de que los usuarios colaboren con evidencia y reporten cualquier inconveniente de manera oportuna.
           </p>
         </>
       ),

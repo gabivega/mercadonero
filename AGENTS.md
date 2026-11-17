@@ -16,9 +16,16 @@ vendedores, compra grupal (pools), referidos y cashback. Mercado argentino (ARS/
 - **DB:** MongoDB (Atlas).
 - **Auth:** **Supabase Auth** (ver §7 sobre Privy).
 - **Wallets / on-chain:** **Crossmint** (`@crossmint/wallets-sdk`) para firma de wallet.
-- **Blockchain:** BSC (USDT), Base (USDC), Polygon (USDXM) — escrow (`NeroEscrow`) y pools.
+- **Blockchain:** BSC, Base, Polygon — escrow (`NeroEscrow`), colateral (`NeroCollateral`)
+  y compra grupal (`NeroGroupBuy`). ABIs en `backend/contracts/`.
 - **Envío:** Zipnova (integrado desde backend). **Emails:** Resend.
 - **Pagos:** transferencia bancaria (flujo colateral) o cripto (escrow USDT/USDC).
+
+> ⚠️ **DOCS vs CÓDIGO (verificado 16-11-26).** `pendientes.txt` dice
+> "COMPRA GRUPAL: FROZEN", pero `Utils/featureFlags.js` tiene
+> `SOCIAL_SELLING_ENABLED = false` **y** `BannerCarousel.jsx` (con cambios sin
+> commitear) navega a **`/compras-grupales`**: si esa ruta redirige, esos banners
+> (desktop y mobile) son callejones sin salida. Revisar antes de lanzar.
 
 ---
 
@@ -229,6 +236,10 @@ NO hay gas sponsorship premium (Crossmint lo exige en plan pago, sin pricing pú
   `findByIdAndUpdate`, NO dispara pre-save) se regenera a mano si cambia el `name`.
 - **Duplicados de índice:** `Product` declara `views`/`sold` con default (hay `views`
   repetido en el schema; ojo al tocarlo). Hay warning de índice duplicado en `SellerCredit`.
+- **`escape` de strings multilínea:** NUNCA metas el string de búsqueda dentro del
+  `new_string` al usar `single_find_and_replace` con bloques de varias líneas: si el
+  `old_string` corta a mitad de línea, se pierde el resto del texto. Después de CUALQUIER
+  edición multilínea, verificar con `git diff -- <archivo>` antes de seguir.
 
 ---
 

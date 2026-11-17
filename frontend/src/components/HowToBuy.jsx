@@ -25,7 +25,7 @@ export default function HowToBuy() {
     },
     {
       id: 3,
-      title: "Pagar con Compra Protegida",
+      title: "Todas las compras están protegidas",
       detail: "Pagás por transferencia o cripto. Un contrato inteligente se encarga de proteger tu compra durante todo el proceso. Si tenés algun problema, se te reintegra el dinero.",
       icon: ShieldCheck,
       iconColor: "text-green-500 bg-green-50 dark:bg-green-950/30",

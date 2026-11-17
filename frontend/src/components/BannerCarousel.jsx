@@ -4,19 +4,22 @@ import { useNavigate } from 'react-router-dom'
 
 // Estructura de objetos para Desktop
 const desktopBanners = [ 
-  // {
-  //   image: '/assets/img/banner-desktop/warehouse.webp',
-  //   title: "Precios mayoristas, a tu alcance",
-  //   subtitle: "Sumate a pools de compra y obtené los mejores precios posibles",
-  //   button: "Ver Pooles activos",
-  //   url: "/compras-grupales",
-  //   overlay: "bg-black/70"
-  // },
   {
-    image: '/assets/img/banner-desktop/referral.webp',
-    title: "Sistema de referidos",
-    subtitle: "Compartí productos y ganá una comisión en USD por cada compra.",
-    button: "Ver productos habilitados",
+    image: '/assets/img/banner-desktop/gaming2.webp',
+    title: "Todo en Gaming y Hardware",
+    subtitle: "Gran variedad con el mejor precio del país. Somos un marketplace orientado a tecnología, construido sobre blockchain.",
+        button: "Comprar",
+    // La compra grupal está FROZEN (SOCIAL_SELLING_ENABLED = false) y
+    // /compras-grupales redirige, así que el CTA quedaba en un callejón sin
+    // salida. Lo mandamos a la categoría real de computación.
+    url: "/c/computacion",
+    overlay: "bg-black/30"
+  },
+  {
+    image: '/assets/img/banner-desktop/referidos2.webp',
+    title: "Ganá en USD sin inversión",
+    subtitle: "Compartí productos y ganá una comisión en USD por cada conversión. ",
+    button: "Comenzar a ganar",
     url: "/referidos",
     overlay: "bg-black/50"
   },
@@ -29,17 +32,25 @@ const desktopBanners = [
   //   overlay: "bg-black/40" // Capa oscura intermedia
   // },
   {
-    image: '/assets/img/banner-desktop/seller.webp',
-    title: "Comisiones mas bajas del Mercado",
-    subtitle: "Comision fija FINAL del 3%, sin sorpresas. Aumentá tu rentabilidad vendiendo en Mercado Nero",
+    image: '/assets/img/banner-desktop/blockchain.webp',
+    title: "Un marketplace sobre blockchain",
+    subtitle: "Usamos tecnología blockchain para beneficiar a todos. Todas las operaciones protegidas por contratos inteligentes, con comisiones ultra bajas y reintegros en USD.",
     button: "Empezar a vender",
     url: "/vender",
     overlay: "bg-black/50" // Un poco más oscuro si la imagen brilla mucho
   },
+  // {
+  //   image: '/assets/img/banner-desktop/seller.webp',
+  //   title: "Comisiones mas bajas del Mercado",
+  //   subtitle: "Comision fija FINAL del 3%, sin sorpresas. Aumentá tu rentabilidad vendiendo en Mercado Nero",
+  //   button: "Empezar a vender",
+  //   url: "/vender",
+  //   overlay: "bg-black/50" // Un poco más oscuro si la imagen brilla mucho
+  // },
   {
     image: '/assets/img/banner-desktop/package-delivery.webp',
     title: "Envíos a todo el país.",
-    subtitle: "Envios flexibles y rápidos, al mejor precio. Llegamos a todo el país",
+    subtitle: "Envíos flexibles y rápidos, al mejor precio. Llegamos a todo el país. Recibí tu compra en tu casa o elegí un punto de retiro.",
     button: "",
     overlay: "bg-gradient-to-r from-black/70 to-transparent" // Degradado estético de izquierda a derecha
   },
@@ -70,19 +81,22 @@ const desktopBanners = [
 
 // Estructura de objetos para Mobile (Mismos textos, adaptados a su imagen vertical/cuadrada)
 const mobileBanners = [ 
-  // {
-  //   image: '/assets/img/banner-desktop/warehouse.webp',
-  //   title: "Precios mayoristas, a tu alcance",
-  //   subtitle: "Sumate a pools de compra y obtené los mejores precios posibles",
-  //   button: "Ver Pooles activos",
-  //   url: "/compras-grupales",
-  //   overlay: "bg-black/70"
-  // },
+{
+    image: '/assets/img/banner-desktop/gaming2.webp',
+    title: "Todo en Gaming y Hardware",
+    subtitle: "Gran variedad con el mejor precio del país. Todas tus compras están protegidas por contratos inteligentes.",
+        button: "Comprar",
+    // La compra grupal está FROZEN (SOCIAL_SELLING_ENABLED = false) y
+    // /compras-grupales redirige, así que el CTA quedaba en un callejón sin
+    // salida. Lo mandamos a la categoría real de computación.
+    url: "/c/computacion",
+    overlay: "bg-black/30"
+  },
   {
-    image: '/assets/img/banner-desktop/referral.webp',
-    title: "Sistema de referidos",
-    subtitle: "Compartí productos y ganá una comisión en USD por cada compra.",
-    button: "Ver productos habilitados",
+    image: '/assets/img/banner-desktop/referidos2.webp',
+    title: "Ganá en USD sin inversión",
+    subtitle: "Compartí productos y ganá una comisión en USD por cada conversión. ",
+    button: "Comenzar a ganar",
     url: "/referidos",
     overlay: "bg-black/50"
   },
@@ -95,17 +109,25 @@ const mobileBanners = [
   //   overlay: "bg-black/40" // Capa oscura intermedia
   // },
   {
-    image: '/assets/img/banner-desktop/seller.webp',
-    title: "Comisiones mas bajas del Mercado",
-    subtitle: "Comision fija FINAL del 3%, sin sorpresas. Aumentá tu rentabilidad vendiendo en Mercado Nero",
+    image: '/assets/img/banner-desktop/blockchain.webp',
+    title: "Un marketplace sobre blockchain",
+    subtitle: "Usamos tecnología blockchain para beneficiar a todos. Todas las operaciones protegidas por contratos inteligentes, con comisiones ultra bajas y reintegros en USD.",
     button: "Empezar a vender",
     url: "/vender",
     overlay: "bg-black/50" // Un poco más oscuro si la imagen brilla mucho
   },
+  // {
+  //   image: '/assets/img/banner-desktop/seller.webp',
+  //   title: "Comisiones mas bajas del Mercado",
+  //   subtitle: "Comision fija FINAL del 3%, sin sorpresas. Aumentá tu rentabilidad vendiendo en Mercado Nero",
+  //   button: "Empezar a vender",
+  //   url: "/vender",
+  //   overlay: "bg-black/50" // Un poco más oscuro si la imagen brilla mucho
+  // },
   {
     image: '/assets/img/banner-desktop/package-delivery.webp',
     title: "Envíos a todo el país.",
-    subtitle: "Envios flexibles y rápidos, al mejor precio. Llegamos a todo el país",
+    subtitle: "Envíos flexibles y rápidos, al mejor precio. Llegamos a todo el país. Recibí tu compra en tu casa o elegí un punto de retiro.",
     button: "",
     overlay: "bg-gradient-to-r from-black/70 to-transparent" // Degradado estético de izquierda a derecha
   },
@@ -156,7 +178,7 @@ export default function BannerCarousel() {
         const banners = isMobile ? mobileBanners : desktopBanners
         return (prevIndex + 1) % banners.length
       })
-    }, 6000) // Lo subí a 6 segundos para dar tiempo a leer el texto
+    }, 8000) // Lo subí a 8 segundos para dar tiempo a leer el texto
 
     return () => clearInterval(interval)
   }, [isMobile])

@@ -321,11 +321,11 @@ export default function Referrals() {
       {/* ── HEADER (sin imagen de fondo, banda con color de marca) ── */}
       <div className="relative w-full bg-gradient-to-br from-[#F26722] to-orange-600 px-6 md:px-10 py-8 md:py-12">
         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/20 text-white text-[11px] font-bold uppercase tracking-wider mb-3">
-          <Coins size={13} /> Reintegros por compartir
+          <Coins size={13} /> Programa de referidos
         </span>
         <div className="flex items-center gap-3 flex-wrap">
           <h2 className="text-2xl md:text-4xl font-black tracking-tight text-white">
-            Programa de Referidos
+            Ganá en USD sin inversión
           </h2>
           {isApproved && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white text-[#F26722] text-[11px] font-black uppercase tracking-wider">
@@ -336,7 +336,7 @@ export default function Referrals() {
         <p className="text-xs md:text-sm text-white/90 mt-2 max-w-xl">
           Compartí productos habilitados y ganá una recompensa en tu wallet por
           cada venta que se concrete con tu enlace. Tu contacto también recibe su
-          reintegro: ganan los dos.
+          reintegro: En Mercado Nero, ganamos todos.
         </p>
       </div>
 
@@ -346,7 +346,7 @@ export default function Referrals() {
         <div>
           <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
             <Award className="w-5 h-5 text-[#F26722]" /> Mecánica del Sistema de
-            Reintegros
+            Referidos
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -400,12 +400,15 @@ export default function Referrals() {
           </div>
         </div>
 
-                {/* ── GRILLA DE EJEMPLO (para no logueados; refuerza la mecánica) ──
+        {/* ── GRILLA DE EJEMPLO (visitantes y usuarios sin aprobar) ──
             Mostramos 5 cards IDÉNTICAS a las que ve un referidor aprobado
             (misma ProductCard + misma franja de ganancia), pero con datos
-            hardcodeados. Al tocar cualquier card o "Compartir y ganar" se abre
-            el registro (no se puede compartir sin sesión). */}
-        {!isLoggedIn && (
+            hardcodeados.
+            La condición es `!isApproved` (no `!isLoggedIn`): así también la
+            ve quien tiene cuenta pero todavía no fue aprobado, que es justamente
+            quien necesita entender el programa antes de pedir acceso. Al
+            aprobado no se le muestra porque abajo ya tiene la grilla REAL. */}
+        {!isApproved && (
           <div>
             <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-[#F26722]" /> Así se ven los
@@ -414,8 +417,10 @@ export default function Referrals() {
             <p className="text-xs text-gray-500 dark:text-zinc-400 mb-5">
               Ejemplos ilustrativos con montos reales según el reparto vigente
               ({Math.round(referrerSharePercent)}/
-              {Math.round(100 - referrerSharePercent)}). Cuando seas referidor
-              vas a ver así cada producto habilitado.
+              {Math.round(100 - referrerSharePercent)}).{" "}
+              {isLoggedIn
+                ? "Cuando te aprueben como referidor vas a ver así cada producto habilitado."
+                : "Cuando seas referidor vas a ver así cada producto habilitado."}
             </p>
 
             <ReferralDemoGrid
