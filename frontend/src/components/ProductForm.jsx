@@ -1,5 +1,8 @@
 import { useState, useEffect } from "react";
-import { allCategories } from "../data/allCategories.js";
+// Antes importábamos `allCategories` (32 categorías heredadas). En el
+// lanzamiento solo se ofrecen los rubros habilitados: la allowlist vive en
+// `config/launchCategories.js` y ya viene con las subcategorías filtradas.
+import { launchCategoryTree } from "../config/launchCategories.js";
 import axios from "axios";
 import { getUsdRate } from "../Utils/cashbackUtils";
 import { usePrivy } from "../Utils/authClient";
