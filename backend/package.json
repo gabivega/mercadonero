@@ -21,6 +21,7 @@
     "cheerio": "^1.2.0",
     "cloudinary": "^2.10.0",
     "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "got-scraping": "^4.2.1",
     "jsonwebtoken": "^9.0.3",
@@ -37,8 +38,7 @@
     "@nomicfoundation/hardhat-network-helpers": "^3.0.8",
     "@nomicfoundation/hardhat-toolbox": "^6.1.2",
     "@nomicfoundation/hardhat-verify": "^3.0.17",
-    "chai": "^6.2.2",
-    "dotenv": "^17.4.2",
+        "chai": "^6.2.2",
     "ethers": "^6.16.0",
     "hardhat": "^3.4.5",
     "solc": "^0.8.20"

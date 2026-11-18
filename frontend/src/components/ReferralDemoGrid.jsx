@@ -53,6 +53,16 @@ const DEMO_PRODUCTS = [
     image: "smartwatch.webp", // ← copiá el archivo a public/assets/img/
   },
   {
+    name: "Celular Samsung a17 128gb",
+    sellerName: "Techstore",
+    price: 375000,
+    referralPercent: 10,
+    freeShipping: true,
+    rating: 4.9,
+    sold: 120,
+    image: "samsunga17.webp", // ← copiá el archivo a public/assets/img/
+  },
+  {
     name: "Monitor ViewSonic VA270A-H 27'' Plano",
     sellerName: "PC Insumos",
     price: 220000,

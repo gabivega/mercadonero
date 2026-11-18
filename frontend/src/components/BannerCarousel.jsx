@@ -23,30 +23,14 @@ const desktopBanners = [
     url: "/referidos",
     overlay: "bg-black/50"
   },
-  // {
-  //   image: '/assets/img/banner-desktop/cash.webp',
-  //   title: "Vendé y cobrá por adelantado",
-  //   subtitle: "Mercado Nero es el único Marketplace del mundo donde podés cobrar por adelantado mientras protegemos a compradores, gracias al poder de los contratos inteligentes.",
-  //   button: "Empezar a vender",
-  //   url: "/vender",
-  //   overlay: "bg-black/40" // Capa oscura intermedia
-  // },
   {
     image: '/assets/img/banner-desktop/blockchain.webp',
     title: "Un marketplace sobre blockchain",
-    subtitle: "Usamos tecnología blockchain para beneficiar a todos. Todas las operaciones protegidas por contratos inteligentes, con comisiones ultra bajas y reintegros en USD.",
+    subtitle: "Usamos tecnología blockchain para beneficiar a todos con comisiones super bajas y reintegros en usd. Paga con cripto o transferencia bancaria, tu compra está siempre protegida por contratos inteligentes.",
     button: "Empezar a vender",
     url: "/vender",
     overlay: "bg-black/50" // Un poco más oscuro si la imagen brilla mucho
   },
-  // {
-  //   image: '/assets/img/banner-desktop/seller.webp',
-  //   title: "Comisiones mas bajas del Mercado",
-  //   subtitle: "Comision fija FINAL del 3%, sin sorpresas. Aumentá tu rentabilidad vendiendo en Mercado Nero",
-  //   button: "Empezar a vender",
-  //   url: "/vender",
-  //   overlay: "bg-black/50" // Un poco más oscuro si la imagen brilla mucho
-  // },
   {
     image: '/assets/img/banner-desktop/package-delivery.webp',
     title: "Envíos a todo el país.",
@@ -61,18 +45,10 @@ const desktopBanners = [
   //   button: "",
   //   overlay: "bg-black/50" // Degradado estético de izquierda a derecha
   // },
-  //   {
-  //   image: '/assets/img/banner-desktop/supermarket.webp',
-  //   title: "Al Super, sin salir de casa",
-  //   subtitle: "Miles de productos de supermercado disponibles con envío en el día. Comprá desde la comodidad de tu casa ahorrando tiempo y dinero.",
-  //   button: "Ver Productos",
-  //   overlay: "bg-black/60", // Sin capa extra
-  //   url: "/c/supermercado",
-  // },
  {
   image: '/assets/img/banner-desktop/cashback.webp', // Tu nueva imagen
   title: "Cashback en USD",
-  subtitle: "Obtené un 2.5% en USD de reintegro en todas tus compras.",
+  subtitle: "TODAS tus compras te reintegran el 2.5% del valor del producto, para que ahorres en tus próximas compras.",
   // button: "Empezar a comprar",
   overlay: "bg-black/60", 
   url: "/referidos", // O la ruta que le hayas asignado a la pestaña de creadores
@@ -81,10 +57,10 @@ const desktopBanners = [
 
 // Estructura de objetos para Mobile (Mismos textos, adaptados a su imagen vertical/cuadrada)
 const mobileBanners = [ 
-{
+  {
     image: '/assets/img/banner-desktop/gaming2.webp',
     title: "Todo en Gaming y Hardware",
-    subtitle: "Gran variedad con el mejor precio del país. Todas tus compras están protegidas por contratos inteligentes.",
+    subtitle: "Gran variedad con el mejor precio del país. Somos un marketplace orientado a tecnología, construido sobre blockchain.",
         button: "Comprar",
     // La compra grupal está FROZEN (SOCIAL_SELLING_ENABLED = false) y
     // /compras-grupales redirige, así que el CTA quedaba en un callejón sin
@@ -100,30 +76,14 @@ const mobileBanners = [
     url: "/referidos",
     overlay: "bg-black/50"
   },
-  // {
-  //   image: '/assets/img/banner-desktop/cash.webp',
-  //   title: "Vendé y cobrá por adelantado",
-  //   subtitle: "Mercado Nero es el único Marketplace del mundo donde podés cobrar por adelantado mientras protegemos a compradores, gracias al poder de los contratos inteligentes.",
-  //   button: "Empezar a vender",
-  //   url: "/vender",
-  //   overlay: "bg-black/40" // Capa oscura intermedia
-  // },
   {
     image: '/assets/img/banner-desktop/blockchain.webp',
     title: "Un marketplace sobre blockchain",
-    subtitle: "Usamos tecnología blockchain para beneficiar a todos. Todas las operaciones protegidas por contratos inteligentes, con comisiones ultra bajas y reintegros en USD.",
+    subtitle: "Usamos tecnología blockchain para beneficiar a todos con comisiones super bajas y reintegros en usd. Paga con cripto o transferencia bancaria, tu compra está siempre protegida por contratos inteligentes.",
     button: "Empezar a vender",
     url: "/vender",
     overlay: "bg-black/50" // Un poco más oscuro si la imagen brilla mucho
   },
-  // {
-  //   image: '/assets/img/banner-desktop/seller.webp',
-  //   title: "Comisiones mas bajas del Mercado",
-  //   subtitle: "Comision fija FINAL del 3%, sin sorpresas. Aumentá tu rentabilidad vendiendo en Mercado Nero",
-  //   button: "Empezar a vender",
-  //   url: "/vender",
-  //   overlay: "bg-black/50" // Un poco más oscuro si la imagen brilla mucho
-  // },
   {
     image: '/assets/img/banner-desktop/package-delivery.webp',
     title: "Envíos a todo el país.",
@@ -138,18 +98,10 @@ const mobileBanners = [
   //   button: "",
   //   overlay: "bg-black/50" // Degradado estético de izquierda a derecha
   // },
-  //   {
-  //   image: '/assets/img/banner-desktop/supermarket.webp',
-  //   title: "Al Super, sin salir de casa",
-  //   subtitle: "Miles de productos de supermercado disponibles con envío en el día. Comprá desde la comodidad de tu casa ahorrando tiempo y dinero.",
-  //   button: "Ver Productos",
-  //   overlay: "bg-black/60", // Sin capa extra
-  //   url: "/c/supermercado",
-  // },
  {
   image: '/assets/img/banner-desktop/cashback.webp', // Tu nueva imagen
   title: "Cashback en USD",
-  subtitle: "Obtené un 2.5% en USD de reintegro en todas tus compras.",
+  subtitle: "TODAS tus compras te reintegran el 2.5% del valor del producto, para que ahorres en tus próximas compras.",
   // button: "Empezar a comprar",
   overlay: "bg-black/60", 
   url: "/referidos", // O la ruta que le hayas asignado a la pestaña de creadores
