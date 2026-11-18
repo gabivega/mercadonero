@@ -27,7 +27,7 @@ BACKEND_DIR="$APP_DIR/backend"
 FRONTEND_DIR="$APP_DIR/frontend"
 BRANCH="main"
 PM2_APP="nero-mvp"
-HEALTH_URL="http://127.0.0.1:4000/"
+HEALTH_URL="http://127.0.0.1:4000/health"
 HEALTH_TIMEOUT=15
 
 # Colores para leer mejor en la consola

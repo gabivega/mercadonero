@@ -23,7 +23,6 @@ import directcarRoutes from './src/routes/directcarRoutes.js';
 import tiendanubeRoutes from './src/routes/tiendanubeRoutes.js';
 import myStoreRoutes from './src/routes/myStoreRoutes.js';
 import adminStoreRoutes from './src/routes/adminStoreRoutes.js';
-import testAuthRoutes from './src/routes/testAuthRoutes.js';
 import redirectRoutes from './src/routes/redirectRoutes.js';
 import startOrderCleanup from './src/services/orderCleanup.js';
 import startElitSyncCron from './src/services/elitSyncCron.js';
@@ -32,6 +31,11 @@ import { getEscrowPaymentOptions } from './src/config/chains.js';
 
 const PORT = process.env.PORT || 3000;
 const app = express();
+
+// TRUST PROXY: detras de Nginx, sin esto req.ip es siempre 127.0.0.1 y se
+// rompen el rate-limit por IP y las auditorias de IP. 1 = un salto de proxy.
+// NO usar true: confiaria en el X-Forwarded-For que manda el cliente.
+app.set('trust proxy', 1);
 
 const allowedOrigins = [
   'https://mercadonero.com',
@@ -105,8 +109,6 @@ try {
   app.use('/api/my-store', myStoreRoutes);
   // Gestión de ADMIN de las conexiones de tienda (habilitar/verificar por OTP).
   app.use('/api/admin/store-connections', adminStoreRoutes);
-  // Ruta de prueba para validar Supabase Auth (temporal, se borra al decidir)
-  app.use('/api/test-auth', testAuthRoutes);
   // Enlaces cortos de referido: /r/<code> → /producto/<slug>?ref=<id>
   app.use('/r', redirectRoutes);
   // Sitemap dinámico para motores de búsqueda (SEO orgánico)
@@ -122,6 +124,10 @@ try {
       console.error('Error al obtener payment-options:', error);
       res.status(500).json({ success: false, message: error.message });
     }
+  });
+  // Healthcheck: no toca DB ni logica de negocio. Lo usa deploy.sh para rollback.
+  app.get('/health', (req, res) => {
+    res.json({ success: true, status: 'ok', uptime: Math.floor(process.uptime()), timestamp: new Date().toISOString() });
   });
   app.get('/', (req, res) => res.json({ success: true, message: 'API running' }));
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
