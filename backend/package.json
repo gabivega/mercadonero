@@ -22,12 +22,12 @@
     "cloudinary": "^2.10.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
+    "ethers": "^6.16.0",
     "express": "^5.2.1",
     "got-scraping": "^4.2.1",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.2.1",
     "node-cron": "^4.2.1",
-    "nodemon": "^3.1.11",
     "qrcode": "^1.5.4",
     "resend": "^6.19.0",
     "sharp": "^0.35.5"
@@ -39,8 +39,9 @@
     "@nomicfoundation/hardhat-toolbox": "^6.1.2",
     "@nomicfoundation/hardhat-verify": "^3.0.17",
         "chai": "^6.2.2",
-    "ethers": "^6.16.0",
     "hardhat": "^3.4.5",
+    "nodemon": "^3.1.11",
     "solc": "^0.8.20"
   }
 }
+
