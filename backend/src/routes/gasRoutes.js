@@ -78,11 +78,17 @@ router.post("/ensure", verifyAuth, attachUser, async (req, res) => {
     }
 
     // 1) ¿Ya tiene gas suficiente? → no hace falta drip.
+    //    `needsGas` también falla si la red es mainnet sin parámetros de gas
+    //    drip configurados: en ese caso el 503 es más correcto que un 502, porque
+    //    no es un fallo del RPC sino configuración faltante del servidor.
     const check = await needsGas(walletAddress, chainId);
     if (!check.success) {
-      return res.status(502).json({
+      const isConfigError = /Gas drip sin configurar/i.test(check.error || "");
+      return res.status(isConfigError ? 503 : 502).json({
         success: false,
-        message: `No pudimos verificar el gas de la wallet: ${check.error}`,
+        message: isConfigError
+          ? "El gas patrocinado no está configurado para esta red. Contactá al soporte."
+          : `No pudimos verificar el gas de la wallet: ${check.error}`,
       });
     }
 
@@ -113,12 +119,15 @@ router.post("/ensure", verifyAuth, attachUser, async (req, res) => {
 
     if (!drip.success) {
       // Caso típico: el usuario superó el límite diario de drips (anti-abuso).
-      return res.status(drip.rateLimited ? 429 : 502).json({
+      // También puede ser `configError`: la red es mainnet y no tiene montos de
+      // gas drip configurados (no es culpa del user).
+      return res.status(drip.rateLimited ? 429 : drip.configError ? 503 : 502).json({
         success: false,
         message:
           drip.error ||
           "No pudimos entregar el gas para esta operación. Intentá más tarde.",
         rateLimited: Boolean(drip.rateLimited),
+        configError: Boolean(drip.configError),
         recentCount: drip.recentCount,
       });
     }

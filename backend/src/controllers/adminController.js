@@ -1,4 +1,4 @@
-﻿// controllers/adminController.js
+// controllers/adminController.js
 
 import Order from '../models/Order.js';
 import User from '../models/User.js';
@@ -80,13 +80,12 @@ export const getAllUsers = async (req, res) => {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 25));
     const skip = (pageNum - 1) * limitNum;
 
-        // Filtro de bÃºsqueda (email, privyDid/supabaseId, username, nombre)
+        // Filtro de bÃºsqueda (email, supabaseId, username, nombre)
     const match = {};
     if (search) {
       const reg = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
       match.$or = [
         { email: reg },
-        { privyDid: reg },
         { supabaseId: reg },
         { username: reg },
         { firstName: reg },
@@ -127,7 +126,6 @@ export const getAllUsers = async (req, res) => {
 
                     rating: 1,
                     createdAt: 1,
-          privyDid: 1,
           supabaseId: 1,
           "accounting.cancellationsAsBuyer": 1,
           "accounting.cancellationsAsSeller": 1,

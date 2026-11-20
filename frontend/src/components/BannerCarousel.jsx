@@ -111,6 +111,9 @@ const mobileBanners = [
 export default function BannerCarousel() {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [isMobile, setIsMobile] = useState(false)
+  // Cuando el usuario pasa el mouse por encima (o toca) el carrusel, pausamos
+  // el auto-avance para que pueda leer tranquilo. Se reanuda al salir.
+  const [paused, setPaused] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -124,16 +127,25 @@ export default function BannerCarousel() {
     return () => window.removeEventListener('resize', checkMobile)
   }, [])
 
+  // El intervalo depende tambien de currentIndex: asi, cada vez que se cambia
+  // de banner (por auto-avance o MANUAL con flechas/puntitos) el timer se
+  // limpia y se recrea. Sin esto, si el usuario pasaba de slide a mano en el
+  // segundo 7.9, el auto-avance disparaba a los 0.1s y se salteaban dos
+  // banners casi juntos.
   useEffect(() => {
+    // Si esta pausado (hover/touch), no creamos el intervalo; al salir del
+    // pause el efecto se re-ejecuta y arranca fresco con los 8s completos.
+    if (paused) return
+
     const interval = setInterval(() => {
       setCurrentIndex((prevIndex) => {
         const banners = isMobile ? mobileBanners : desktopBanners
         return (prevIndex + 1) % banners.length
       })
-    }, 8000) // Lo subí a 8 segundos para dar tiempo a leer el texto
+    }, 8000) // Lo subi a 8 segundos para dar tiempo a leer el texto
 
     return () => clearInterval(interval)
-  }, [isMobile])
+  }, [isMobile, currentIndex, paused])
 
   const banners = isMobile ? mobileBanners : desktopBanners
   const currentBanner = banners[currentIndex]
@@ -151,7 +163,12 @@ export default function BannerCarousel() {
   }
 
   return (
-    <div className="relative w-full overflow-hidden rounded-[2rem] border border-zinc-200 dark:border-zinc-800 shadow-lg group">
+    <div
+      className="relative w-full overflow-hidden rounded-[2rem] border border-zinc-200 dark:border-zinc-800 shadow-lg group"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onTouchStart={() => setPaused(true)}
+    >
       {/* CONTENEDOR PRINCIPAL */}
       <div className="relative h-64 md:h-[400px] w-full transition-all duration-500 ease-in-out">
         

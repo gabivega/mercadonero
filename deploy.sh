@@ -91,6 +91,12 @@ step "1/8  Guardando estado actual"
 PREVIOUS_COMMIT=$(git rev-parse HEAD)
 ok "Commit actual: ${PREVIOUS_COMMIT:0:7}"
 
+# Capturamos el hash del package-lock.json del frontend ANTES del pull.
+# Si tras el pull el hash no cambió, las deps ya están instaladas y nos
+# podemos saltear el `npm ci` del paso 5 (se ahorran ~5 minutos).
+# Si el archivo no existe (primer deploy) queda vacío y forzamos la instalación.
+FRONTEND_LOCK_BEFORE=$(sha256sum "$FRONTEND_DIR/package-lock.json" 2>/dev/null | cut -d' ' -f1 || echo "")
+
 # Solo cuentan los cambios a archivos YA versionados. Los untracked (??) se
 # ignoran: pueden ser logs, el propio deploy.sh, etc. y no deben disparar
 # un reset que borre trabajo sin avisar.
@@ -154,8 +160,16 @@ ok "Todos los imports resuelven correctamente"
 # ── 5. Build del frontend ──────────────────────────────────────────────────
 step "5/8  Instalando dependencias del frontend"
 cd "$FRONTEND_DIR"
-npm ci --legacy-peer-deps --no-audit --no-fund 2>&1 | tail -2 | sed 's/^/     /'
-ok "Dependencias instaladas"
+# Si el lockfile no cambió, las deps ya están correctas: nos ahorramos
+# ~5 minutos de npm ci. Comparamos el hash capturado antes del pull (paso 1)
+# con el actual. Si falta el hash previo (primer deploy) instalamos igual.
+FRONTEND_LOCK_AFTER=$(sha256sum "$FRONTEND_DIR/package-lock.json" 2>/dev/null | cut -d' ' -f1 || echo "")
+if [ -n "${FRONTEND_LOCK_BEFORE:-}" ] && [ "$FRONTEND_LOCK_AFTER" = "$FRONTEND_LOCK_BEFORE" ] && [ -d "$FRONTEND_DIR/node_modules" ]; then
+  ok "package-lock.json sin cambios — se saltea npm ci"
+else
+  npm ci --legacy-peer-deps --no-audit --no-fund 2>&1 | tail -2 | sed 's/^/     /'
+  ok "Dependencias instaladas"
+fi
 
 step "6/8  Compilando frontend (vite build)"
 NODE_OPTIONS=--max-old-space-size=2048 npx vite build 2>&1 | tail -4 | sed 's/^/     /'

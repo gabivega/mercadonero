@@ -4,16 +4,16 @@ import User from "../models/User.js";
 import verifyAuth from "../middleware/verifyAuth.js";
 
 /**
- * Sincroniza (o crea) el usuario en Mongo a partir de la sesión autenticada.
- * Durante la migración Privy → Supabase:
- *   - `req.user.authSource` indica el origen ("supabase" | "privy").
- *   - Buscamos por `supabaseId`/`privyDid` según corresponda, con fallback
- *     por `email` (para adoptar cuentas preexistentes sin duplicar).
- *   - Persistimos el id del origen en el campo que corresponda.
+ * Sincroniza (o crea) el usuario en Mongo a partir de la sesión autenticada
+ * de SUPABASE (única fuente de auth tras eliminar Privy).
+ *
+ *   - `req.user.did` es el uuid de Supabase.
+ *   - Buscamos por `supabaseId`, con fallbacks por `email` y `walletAddress`
+ *     (para adoptar cuentas preexistentes sin duplicar).
  */
 router.post("/sync-user", verifyAuth, async (req, res) => {
   try {
-    const { did, authSource } = req.user;
+    const { did } = req.user;
     // El email del JWT es la fuente de verdad; usamos el del body como fallback.
         const email = (req.user.email || req.body?.email || "").toLowerCase().trim();
     // Normalizamos la wallet a minúsculas (las EVM son case-insensitive). Así
@@ -23,14 +23,8 @@ router.post("/sync-user", verifyAuth, async (req, res) => {
       ? String(req.body.walletAddress).trim().toLowerCase()
       : undefined;
 
-    // 1. Buscamos según el origen del token.
-    let user = null;
-    if (authSource === "supabase") {
-      user = await User.findOne({ supabaseId: did });
-    } else {
-      user = await User.findOne({ privyDid: did });
-    }
-
+    // 1. Buscamos por el id de Supabase.
+    let user = did ? await User.findOne({ supabaseId: did }) : null;
     // 2. Fallback por email (vinculación de cuentas preexistentes).
     if (!user && email) {
       user = await User.findOne({ email });
@@ -70,8 +64,8 @@ router.post("/sync-user", verifyAuth, async (req, res) => {
       }
     }
 
-    if (!user) {
-      // Generamos un username temporal a partir del id (uuid o did:privy:...).
+        if (!user) {
+      // Generamos un username temporal a partir del uuid de Supabase.
       const shortId = String(did).replace(/[^a-z0-9]/gi, "").slice(-6) || "user";
       const tempUsername = `nero-${shortId}`;
 
@@ -88,8 +82,7 @@ router.post("/sync-user", verifyAuth, async (req, res) => {
     }
 
     // 3. Persistimos el identificador del origen + migración pasiva de datos.
-    if (authSource === "supabase" && did) user.supabaseId = did;
-    if (authSource === "privy" && did) user.privyDid = did;
+        if (did) user.supabaseId = did;
     if (email && !user.email) user.email = email;
     if (!user.walletAddress && walletAddress) user.walletAddress = walletAddress;
 

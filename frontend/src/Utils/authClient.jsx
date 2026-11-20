@@ -276,4 +276,6 @@ export const useAuth = usePrivy;
 // Re-export de los hooks de wallet para centralizar el import de la migración:
 //   import { usePrivy, useWallets } from "@privy-io/react-auth"
 //   import { usePrivy, useWallets } from "../Utils/authClient"
-export { useWallets, useCreateWallet } from "./authWallets";
+// NOTA: `useCreateWallet` ya NO se exporta (era un no-op de Privy y nadie lo
+// usaba). La creación de wallet se hace con Crossmint: Utils/crossmintWallet.js
+export { useWallets } from "./authWallets";

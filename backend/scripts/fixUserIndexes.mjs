@@ -1,22 +1,22 @@
 /**
  * scripts/fixUserIndexes.mjs
  * ────────────────────────────────────────────────────────────────────────────
- * Repara los índices de la colección `users` tras la migración Privy → Supabase.
+ * Asegura los índices de la colección `users`.
  *
- * PROBLEMA:
- *   El índice `privyDid_1` quedó creado como `unique: true` SIN `sparse`
- *   (era de antes de la migración). Con usuarios de Supabase (que no tienen
- *   privyDid), Mongoose persiste `privyDid: null` para TODOS, y el índice único
- *   revienta con:
- *       E11000 duplicate key error ... index: privyDid_1 dup key: { privyDid: null }
+ * HISTORIA: este script nació para reparar el índice `privyDid_1` (creado como
+ * `unique` SIN `sparse`, que reventaba con E11000 cuando los usuarios de
+ * Supabase tenían `privyDid: null`). Como Privy fue ELIMINADO del proyecto y el
+ * campo `privyDid` ya no existe en el schema, el script ahora:
+ *   1. BORRA el índice viejo `privyDid_1` (si quedó dando vueltas en la DB).
+ *   2. Deja `supabaseId_1` como `unique + sparse`.
  *
- *   `supabaseId_1` sí quedó bien (unique + sparse), pero lo recreamos igual para
- *   dejarlo con `partialFilterExpression` (más explícito y robusto que `sparse`).
+ * ⚠️ POR QUÉ BORRAR `privyDid_1`: un índice huérfano sobre un campo que ya no
+ * existe no molesta funcionalmente, pero confunde (el panel de Mongo lo muestra
+ * y alguien puede creer que el campo se usa). Además, si el índice sigue como
+ * unique y algún documento recibe `privyDid: null`, vuelve a colisionar.
  *
- * QUÉ HACE:
- *   1. Borra los índices `privyDid_1` y `supabaseId_1` viejos.
- *   2. Los vuelve a crear como ÍNDICES PARCIALES que solo indexan documentos
- *      donde el campo es un string no vacío. Así `null`/ausente NUNCA colisiona.
+ * ⚠️ REGLA VIGENTE: `supabaseId` NUNCA se persiste en `null` (dejar AUSENTE).
+ * `sparse` excluye campos ausentes, pero `null` SÍ entraría al índice único.
  *
  * Uso:
  *   cd backend && node scripts/fixUserIndexes.mjs
@@ -49,13 +49,10 @@ async function run() {
     }
   }
 
-  // 2. Recrear como índices únicos SPARSE.
+    // 2. Recrear solo el de Supabase (el único identificador de auth vigente).
   //    `sparse: true` excluye del índice los documentos donde el campo está
   //    AUSENTE. Por eso es clave NO persistir `null`: los usuarios que no usan
   //    un identificador deben dejar el campo sin setear (undefined), no en null.
-  await coll.createIndex({ privyDid: 1 }, { unique: true, sparse: true });
-  console.log("✅ privyDid_1 recreado (unique + sparse)");
-
   await coll.createIndex({ supabaseId: 1 }, { unique: true, sparse: true });
   console.log("✅ supabaseId_1 recreado (unique + sparse)");
 

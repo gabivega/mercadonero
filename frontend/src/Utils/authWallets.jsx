@@ -1,24 +1,25 @@
 /**
  * Utils/authWallets.jsx
  * ────────────────────────────────────────────────────────────────────────────
- * Compatibilidad con `useWallets()` / `useCreateWallet()` de Privy.
+ * Hook de lectura de la wallet del usuario autenticado.
  *
- * En Privy, la wallet venía embebida en el user. Acá NO hay wallet embebida de
- * Supabase: la dirección (cuando exista) la tomamos de los metadatos del usuario
- * o del dbUser en Mongo. Mantenemos el shape `{ address, connected, walletClientType }`
- * para no romper a los consumidores de `wallets[0].address`.
+ * HISTORIA: este archivo era la capa de compatibilidad con `useWallets()` y
+ * `useCreateWallet()` de Privy. Privy fue ELIMINADO del proyecto, así que:
+ *   - `useCreateWallet()` se borró: era un no-op que nadie llamaba (la creación
+ *     de wallet se hace con Crossmint, ver `Utils/crossmintWallet.js`).
+ *   - `useWallets()` SE CONSERVA porque 5 componentes lo usan y solo leen
+ *     `.address`. Cambiar sus imports no aportaría nada.
  *
- * ⚠️ NOTA: la firma on-chain (escrow/colateral/pools) actualmente depende de la
- * wallet de Privy. Con Supabase la firma se resolverá con el proveedor de wallets
- * que definamos (p. ej. Crossmint). Mientras tanto:
- *   - `useWallets()` devuelve la dirección vinculada (read-only), si existe.
- *   - `useCreateWallet()` queda como no-op informativo (no crea wallets).
+ * ⚠️ Este hook NO firma nada: la firma on-chain va por Crossmint. Acá solo
+ * exponemos la dirección ya vinculada al usuario.
  */
-import { useCallback } from "react";
 import { usePrivy } from "./authClient";
 import { useUserStore } from "../store/useUserStore";
-
-/** Devuelve las wallets del usuario con la forma de Privy. */
+/**
+ * Devuelve la wallet del usuario con la MISMA forma que tenía Privy
+ * (`{ wallets: [{ address, connected, ... }], ready }`), para no tocar a los
+ * consumidores que leen `wallets?.[0]?.address`.
+ */
 export function useWallets() {
   const { user } = usePrivy();
   // Fuente de verdad de la wallet: Mongo (dbUser.walletAddress). Fallback al
@@ -26,7 +27,6 @@ export function useWallets() {
   const dbWalletAddress = useUserStore((s) => s.dbUser?.walletAddress || null);
   const address = user?.wallet?.address || dbWalletAddress || null;
 
-  // Shape compatible con Privy: array de wallet objects.
   const wallets = address
     ? [
         {
@@ -42,16 +42,3 @@ export function useWallets() {
   return { wallets, ready: true };
 }
 
-/**
- * En Privy creaba una wallet embebida. Acá no aplica todavía (se resolverá con
- * el proveedor de wallets elegido). Se mantiene la firma para no romper imports.
- */
-export function useCreateWallet() {
-  const createWallet = useCallback(async () => {
-    console.warn(
-      "[authWallets] useCreateWallet: creación de wallet no soportada aún con Supabase.",
-    );
-    return null;
-  }, []);
-  return { createWallet };
-}

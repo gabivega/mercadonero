@@ -382,8 +382,7 @@ if (listingType !== 'classified' && shipping) {
 
 export const getMyProducts = async (req, res) => {
   try {
-    // El `_id` de Mongo lo inyecta `attachUser` (que resuelve por supabaseId /
-    // privyDid). Es el identificador estable que guardamos en Product.seller.
+    // El `_id` de Mongo lo inyecta `attachUser` (que resuelve por supabaseId). Es el identificador estable que guardamos en Product.seller.
     const userId = req.user._id;
 
     // ── PAGINACIÓN + BÚSQUEDA SERVER-SIDE ──────────────────────────────
@@ -505,6 +504,39 @@ const NERO_CATEGORY_MAP = {
   "televisores": { cat: "electronica-audio-y-video", sub: "televisores" },
   "celulares": { cat: "celulares-y-telefonos", sub: "celulares" },
   "supermercado": "alimentos-y-bebidas",
+};
+
+// ── VISIBILIDAD PÚBLICA: ¿este vendedor puede tener cosas visibles? ─────────
+// Regla dura (§5 del AGENTS.md): para que una publicación SE VEA al público,
+// el vendedor no alcanza con estar "aprobado por moderación": su TIENDA tiene
+// que estar habilitada. Concretamente:
+//   - shop.active   === true  → completó el onboarding (muro de entrada).
+//   - shop.approved === true  → un admin lo habilitó para vender.
+// Si a un vendedor se le DESACTIVA la tienda, sus productos deben desaparecer
+// del catálogo INMEDIATAMENTE, aunque sigan con status:"active" y
+// moderation.status:"approved".
+//
+// ⚠️ ¿Por qué se revalida acá y no sólo al crear? `PATCH /api/admin/users/:id/shop`
+// YA pausa sus productos (active→paused) al desactivar la tienda, así que en el
+// camino normal alcanzaría. Pero eso es "defensa en un solo punto": cualquier
+// cambio de estado hecho por otra vía (script, migración, import masivo, bug
+// futuro) dejaría productos visibles de una tienda no habilitada. Este chequeo
+// es la segunda barrera: no depende de que nadie se acuerde de pausar.
+//
+// Acepta tanto un seller populado (objeto con `shop`) como un seller crudo
+// (ObjectId, cuando no se hizo populate — ahí no podemos validar, ver abajo).
+const sellerCanSellPublicly = (seller) => {
+  // Seller no populado (sólo el ObjectId): no hay datos de tienda para validar.
+  // Devolvemos true para NO romper consultas internas que usan este helper; el
+  // filtro público siempre hace populate, así que ahí SÍ se valida.
+  if (!seller || typeof seller !== "object" || seller instanceof mongoose.Types.ObjectId) {
+    return true;
+  }
+  // Cuenta no activa (suspendida/desactivada/eliminada) ⇒ nunca visible.
+  if ((seller.accountStatus || "active") !== "active") return false;
+  // Tienda no habilitada para vender ⇒ no visible. Cubre los dos casos de
+  // bloqueo: sin onboarding (active=false) y en lista de espera (approved=false).
+  return seller.shop?.active === true && seller.shop?.approved === true;
 };
 
 // OBTENER PRODUCTOS POR CATEGORIA O GENERAL
@@ -754,13 +786,12 @@ export const getProducts = async (req, res) => {
       (p) => p.listingType !== "product" || (p.seller && p.seller.walletAddress),
     );
 
-    // 🔒 OCULTAR PRODUCTOS DE CUENTAS NO ACTIVAS (suspendidas/desactivadas/
-    // eliminadas). El populate trae `accountStatus`; si el vendedor no está
-    // "active" (o no existe → seller null) NO se muestra al público. Incluye a
-    // los clasificados: un vendedor suspendido no debe aparecer.
-    products = products.filter(
-      (p) => p.seller && (p.seller.accountStatus || "active") === "active",
-    );
+        // 🔒 OCULTAR PRODUCTOS DE CUENTAS NO ACTIVAS O DE TIENDAS NO HABILITADAS.
+    // Ver `sellerCanSellPublicly`: exige (a) cuenta "active", (b) shop.active
+    // (onboarding hecho) y (c) shop.approved (habilitado por un admin). Si el
+    // vendedor no existe → seller null → oculto. Incluye a los clasificados:
+    // un vendedor suspendido o con la tienda desactivada no debe aparecer.
+    products = products.filter((p) => p.seller && sellerCanSellPublicly(p.seller));
 
     // ── Facetas ──
     // Sin `limit` (listados con filtros) calculamos las facetas reales con
@@ -818,17 +849,18 @@ export const getProductById = async (req, res) => {
     ); // Traemos data del vendedor
 
         // Validamos que el producto exista, esté activo Y aprobado por moderación.
-    // Un producto pending/rejected no es visible al público (mismo mensaje
-    // genérico para no filtrar el motivo de moderación).
-    // También ocultamos el producto si el vendedor NO está activo (cuenta
-    // suspendida/desactivada/eliminada) o si el vendedor ya no existe.
-    if (
-      !product ||
-      product.status !== "active" ||
-      product.moderation?.status !== "approved" ||
-      !product.seller ||
-      (product.seller.accountStatus || "active") !== "active"
-    ) {
+        // Un producto pending/rejected no es visible al público (mismo mensaje
+        // genérico para no filtrar el motivo de moderación).
+        // También ocultamos el producto si el vendedor NO está activo (cuenta
+        // suspendida/desactivada/eliminada), si ya no existe, o si su TIENDA no está
+        // habilitada para vender (ver `sellerCanSellPublicly`).
+        if (
+          !product ||
+          product.status !== "active" ||
+          product.moderation?.status !== "approved" ||
+          !product.seller ||
+          !sellerCanSellPublicly(product.seller)
+        ) {
       return res.status(404).json({
         message: "Esta publicación ya no está disponible o ha sido pausada.",
       });

@@ -14,18 +14,17 @@ vendedores, compra grupal (pools), referidos y cashback. Mercado argentino (ARS/
 - **Frontend:** React + Vite (`frontend/`). Entry en `src/`, rutas/estilos con Tailwind.
 - **Backend:** Node + Express (ESM) + Mongoose (`backend/`). Entry `backend/index.js`.
 - **DB:** MongoDB (Atlas).
-- **Auth:** **Supabase Auth** (ver §7 sobre Privy).
+- **Auth:** **Supabase Auth** — ÚNICA fuente (Privy ELIMINADO, ver §7).
 - **Wallets / on-chain:** **Crossmint** (`@crossmint/wallets-sdk`) para firma de wallet.
 - **Blockchain:** BSC, Base, Polygon — escrow (`NeroEscrow`), colateral (`NeroCollateral`)
   y compra grupal (`NeroGroupBuy`). ABIs en `backend/contracts/`.
 - **Envío:** Zipnova (integrado desde backend). **Emails:** Resend.
 - **Pagos:** transferencia bancaria (flujo colateral) o cripto (escrow USDT/USDC).
 
-> ⚠️ **DOCS vs CÓDIGO (verificado 16-11-26).** `pendientes.txt` dice
-> "COMPRA GRUPAL: FROZEN", pero `Utils/featureFlags.js` tiene
-> `SOCIAL_SELLING_ENABLED = false` **y** `BannerCarousel.jsx` (con cambios sin
-> commitear) navega a **`/compras-grupales`**: si esa ruta redirige, esos banners
-> (desktop y mobile) son callejones sin salida. Revisar antes de lanzar.
+> ⚠️ **DOCS vs CÓDIGO.** Ver `backend/PENDIENTES_FINAL.TXT` (fuente viva del backlog).
+> Ojo: `featureFlags.js` tiene `SOCIAL_SELLING_ENABLED = false` **y** `BannerCarousel.jsx`
+> navega a **`/compras-grupales`**: si esa ruta redirige, esos banners (desktop y mobile)
+> son callejones sin salida. Revisar antes de lanzar.
 
 ---
 
@@ -64,16 +63,16 @@ cd frontend && npm run dev          # Vite dev server (5173)
 ### Rutas → `backend/src/routes/*.js`
 Cada dominio: `product`, `order`, `cart`, `user`, `auth`, `admin`, `pool`, `shipping`,
 `elit`, `flaming`, `directcar`, `tiendanube`, `my-store`, `cashback`, `referral`,
-`rewards`, `review`, `notification`, `message`, `redirect`, `test-auth` (temporal, borrar).
+`rewards`, `review`, `notification`, `message`, `redirect`.
 
 Montaje en `index.js`. **`/api/admin`** tiene dos routers: el principal y
 `adminStoreRoutes` montado aparte en `/api/admin/store-connections`.
 
 ### Middlewares y ORDEN CRÍTICO
-- `verifyAuth` → inyecta `req.user = { did, email, authSource }` (dual Supabase/Privy).
-- `attachUser` → busca el User de Mongo (por `supabaseId`/`privyDid`/email) e inyecta
+- `verifyAuth` → valida SOLO contra Supabase e inyecta `req.user = { did, email, authSource:"supabase" }`.
+- `attachUser` → busca el User de Mongo (por `supabaseId`, fallback `email`) e inyecta
   `req.user._id`, `req.user.role`, `req.user.walletAddress`.
-- `isAdmin` → `req.user.role === "admin"`. **Requiere `attachUser` ANTES.**
+- `isAdmin` → `req.user.role === "admin"` o email en `ADMIN_EMAILS`. **Requiere `attachUser` ANTES.**
 - `requireSellerOnboarding` → para CREAR/importar publicaciones (TODAS). Bloquea si:
   `blocked:"onboarding"` (falta onboarding), `blocked:"approval"` (tienda en lista de
   espera, sin aprobar) o `blocked:"wallet"` (producto de pago sin wallet). Aplica a
@@ -83,7 +82,7 @@ Orden típico en admin: `verifyAuth, attachUser, isAdmin, handler`.
 
 ### Modelos (`backend/src/models/`)
 `User`, `Product`, `Order`, `Pool`, más configs (`ReferralConfig`, escrow, etc.).
-- **User:** `privyDid` (opcional, sparse) + `supabaseId` (opcional, sparse) + `role`.
+- **User:** `supabaseId` (opcional, sparse) + `role`. El campo `privyDid` fue **eliminado**.
 - **Product:** ver §5 (moderación) y `moderation`, `sale`, `socialSelling`, `referral`,
   `payment`, `shipping.delivery`, `providerRef`, virtual `availableStock`.
 - **Order:** estados y campos de colateral/escrow/disputa (ver §6).
@@ -127,9 +126,12 @@ se interpreta como **"en lista de espera"**. Reglas vigentes:
 - **Excepción:** los importadores de scraping (`importDirectcarToUser.mjs`, etc.) pueden
   crear con `moderation: { status: 'approved' }` deliberadamente (datos de test).
 
-> **Ticket pendiente (ver §10):** el blindaje "tienda NO aprobada ⇒ nada visible" hoy NO
-> se revalida en `getProducts`/`getProductById` (solo al crear). Formalmente correcto
-> igual porque un producto sólo llega a `approved` por acción del admin.
+> **Blindaje resuelto:** la regla "tienda NO habilitada ⇒ nada visible" se REVALIDA
+> en `getProducts`, `getProductById` y `getPublicUserProfile` mediante el helper
+> `sellerCanSellPublicly` (`productController.js`). Exige `accountStatus:"active"` **Y**
+> `shop.active` **Y** `shop.approved`. Es la segunda barrera: `PATCH /api/admin/users/:id/shop`
+> ya pausa los productos (`active→paused`) al desactivar la tienda, pero así no depende de
+> que nadie se acuerde de pausarlos (cubre scripts, importadores y bugs futuros).
 
 ---
 
@@ -152,27 +154,38 @@ se interpreta como **"en lista de espera"**. Reglas vigentes:
 
 ---
 
-## 7. AUTH: Supabase (y estado de Privy) — IMPORTANTE
+## 7. AUTH: Supabase (Privy ELIMINADO) — IMPORTANTE
 
-**Migración Privy → Supabase: completada en backend (auth dual durante transición).**
-- `verifyAuth` intenta Supabase y cae a Privy como fallback (`authSource`).
-- `privateDid`/`supabaseId` NUNCA deben persistirse en `null` (dejar AUSENTES). Si aparecen
-  colisiones `E11000 ... privyDid null`, correr `cd backend && node scripts/fixUserIndexes.mjs`
-  (recrea índices `unique+sparse`). **Correr en cada entorno nuevo.**
+**TODO EL RESIDUO DE PRIVY FUE LIMPIADO.** Detalle de lo que se hizo y por qué:
 
-**Sobre `@privy-io/react-auth` (lo que preguntó el usuario):**
-- **La auth de Privy está ABANDONADA.** El paquete **sigue en `frontend/package.json`**
-  pero **NO tiene imports reales** (solo aparece en COMENTARIOS de `Utils/authClient.jsx`).
-- El frontend usa una **capa de compatibilidad** `frontend/src/Utils/authClient.jsx` que
-  **expone la MISMA API de Privy** (`usePrivy`, `useWallets`, `useCreateWallet`,
-  `PrivyProvider`→`AuthProvider`) pero por debajo usa **Supabase**. 71 archivos importan
-  `authClient`. **NO reescribas esos imports**; es intencional (evita tocar 60+ componentes).
-- **La FIRMA de wallet on-chain NO usa Privy:** hoy pasa por **Crossmint**
-  (`frontend/src/Utils/crossmintWallet.js`, `@crossmint/wallets-sdk`). Privy quedó sólo
-  como "forma" de API compatible.
-- **Limpieza posible (no urgente):** se podría desinstalar `@privy-io/react-auth` del
-  `package.json` porque no hay imports reales. Verificar antes con
-  `grep -r "@privy-io" --include=*.jsx --include=*.js` (hoy sólo matches en comentarios).
+- **`verifyAuth`** valida SOLO contra Supabase. Se quitó el fallback a Privy.
+  Inyecta `req.user = { did, email, authSource:"supabase" }`. El campo `did` se
+  conserva como NOMBRE (es el uuid de Supabase) porque decenas de handlers hacen
+  `req.user.did`; renombrarlo obligaría a tocar todo el backend sin ganar nada.
+- **`supabaseId` NUNCA debe persistirse en `null`** (dejar AUSENTE): `sparse` excluye
+  campos ausentes, pero `null` SÍ colisionaría en el índice único. Para asegurar los
+  índices corré `cd backend && node scripts/fixUserIndexes.mjs` (**en cada entorno nuevo**).
+- **`middleware/auth.js` fue BORRADO.** Era un `verifyPrivyToken` que NADIE importaba
+  (0 usos). Si lo ves referenciado en algún doc viejo, está mal.
+- **`@privy-io/server-auth` y `@privy-io/react-auth` fueron DESINSTALADOS** de ambos
+  `package.json` y del `node_modules`. No los reinstales.
+- **Modelo `User`:** el campo `privyDid` se **eliminó del schema**. El índice
+  `privyDid_1` se borra de la DB con `fixUserIndexes.mjs`.
+- **`ADMIN_PRIVY_ID` eliminado** de `isAdmin.js`. Admin = `role === "admin"` o email
+  en `ADMIN_EMAILS`.
+
+**Qué SE CONSERVA a propósito (NO lo borres):**
+
+- `frontend/src/Utils/authClient.jsx`: es una capa de compatibilidad con la FORMA de
+  la API de Privy (`usePrivy`, `AuthProvider`). Por debajo usa Supabase. **68 archivos**
+  importan `authClient`. Reescribir esos imports no aporta nada y arriesga romper.
+- `frontend/src/Utils/authWallets.jsx`: expone **solo `useWallets()`**, que 5 componentes
+  usan y de donde leen `wallets?.[0]?.address`. **`useCreateWallet()` se borró** (era un
+  no-op que nadie llamaba).
+
+**La firma de wallet on-chain NUNCA usó Privy:** pasa por **Crossmint**
+(`frontend/src/Utils/crossmintWallet.js`, `@crossmint/wallets-sdk`). Crear wallet =
+`createUserWallet` / `ensureUserWallet`, NO `useCreateWallet`.
 
 ---
 
@@ -199,6 +212,14 @@ NO hay gas sponsorship premium (Crossmint lo exige en plan pago, sin pricing pú
   `handleWithdraw`. Patrón: mínimo → rate limit → `ensureGas` → firmar → `registerOp`.
 - **⚠️ `OP_POLICY.enforce = false` HOY:** las cuotas solo AVISAN (no bloquean) en testnet.
   En producción → `true`. La barrera DURA actual es el **drip** + `GAS_DRIP_MAX_PER_DAY`.
+  OJO: el rate limit vive en `localStorage` del navegador → es UX, NO seguridad; un script
+  lo borra y lo saltea. Lo infalsificable hoy es el tope de drips del backend. Para cerrarlo
+  de verdad, mover el conteo al backend (el `opType` YA llega a `/api/gas/ensure` y se
+  descarta) contando por tipo en la colección `GasDrip`.
+- **Sección "Garantías de Vendedor"** (`CollateralManager` en `WalletPage`): gateada por
+  `isSeller && shopEnabled`, donde `shopEnabled = shop.active && shop.approved`. NO alcanza
+  con `isSeller`/tener productos: un vendedor en lista de espera o con tienda desactivada
+  puede conservar publicaciones viejas y NO debe ver la sección.
 - **NO** "se puede pagar el gas de otra persona" firmando una tx propia: en ERC-4337 el
   `msg.sender` de la UserOp es la smart wallet del user. La única forma es **pre-drip**.
 - Migración a producción: Base + USDC único; evaluar paymaster con spend cap
@@ -208,7 +229,7 @@ NO hay gas sponsorship premium (Crossmint lo exige en plan pago, sin pricing pú
 
 ## 8. Frontend
 
-- Auth: importá siempre desde `Utils/authClient` (NO desde `@privy-io/...`).
+- Auth: importá siempre desde `Utils/authClient` (NO existe `@privy-io/...`, fue desinstalado).
 - Wallet/firma: `Utils/crossmintWallet.js` (o las utilidades de wallet del proyecto).
 - Gas (pre-firma): `Utils/ensureGas.js` + `config/opPolicy.js` + `Utils/opRateLimit.js`.
 - `Utils/axiosAuth.js`: manejo global de 401 (refresca token Supabase / maneja expiración).
@@ -240,18 +261,22 @@ NO hay gas sponsorship premium (Crossmint lo exige en plan pago, sin pricing pú
   `new_string` al usar `single_find_and_replace` con bloques de varias líneas: si el
   `old_string` corta a mitad de línea, se pierde el resto del texto. Después de CUALQUIER
   edición multilínea, verificar con `git diff -- <archivo>` antes de seguir.
+- **Reemplazar una cadena que TERMINA en `);`:** si hacés `X(...).select("-campo");` →
+  `X(...);` hay riesgo de comerse un `)` o una línea del bloque siguiente. Después de
+  tocar cadenas de query, correr SIEMPRE `node --check <archivo>` (no alcanza con mirar).
+- **Migrar un campo de la DB:** antes de borrar un campo del schema, contar cuántos docs
+  lo usan y si son la ÚNICA identidad de alguno (`db.users.countDocuments({campo:{$exists:true}})`).
+  Si nadie depende de él, se borra; si hay docs que solo tienen ese id, se migran primero.
 
 ---
 
 ## 10. Pendientes técnicos (backlog relevante)
 
-- [ ] **Blindaje extra tienda→producto:** revalidar `shop.approved` en `getProducts`/
-      `getProductById`/moderación (hoy sólo al crear). No urgente.
 - [ ] **Paginación server-side de órdenes admin:** `/api/admin/orders` devuelve TODAS las
       órdenes; la tabla pagina en cliente (50/100). Migrar a `page`/`limit` si el volumen crece.
-- [ ] **Fase 2 auth:** limpiar `testAuthRoutes.js` (temporal), setear `role="admin"` real,
-      y opcionalmente desinstalar `@privy-io/react-auth`.
-- [ ] Ver `pendientes.txt` en la raíz para el backlog funcional completo (es la fuente viva).
+- **Fase 2 auth:** setear `role="admin"` real en la BD (hoy el admin entra por
+      `ADMIN_EMAILS`). `testAuthRoutes.js` y `@privy-io` ya NO existen.
+- [ ] Ver `backend/PENDIENTES_FINAL.TXT` para el backlog funcional completo (fuente viva).
 
 ---
 

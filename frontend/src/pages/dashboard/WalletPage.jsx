@@ -179,13 +179,19 @@ export default function WalletPage() {
   // store refleje `walletAddress` (y `authClient` recomponga user.wallet).
   const { syncUser } = useSyncUser(setDbUser);
 
-      // Solo los vendedores gestionan garantías (colateral para vender).
-  // El flag isSeller de la BD no siempre se actualiza al crear productos,
-  // así que además del flag oficial consideramos vendedor a quien tenga
-  // al menos una publicacion creada (ver checkSellerByProducts).
+            // Vendedor HABILITADO para gestionar garantías (colateral de venta).
+  // Requiere las DOS aprobaciones de §5 del AGENTS.md:
+  //   - shop.active   → completó el onboarding (muro de entrada).
+  //   - shop.approved → un admin lo habilitó para vender.
+  // El flag isSeller de la BD no siempre se actualiza al crear productos, así
+  // que además del flag oficial consideramos vendedor a quien tenga al menos
+  // una publicación creada (ver checkSellerByProducts). PERO tener productos
+  // no alcanza: un vendedor en lista de espera (o con la tienda desactivada)
+  // puede conservar publicaciones viejas y NO debe ver esta sección.
   const [hasProducts, setHasProducts] = useState(false);
   const [isCollateralOpen, setIsCollateralOpen] = useState(false);
-  const isSeller = Boolean(dbUser?.isSeller) || hasProducts;
+  const shopEnabled = Boolean(dbUser?.shop?.active && dbUser?.shop?.approved);
+  const isSeller = (Boolean(dbUser?.isSeller) || hasProducts) && shopEnabled;
   // ¿El usuario está habilitado como referidor? Si NO, la tarjeta de referidos
   // solo muestra su saldo usable en checkout (sin retiro ni textos de referidor).
   const isApprovedReferrer = dbUser?.referralStatus === "approved";

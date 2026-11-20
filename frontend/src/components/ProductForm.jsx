@@ -565,7 +565,7 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
               onChange={handleInputChange}
             >
               <option value="">Seleccionar Categoría...</option>
-              {allCategories
+              {launchCategoryTree
                 .filter(
                   (cat) =>
                     !["Vehículos", "Inmuebles", "Servicios"].includes(cat.name),
@@ -593,7 +593,7 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
             >
               <option value="">Seleccionar Sub-categoría...</option>
               {/* Buscamos las subcategorías de la categoría elegida */}
-              {allCategories
+              {launchCategoryTree
                 .find((c) => c.slug === product.category)
                 ?.subcategories?.map((sub) => (
                   <option key={sub.id} value={sub.slug}>

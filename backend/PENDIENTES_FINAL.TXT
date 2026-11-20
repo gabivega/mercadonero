@@ -1,0 +1,330 @@
+═══════════════════════════════════════════════════════════════════════════════
+ PENDIENTES — MERCADO NERO (API)
+ Actualizado: 2026-12 (reemplaza a pendientes.txt de la raíz)
+═══════════════════════════════════════════════════════════════════════════════
+
+CÓMO LEER ESTE ARCHIVO
+  [ ]  pendiente
+  [~]  en curso / parcialmente hecho
+  [x]  hecho y verificado en código
+  [D]  DECISIÓN TOMADA — no re-discutir (ver sección 7)
+
+REGLA: este archivo NO repite lo que ya está resuelto. Si algo se verificó en el
+código, va como [x] con la referencia del archivo. Si una decisión es de negocio,
+va en la sección 7 con el POR QUÉ, para no volver a abrir la discusión.
+
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║  1. EN CURSO / PRÓXIMO                                                     ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+[x] Config de COLATERAL centralizada en backend/src/config/chains.js.
+    El front ya NO tiene direcciones hardcodeadas: las lee de
+    GET /api/config/collateral-options (Utils/useCollateralOptions.js).
+    Motivo: había 3 direcciones distintas del mismo contrato circulando y el
+    .env del front era decorativo. Eliminado DepositCollateral.jsx (código
+    muerto con direcciones viejas).
+
+[x] GAS DRIP por red (backend/src/config/chains.js → getGasDripParams).
+    Antes había UN solo GAS_DRIP_AMOUNT_BNB para las 3 redes: 100x de más en
+    BSC/Base y casi insuficiente en Polygon. Ahora:
+      BSC_TESTNET 0.0002 / MIN 0.0001  (~6 UserOps)
+      POLYGON_AMOY 0.05  / MIN 0.03    (~6 UserOps)
+      BASE_SEPOLIA 0.00002 / MIN 0.00001 (~6 UserOps)
+    GUARD: si una red es mainnet y no tiene GAS_DRIP_AMOUNT_<RED> en el .env,
+    getGasDripParams() LANZA. Mainnet nunca hereda valores de testnet.
+    GAS_DRIP_ENABLED ahora es opt-in (default false).
+
+[x] BLINDAJE "tienda NO habilitada ⇒ nada visible" — RESUELTO.
+    getProducts, getProductById y getPublicUserProfile ahora exigen, vía el
+    helper sellerCanSellPublicly (productController.js):
+        accountStatus === "active" && shop.active && shop.approved
+    Antes solo se validaba accountStatus: si a un vendedor se le desactivaba
+    la tienda (con productos aún en "active"), seguían visibles para el público.
+    PATCH /api/admin/users/:id/shop YA los pausaba, pero eso dependía de que
+    nadie se olvidara. Ahora es defensa en profundidad.
+    getPublicUserProfile además solo devuelve productos con moderation approved.
+    VERIFICADO contra el endpoint real: 80 productos visibles → 0 al desactivar
+    la tienda, y getProductById pasa a 404. El producto queda en la DB (oculto,
+    no borrado). Estado restaurado tras la prueba.
+
+[ ] Pasar a USDXM en Polygon Amoy para seguir testeando el flujo completo
+    (se clammea fácil desde Crossmint). Antes de cambiar:
+      a) backend/.env → COLLATERAL_TOKEN_POLYGON + COLLATERAL_SYMBOL_POLYGON
+      b) VERIFICAR que NeroCollateral en Amoy no tenga whitelist de tokens
+         on-chain (si tiene, hace falta una tx del admin para agregar USDXM).
+         Sin esto los depósitos de USDXM revierten en silencio.
+
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║  2. FUNCIONAL (producto)                                                   ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+[ ] Comprar en grupo (SOCIAL SELLING) — FROZEN.
+    featureFlags.js → SOCIAL_SELLING_ENABLED = false. Backend y modelos listos.
+    ⚠️ BannerCarousel.jsx navega a /compras-grupales: si la ruta redirige, esos
+    banners (desktop y mobile) son callejones sin salida. Revisar ANTES de lanzar
+    o mientras el flag esté apagado.
+    Para retomar:
+      - ENVÍO EN GRUPO = Opción B: reutilizar el Checkout real con dirección +
+        Zipnova. create/join navegan a /checkout/<sellerId>?group=new|<poolId>.
+      - Cada member paga SU envío (producto+tier+envío congelados en escrow).
+      - Transferencia bancaria para grupos: NO (solo crypto). Guard ya existe.
+      - poolController.closePool usa product.shipping.cost fijo; validar que no
+        duplique si cada member ya fondeó con Zipnova (debería ser idempotente).
+      - Testear TODO antes de prender el flag.
+
+[ ] Front de ADMIN: botón "Cerrar grupo" que llame a closePool (hoy es solo
+    endpoint). usePools.jsx ya expone closePool.
+[ ] CreatePoolModal: no envía `units` (usa 1). Agregar selector de unidades.
+
+[ ] Órdenes crypto no expiran (por diseño, pero revisar UX): el comprador ve
+    una orden que nunca vence. Definir si se muestra un aviso o un "cancelar".
+
+[ ] Panel admin: paginación SERVER-SIDE de órdenes. /api/admin/orders devuelve
+    TODAS las órdenes y la tabla pagina en cliente (50/100). Migrar a
+    page/limit si el volumen crece.
+
+[ ] Detalle de orden: mostrar el MÉTODO DE PAGO (hoy solo figura en la
+    notificación por mail).
+[ ] En el detalle de la orden, el vendedor debería poder clickear el nombre del
+    comprador e ir a su perfil.
+[ ] Cuando el comprador marca la orden como recibida, no hay spinner de carga
+    mientras cierra la operación.
+[ ] Cuando se completa la orden y el comprador marca "recibida", refrescar o
+    redirigir a "Mis órdenes".
+[ ] La notificación de reseña dice "ingresá a la orden para ver la reseña" pero
+    en la página de orden no se puede ver.
+[ ] Agregar % al lado del rating de usuario.
+[ ] Product card en clasificados de vehículos: hay un "|" antes de location.
+    Ver si agregar 0km/usado.
+[ ] Revisar límite de caracteres de reviews.
+[ ] En mobile los precios del checkout muestran "," en vez de ".".
+[ ] Reintegros: agregar mensaje de que se pueden usar a partir de US$5 acumulados.
+[ ] Referidos: si no estás logueado se muestra un "ejemplo" que se ve feo. Usar
+    un product card real.
+[ ] Botón compartir enlace de referidos: funciona recién a la segunda vez.
+[ ] Notificación in-app al comprador cuando el vendedor habilita retiro en
+    sucursal (el email ya se envía).
+
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║  3. SEGURIDAD / ANTI-ABUSO                                                 ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+[x] Onboarding = MURO DE ENTRADA (no gate de submit). CreateProduct abre el
+    modal automáticamente si !shop.active y NO muestra formulario hasta
+    shop.approved === true. Ver requireSellerOnboarding.js.
+[x] Products de pago de vendedores SIN wallet: ocultos de listados y detalle.
+[x] Al pagar crypto sin wallet: el modal ya no deja trabado al usuario.
+[x] El vendedor puede marcar el pago como recibido (sin notificación previa del
+    comprador). Blindado con statusHistory.
+
+[x] GATE "Garantías de Vendedor" (WalletPage.jsx) — RESUELTO.
+    Antes: isSeller = dbUser.isSeller || hasProducts. Un comprador con un
+    producto viejo en "paused", o un vendedor EN LISTA DE ESPERA, veían la
+    sección de colateral. Ahora:
+        shopEnabled = shop.active && shop.approved
+        isSeller    = (dbUser.isSeller || hasProducts) && shopEnabled
+    Impacto real era acotado (depositar exige USDC propio y el drip tope 5/día),
+    pero era confuso mostrar "Garantías de Vendedor" a quien no puede vender.
+
+[ ] PRODUCCIÓN: OP_POLICY.enforce = true (frontend/src/config/opPolicy.js).
+    Hoy en testnet SOLO AVISA. La barrera dura real es el drip + MAX_PER_DAY.
+[ ] FUTURO: mover el rate limit de operaciones al BACKEND (endpoint pre-firma)
+    para que sea infalsificable desde el navegador.
+[ ] PRODUCCIÓN: evaluar paymaster con spend cap (Pimlico/Alchemy) si el volumen
+    lo justifica. Hoy alcanza el drip + cuotas.
+[ ] Opcional: reusar allowance en depositCollateral (saltar el approve si ya
+    alcanza) → ahorra 1 UserOp de gas por depósito.
+[ ] LANZAMIENTO: si se quiere monetizar retiros extra, definir fee/cobro.
+[ ] Contabilizar órdenes realizadas/canceladas por usuario e implementar un
+    sistema de penalización por cancelaciones reiteradas.
+
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║  4. INFRA / OPS (mainnet, gas, envs)                                       ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+[ ] ⚠️ CORRER EN CADA ENTORNO NUEVO:
+      cd backend && node scripts/fixUserIndexes.mjs
+    Recrea los índices unique+sparse de privyDid y supabaseId. Sin esto,
+    E11000 duplicate key sobre privyDid null.
+    Regla: privyDid/supabaseId NUNCA se persisten en null (dejar AUSENTES).
+
+[ ] LIMPIEZA AUTH (Fase 2):
+      - [x] testAuthRoutes.js ya ELIMINADO y desmontado de index.js.
+      - [x] Transak eliminado por completo del backend y front.
+      - [ ] Setear role="admin" al admin real en la BD.
+      - [ ] Opcional: desinstalar @privy-io/react-auth del package.json.
+            Verificar antes: grep -r "@privy-io" --include=*.jsx --include=*.js
+            (hoy solo aparece en COMENTARIOS de Utils/authClient.jsx).
+
+[ ] Antes de pasar a MAINNET, revisar CADA red:
+      - GAS_DRIP_AMOUNT_<RED> y GAS_DRIP_MIN_<RED> en .env (OBLIGATORIOS).
+      - Direcciones de NeroEscrow / NeroCollateral / NeroGroupBuy finales.
+      - Config de ZIPNOVA (origin, cuenta) — ver sección 5.
+
+[ ] FLUJO FUTURO — Pago desde wallet externa (QR / mobile):
+    El comprador escanea un QR con su wallet externa (Binance, Belo) que
+    contiene la dirección de recepción + monto exacto. El backend DETECTA el
+    funding on-chain (listener de Transfer / polling) y procesa la orden sola.
+    Botón "Pagar desde wallet externa" en el modal crypto. NO implementado.
+
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║  5. ENVÍOS (Zipnova)                                                       ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+MODELO ACTUAL (funciona, con confianza entre users):
+  - Zipnova se usa SOLO COMO COTIZADOR.
+  - El comprador elige una opción, se le cobra dentro del escrow.
+  - El vendedor carga carrier + tracking MANUALMENTE.
+  - Al cotizar, el backend RE-COTIZA y elige la opción más cercana al precio
+    que mandó el cliente (backend/src/controllers/orderController.js ~L780).
+    Un cliente no puede fijar $0.
+
+⚠️ BUG DE FONDO (no es una mejora, es incorrecto para multivendedor):
+  ZIPNOVA_ORIGIN_ID es UNO SOLO (env). Todas las cotizaciones salen desde el
+  mismo origen. A un vendedor de Salta se le cotiza como si despachara desde
+  CABA: el número es válido pero GEOGRÁFICAMENTE FALSO. Aceptable mientras las
+  tiendas sean pocas y controladas manualmente.
+
+[x] La elección del comprador SE PERSISTE (dato clave para poder auditar el
+    abuso después). buildShippingDetails guarda provider + serviceName +
+    quotedPrice desde la cotización re-cotizada del servidor.
+    ⚠️ LIMITACIÓN CONOCIDA: el `_shippingQuoteMeta` se elige por PRECIO MÁS
+    CERCANO, no por identidad (carrier+servicio). Si dos opciones cuestan lo
+    mismo, puede guardarse la equivocada. Caso borde, poco frecuente.
+
+[ ] FASE 1 — ORIGIN POR VENDEDOR (es el bug de fondo):
+      - User.shop.zipnovaOriginId (lo carga el admin al aprobar la tienda).
+      - quoteShipment recibe sellerId y resuelve su origin_id.
+      - Sin esto, TODAS las cotizaciones son incorrectas en un marketplace real.
+      - Preguntar a Zipnova el LÍMITE DE ORIGINS del plan contratado (dato
+        comercial, no técnico).
+
+    -- INVESTIGADO (26-11) - estado de la investigación, NO re-hacer: -------
+    ¿Se puede mandar un CP libre en lugar de un origin_id?  NO.
+      - El cotizador (POST /v2/shipments/quote) acepta `origin_id` NUMÉRICO,
+        que es una FK al address book de la cuenta Zipnova (Configuración >
+        Orígenes). No hay campo de dirección de origen inline en el body.
+        El único `zipcode` del payload es el de `destination`.
+        Ref: docs.zipnova.com/envios/principios/urls-y-autenticacion (curl
+        de ejemplo con "origin_id": "9323").
+      - Si se omite `origin_id`, Zipnova usa el ORIGEN POR DEFECTO de la
+        cuenta. Eso es lo que pasa hoy: buildQuoteBody lo omite si el .env
+        no trae un número válido.
+
+    ¿Cómo está implementado hoy?  UN SOLO origin_id global (.env).
+      - zipnovaService.js -> buildQuoteBody: `origin_id ?? ZIPNOVA_ORIGIN_ID`.
+      - Los 3 componentes que cotizan (CheckoutShippingSelector,
+        ShippingQuoteBox, ShippingQuoteCalculator) NO mandan origin_id.
+      - Nadie resuelve el origen por seller. => todas las cotizaciones salen
+        del mismo punto de despacho.
+
+    PENDIENTE DE CONFIRMAR CON ZIPNOVA (soporte, dato comercial):
+      1. Límite de orígenes por cuenta según el plan contratado.
+      2. Comportamiento al excederlo (¿bloquea altas? ¿sigue operando?).
+      3. ¿Existe endpoint para CREAR orígenes por API (POST /origins)? Si no
+         existe, el admin tendría que cargarlos a mano en el dashboard, lo que
+         que define si FASE 1 es viable a escala.
+      4. ¿Soporta `origin` inline (dirección completa) en el cotizador en vez
+         de `origin_id`? Si si, cambia todo el modelo (no haria falta un
+         origen por vendedor).
+
+    DECISIÓN TOMADA (26-11): NO tocar nada por ahora. Se deja el cotizador
+    con el origin_id global del .env porque alcanza para el lanzamiento:
+      - Las 2 tiendas iniciales (Macrotecno + la nueva para revender catálogo
+        de Elite) están AMBAS en Santa Fe, mismo CP.
+      - Mismo CP => mismo `origin_id` = cotización correcta.
+    Reabrir FASE 1 recién cuando: (a) haya un vendedor fuera de Santa Fe, o
+    (b) Zipnova confirme el límite de orígenes, lo que ocurra primero.
+    Si el límite es chico o no hay API de creación, evaluar alternativas
+    (otro proveedor logístico / modelo de "punto de despacho propio").
+
+[ ] FASE 2 — CREACIÓN REAL DEL ENVÍO:
+      - POST /shipments con el origin del vendedor → etiqueta + tracking
+        OFICIAL. El trackingNumber deja de ser texto libre.
+      - Permite verificar "¿se despachó?" en vez de confiar en el vendedor.
+
+[ ] FASE 3 — ENDURECER LA POLÍTICA DEL COSTO DE ENVÍO (ver decisión D1/D2).
+
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║  6. DEUDA TÉCNICA / TRAMPAS CONOCIDAS                                      ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+⚠️ 404 SILENCIOSO POR IMPORT FALTANTE: si una ruta usa un handler no exportado
+   o no importado, Express registra `undefined` y responde 404 (no 500). Si una
+   ruta "no existe" pero el código la tiene, revisar exports/imports.
+
+⚠️ ONEDRIVE: si el repo está dentro de OneDrive, read_file puede devolver una
+   versión DESINCRONIZADA. Síntoma: editás algo y Node ejecuta otra cosa.
+   Mitigación: mover el repo FUERA de OneDrive (C:\dev\MVP).
+   Diagnóstico: Select-String / Get-Content en PowerShell.
+
+⚠️ DESPUÉS DE CADA EDICIÓN MULTILÍNEA: verificar con git diff -- <archivo>.
+   `escape` de strings puede cortar un old_string a mitad de línea y perder
+   texto sin avisar.
+
+⚠️ SLUG: se genera en pre-save (buildProductSlug). updateProduct usa
+   findByIdAndUpdate (NO dispara pre-save) → regenerar a mano si cambia `name`.
+
+⚠️ Product declara `views`/`sold` con default y tiene `views` REPETIDO en el
+   schema. Ojo al tocarlo. Hay warning de índice duplicado en SellerCredit.
+
+⚠️ ENCODING: algunos archivos tienen acentos rotos (moderación → "moderaci?n").
+   Usar UTF-8; no re-guardar con otro encoding.
+
+⚠️ Documentación desactualizada: AGENTS.md dice que el token de colateral de
+   Polygon Amoy es USDXM, pero el token configurado es USDC real de Circle
+   (0x14196F…, verificado on-chain). Corregir el AGENTS.md o cambiar el token.
+
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║  7. DECISIONES TOMADAS (para no re-discutir)                               ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+D1. ZIPNOVA = SOLO COTIZADOR. El comprador elige y paga; el vendedor despacha
+    por el medio que pueda. La selección y el uso son de CONFIANZA.
+    POR QUÉ: no hay integración de creación de envío, y armar la verificación
+    de "¿despachó por el servicio que pagó?" agrega fricción a TODOS los
+    vendedores para frenar el abuso de UNO. Con control manual de tiendas el
+    costo/beneficio no cierra.
+
+D2. EL ÚNICO ABUSO ABIERTO ES LA SUB-ESPECIFICACIÓN LOGÍSTICA.
+    Ejemplo: el comprador paga OCA Prioritario ($30.000) y el vendedor manda
+    Correo Argentino a sucursal ($15.000). Se queda ~$15.000 de diferencia.
+    POR QUÉ SE TOLERA:
+      - El comprador NO pierde el producto ni la plata: le llega lo que compró.
+        Es un agravio comercial, NO un fraude financiero.
+      - Si el vendedor NUNCA despacha, el escrow reembolsa producto + envío.
+      - Es el escalón más bajo de abuso posible, y ya queda EVIDENCIA (D3).
+    SE RESUELVE MÁS ADELANTE (Fase 3 de la sección 5).
+
+D3. EVIDENCIA ANTES QUE VIGILANCIA.
+    Se persiste lo que el comprador ELIGIÓ (provider + serviceName +
+    quotedPrice) en shippingDetails. No es defensa técnica: es preservar la
+    evidencia para poder comparar elegido-vs-usado si hay reclamo. Costo cero.
+
+D4. homeDeliveryMode permite 3 modos: "zipnova" (cotización), "fixed" (precio
+    fijo que pone el vendedor) y "arrange" (a convenir). El vendedor que quiere
+    control total usa "fixed". ES UN MERCADO RESOLVIÉNDOSE SOLO, no una política
+    que haya que imponer.
+
+D5. RIGIDEZ ASIMÉTRICA. Sos RÍGIDO en lo grave (escrow, colateral, liberación
+    manual con buffer) y FLEXIBLE en lo cosmético (envío). Endurecer el envío
+    hoy agrega fricción a todos para frenar a pocos.
+
+D6. LOS PARÁMETROS ECONÓMICOS SE MIDEN, NO SE ESTIMAN.
+    Los montos de gas drip se midieron contra los RPC reales. Un valor único
+    para todas las redes fue el bug; no repetirlo con otros parámetros.
+
+D7. MAINNET ES OPT-IN, NUNCA HEREDADO. Si una red es mainnet y no hay valores
+    explícitos en el .env, el backend falla en vez de arrancar con montos de
+    testnet. Aplica a gas drip (hoy) y a cualquier parámetro económico futuro.
+
+D8. LA PLATAFORMA NO CUSTODIA DINERO. El USDT/USDC del comprador vive en su
+    wallet hasta que lo congela en el escrow. De ahí que el pago del gas del
+    comprador sea un problema real y necesite drip.

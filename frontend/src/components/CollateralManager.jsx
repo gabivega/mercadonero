@@ -24,6 +24,9 @@ import {
 import { ensureGas } from "../Utils/ensureGas";
 import { checkOpRateLimit, registerOp, describeLimit } from "../Utils/opRateLimit";
 import { getOpLimit } from "../config/opPolicy";
+// Lista de redes de colateral (direcciones de contrato/token): la trae el
+// BACKEND. Ver nota de arriba: el front ya no tiene direcciones propias.
+import { useCollateralOptions } from "../Utils/useCollateralOptions";
 
 // ─────────────────────────────────────────────────────────────────────────
 // CONFIGURACIÓN MULTIRED
@@ -47,63 +50,16 @@ import { getOpLimit } from "../config/opPolicy";
 // `sendable`: true si Crossmint puede FIRMAR en esa red (depositar/retirar).
 //   ⚠️ BSC testnet NO está soportada por Crossmint (solo "bsc" mainnet), por eso
 //   queda como SOLO LECTURA. Polygon Amoy y Base Sepolia sí se pueden firmar.
-const NETWORKS = [
-  {
-    key: "polygonAmoy",
-    chainId: 80002,
-    chainName: "polygon-amoy", // nombre que usa Crossmint en send()
-    label: "Polygon Amoy",
-    contractAddress:
-      import.meta.env.VITE_COLLATERAL_CONTRACT_POLYGON ||
-      "0x4bDceCAa9bD92eE82EF9571c8940cd736Be9696a",
-    token: {
-      address:
-        import.meta.env.VITE_COLLATERAL_TOKEN_POLYGON ||
-        "0x14196F08a4Fa0B66B7331bC40dd6bCd8A1dEeA9F",
-      symbol: "USDXM",
-      decimals: 6,
-    },
-    explorer: "https://amoy.polygonscan.com",
-    sendable: true,
-  },
-  {
-    key: "baseSepolia",
-    chainId: 84532,
-    chainName: "base-sepolia",
-    label: "Base Sepolia",
-    contractAddress:
-      import.meta.env.VITE_COLLATERAL_CONTRACT_BASE ||
-      "0x43453f16965d1fb9706eff2B788deEb640560C35",
-    token: {
-      address:
-        import.meta.env.VITE_COLLATERAL_TOKEN_BASE ||
-        "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-      symbol: "USDC",
-      decimals: 6,
-    },
-    explorer: "https://sepolia.basescan.org",
-    sendable: true,
-  },
-  {
-    key: "bscTestnet",
-    chainId: 97,
-    chainName: "bsc-testnet", // NO soportada por Crossmint → sendable=false
-    label: "BSC Testnet",
-    contractAddress:
-      import.meta.env.VITE_COLLATERAL_CONTRACT_BSC || "",
-    token: {
-      address:
-        import.meta.env.VITE_COLLATERAL_TOKEN_BSC ||
-        "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd",
-      symbol: "USDT",
-      decimals: 18,
-    },
-    explorer: "https://testnet.bscscan.com",
-    sendable: false,
-  },
-];
-
-const DEFAULT_NETWORK_KEY = "polygonAmoy";
+// ⚠️ ACÁ YA NO HAY DIRECCIONES HARDCODEADAS.
+//
+// Antes este archivo (igual que WalletPage.jsx y DepositCollateral.jsx) tenía
+// escrito el contrato y el token de cada red, con `VITE_COLLATERAL_*` como
+// override que NUNCA estaba definido en el .env → tres direcciones distintas
+// del mismo contrato circulando. Ahora la lista de redes viene del backend
+// (`GET /api/config/collateral-options` vía el hook `useCollateralOptions`).
+//
+// Para agregar/activar una red (p. ej. Base mainnet) se cargan sus direcciones
+// en el .env del BACKEND y la red aparece sola acá. Cero cambios de frontend.
 
 // Muestra/oculta el aviso proactivo de "activar billetera". Oculto por ahora:
 // la smart wallet firma sin activación previa y el OTP aparece solo si el SDK lo
@@ -364,15 +320,35 @@ export default function CollateralManager() {
   // Address REAL que firma (smart wallet Crossmint). Se resuelve al montar.
   const [signerAddress, setSignerAddress] = useState(null);
 
+    // Redes de colateral: vienen del BACKEND (fuente única de verdad). Mientras
+  // carga mostramos un placeholder; si falla, mostramos el error SIN caer a
+  // direcciones hardcodeadas (un fallback acá reintroduce el bug del contrato
+  // equivocado).
+  const {
+    options: collateralNetworks,
+    loading: networksLoading,
+    error: networksError,
+  } = useCollateralOptions();
+
   // Red seleccionada para operar (depositar/retirar/leer saldos).
-  const [selectedNetworkKey, setSelectedNetworkKey] = useState(DEFAULT_NETWORK_KEY);
+  // `selectedNetworkKey` guarda el `key` estable ("polygonAmoy", "baseSepolia"…).
+  const [selectedNetworkKey, setSelectedNetworkKey] = useState(null);
+  // Red efectiva: la elegida, o la primera disponible (y firmable) si todavía
+  // no eligió. Preferimos una red firmable para que el usuario pueda operar
+  // de entrada (BSC testnet es solo lectura).
   const network =
-    NETWORKS.find((n) => n.key === selectedNetworkKey) || NETWORKS[0];
-  // Constantes de la red activa (para reemplazar las viejas globales).
-  const CONTRACT_ADDRESS = network.contractAddress;
-  const COLLATERAL_TOKEN_ADDRESS = network.token.address;
-  const COLLATERAL_TOKEN_DECIMALS = network.token.decimals;
-  const COLLATERAL_TOKEN_SYMBOL = network.token.symbol;
+    (selectedNetworkKey &&
+      collateralNetworks.find((n) => n.key === selectedNetworkKey)) ||
+    collateralNetworks.find((n) => n.sendable) ||
+    collateralNetworks[0] ||
+    null;
+    // Constantes de la red activa (para reemplazar las viejas globales).
+  // Usamos optional chaining porque mientras carga la config del backend
+  // `network` es null: no queremos tirar la pantalla en ese instante.
+  const CONTRACT_ADDRESS = network?.contractAddress || null;
+  const COLLATERAL_TOKEN_ADDRESS = network?.token?.address || null;
+  const COLLATERAL_TOKEN_DECIMALS = network?.token?.decimals ?? 6;
+  const COLLATERAL_TOKEN_SYMBOL = network?.token?.symbol || "USDC";
 
   // Estados para los saldos de la Blockchain
   const [balances, setBalances] = useState({
@@ -412,8 +388,8 @@ export default function CollateralManager() {
   useEffect(() => {
     let mounted = true;
     setNeedsActivation(null);
-    (async () => {
-      if (!network.sendable) {
+        (async () => {
+      if (!network || !network.sendable) {
         if (mounted) setNeedsActivation(false);
         return;
       }
@@ -425,10 +401,10 @@ export default function CollateralManager() {
         if (mounted) setNeedsActivation(false);
       }
     })();
-    return () => {
+        return () => {
       mounted = false;
     };
-  }, [network.chainName, network.sendable, signerAddress]);
+  }, [network?.chainName, network?.sendable, signerAddress]);
 
   // Activa el device signer para la red seleccionada (dispara OTP si hace
   // falta). Al terminar, re-evalúa el estado.
@@ -909,9 +885,50 @@ export default function CollateralManager() {
   // la red no es firmable con Crossmint (BSC testnet). La lectura sigue visible.
   const contractMissing = contractStatus?.hasCode === false;
   const canSign = network.sendable;
-  const disabled = loading || !walletAddress || contractMissing || !canSign;
+    const disabled = loading || !walletAddress || contractMissing || !canSign;
   const withdrawDisabled =
     disabled || loadingBalances || balances.available === "0.00";
+
+  // ── Estados de carga / error de la config de colateral ──
+  // Mientras el backend responde no sabemos en qué contrato operar, así que NO
+  // mostramos el formulario (evitamos que el usuario firme contra undefined).
+  if (networksLoading) {
+    return (
+      <div className="w-full max-w-2xl mx-auto p-6 bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-800">
+        <div className="py-10 text-center text-gray-400 dark:text-gray-500 text-sm flex items-center justify-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Cargando configuración de garantías...
+        </div>
+      </div>
+    );
+  }
+
+  // Si no pudimos obtener la config (o no hay ninguna red operativa), NO caemos
+  // a direcciones hardcodeadas: mostramos el error. Operar "a ciegas" contra un
+  // contrato que no es el que usa el backend es exactamente el bug que estamos
+  // corrigiendo.
+  if (networksError || !network) {
+    return (
+      <div className="w-full max-w-2xl mx-auto p-6 bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-red-200 dark:border-red-900">
+        <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900">
+          <p className="text-sm font-bold text-red-800 dark:text-red-400">
+            No pudimos cargar las garantías
+          </p>
+          <p className="text-xs text-red-700 dark:text-red-300 mt-1">
+            {networksError ||
+              "No hay ninguna red de garantías configurada en el servidor. Contactá al soporte."}
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="mt-3 px-3 py-1.5 rounded-lg text-xs font-bold bg-red-600 text-white hover:bg-red-700"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-2xl mx-auto p-6 bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-800 space-y-6">
@@ -955,8 +972,10 @@ export default function CollateralManager() {
           <span className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
             Red:
           </span>
-          {NETWORKS.map((n) => {
-            const active = n.key === selectedNetworkKey;
+                    {collateralNetworks.map((n) => {
+            // "Activa" = la red que realmente se está usando (no la key guardada,
+            // porque antes de elegir usamos la primera firmable por defecto).
+            const active = network && n.chainId === network.chainId;
             return (
               <button
                 key={n.key}
@@ -980,9 +999,9 @@ export default function CollateralManager() {
           })}
         </div>
         <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
-          Token de colateral en {network.label}: <b>{network.token.symbol}</b> ·{" "}
+                    Token de colateral en {network.label}: <b>{COLLATERAL_TOKEN_SYMBOL}</b> ·{" "}
           <a
-            href={`${network.explorer}/address/${CONTRACT_ADDRESS}`}
+            href={`${network.explorerUrl}/address/${CONTRACT_ADDRESS}`}
             target="_blank"
             rel="noopener noreferrer"
             className="underline hover:text-[#F26722]"
@@ -993,7 +1012,7 @@ export default function CollateralManager() {
 
         {!network.sendable && (
           <div className="mt-3 p-3 rounded-lg text-xs font-medium bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-400 border border-amber-200 dark:border-amber-900">
-            ⚠️ En {network.label} solo podés <b>ver</b> tu garantía. Para depositar/retirar elegí Polygon Amoy o Base Sepolia (redes donde tu billetera puede firmar).
+            ⚠️ En {network.label} solo podés <b>ver</b> tu garantía. Para depositar/retirar elegí una red donde tu billetera pueda firmar ({collateralNetworks.filter((n) => n.sendable).map((n) => n.label).join(", ")}).
           </div>
         )}
 
@@ -1018,7 +1037,7 @@ export default function CollateralManager() {
 
         {contractStatus && contractStatus.hasCode === false && (
           <div className="mt-4 p-3 rounded-lg text-xs font-medium bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-400 border border-red-200 dark:border-red-900">
-            ⚠️ La dirección del contrato de colateral ({CONTRACT_ADDRESS.slice(0, 10)}...) no tiene código en esta red. Los depósitos no van a impactar. Revisá <b>VITE_COLLATERAL_CONTRACT_ADDRESS</b>.
+            ⚠️ La dirección del contrato de colateral ({CONTRACT_ADDRESS.slice(0, 10)}...) no tiene código en esta red. Los depósitos no van a impactar. Revisá <b>COLLATERAL_CONTRACT_{network.key.toUpperCase()}</b> en el .env del backend.
           </div>
         )}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">

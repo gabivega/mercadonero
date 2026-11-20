@@ -263,21 +263,34 @@ export const getPublicUserProfile = async (req, res) => {
         .json({ success: false, message: "Usuario no encontrado." });
     }
 
-    // Primera dirección (la default si existe) para inferir la provincia.
+        // Primera dirección (la default si existe) para inferir la provincia.
     const defaultAddr =
       user.addresses?.find((a) => a.isDefault) || user.addresses?.[0];
     const province = defaultAddr?.province || user.shop?.location?.province || null;
 
-        const products = await Product.find({
-      seller: user._id,
-      status: "active",
-    })
-      .sort({ createdAt: -1 })
-      .limit(8)
-      .select(
-        "_id name price currency sale images listingType condition category rating sold sellerName seller shipping location specifications createdAt",
-      )
-      .lean();
+    // 🔒 ¿La TIENDA está habilitada para vender? (misma regla que el catálogo:
+    // shop.active + shop.approved). Si no lo está, el perfil público puede
+    // mostrarse igual (un comprador culaquiera tiene cuenta), pero NO se
+    // exponen sus productos: de lo contrario el perfil se convertiría en una
+    // puerta trasera para ver publicaciones de una tienda deshabilitada.
+    const shopSellable =
+      user.shop?.active === true && user.shop?.approved === true;
+
+    const products = shopSellable
+      ? await Product.find({
+          seller: user._id,
+          status: "active",
+          // Doble barrera: aunque la tienda esté habilitada, cada producto debe
+          // estar aprobado por moderación para ser visible.
+          "moderation.status": "approved",
+        })
+          .sort({ createdAt: -1 })
+          .limit(8)
+          .select(
+            "_id name price currency sale images listingType condition category rating sold sellerName seller shipping location specifications createdAt",
+          )
+          .lean()
+      : [];
 
     // Métricas agregadas (redondeadas para el perfil público).
     const metrics = {
@@ -657,7 +670,7 @@ export const deleteAddress = async (req, res) => {
       userId,
       { $pull: { addresses: { _id: addressId } } },
       { new: true },
-    ).select("-privyDid");
+    );
 
     res.status(200).json({
       success: true,
@@ -926,5 +939,56 @@ export const saveWallet = async (req, res) => {
     res
       .status(500)
       .json({ success: false, message: "Error al guardar la wallet." });
+  }
+};
+
+// --------------------------------------------------------------------
+// GET /api/admin/collateral/audit
+// Auditorï¿½a del colateral de vendedores: contrasta la DB con la blockchain
+// y devuelve las ï¿½rdenes que requieren acciï¿½n del admin (liberar garantï¿½a,
+// completar tras el buffer o reconciliar la DB).
+//
+// Query:
+//   ?since=<dï¿½as | ISO date>  Ventana de antigï¿½edad de las ï¿½rdenes (default 60).
+//   ?attention=true           Devuelve SOLO las que requieren atenciï¿½n.
+//
+// Respuesta: { summary, since, count, orders }. Es de SOLO LECTURA: no mueve
+// fondos. El admin acciona luego con los endpoints existentes
+// (release-guarantee / complete).
+// --------------------------------------------------------------------
+export const auditCollateralHandler = async (req, res) => {
+  try {
+    const { since, attention } = req.query;
+
+    // Aceptamos "since" como nï¿½mero de dï¿½as o como fecha ISO.
+    let sinceDate;
+    if (since && Number.isFinite(Number(since))) {
+      sinceDate = new Date(Date.now() - Number(since) * 24 * 60 * 60 * 1000);
+    } else if (since) {
+      const parsed = new Date(since);
+      sinceDate = Number.isNaN(parsed.getTime()) ? undefined : parsed;
+    }
+
+    const { since: sinceDateUsed, orders } = await auditCollateral({
+      since: sinceDate,
+    });
+
+    const onlyAttention = String(attention || "").toLowerCase() === "true";
+    const visible = onlyAttention
+      ? orders.filter((o) => o.needsAttention)
+      : orders;
+
+    res.status(200).json({
+      success: true,
+      since: sinceDateUsed,
+      count: visible.length,
+      summary: summarizeAudit(visible),
+      orders: visible,
+    });
+  } catch (error) {
+    console.log(error);
+    res
+      .status(500)
+      .json({ success: false, message: "Error al auditar el colateral." });
   }
 };

@@ -18,14 +18,15 @@
 //      admin (que es la que paga el gas "de la plataforma").
 //
 // ANTI-ABUSO:
-//   - Máximo N drips por usuario por día (GAS_DRIP_MAX_PER_DAY).
-//   - Solo se entrega si el balance on-chain del user < umbral (GAS_DRIP_MIN_BNB).
+//   - Máximo N drips por usuario por día (GAS_DRIP_MAX_PER_DAY, global).
+//   - Solo se entrega si el balance nativo del user < el umbral DE SU RED
+//     (getGasDripParams: cada red tiene su economía, no hay un valor único).
 //   - Se registra cada drip en la colección GasDrip (auditoría).
 
 import { ethers } from "ethers";
 import dotenv from "dotenv";
 import GasDrip from "../models/GasDrip.js";
-import { getEscrowChainConfig } from "../config/chains.js";
+import { getEscrowChainConfig, getGasDripParams } from "../config/chains.js";
 
 dotenv.config();
 
@@ -37,19 +38,18 @@ const BSC_PROVIDER_URL =
   process.env.BSC_TESTNET_RPC || "https://bsc-testnet-rpc.publicnode.com";
 const PRIVATE_KEY = process.env.WALLET_PK;
 
-// Switch maestro: si está en "false", el drip queda deshabilitado.
-const GAS_DRIP_ENABLED = String(process.env.GAS_DRIP_ENABLED ?? "true") === "true";
-// Monto entregado por drip de la MONEDA NATIVA de la red (BNB/POL/ETH).
-// Default 0.001.
-const GAS_DRIP_AMOUNT_NATIVE = process.env.GAS_DRIP_AMOUNT_BNB || "0.001";
-// Si el usuario YA tiene >= este monto nativo, no se le entrega drip.
-const GAS_DRIP_MIN_NATIVE = process.env.GAS_DRIP_MIN_BNB || "0.0005";
+// Switch maestro del drip.
+//
+// ⚠️ CAMBIO DE DEFAULT: antes era `?? "true"` (habilitado si no se declaraba).
+// Eso significa que un entorno nuevo arrancaba REPARTIENDO gas sin que nadie lo
+// decidiera. Ahora es opt-in: hay que poner GAS_DRIP_ENABLED=true explícito.
+// (En el .env actual ya está en true, así que no cambia el comportamiento de
+// testnet; solo protege entornos que se olviden de configurarlo.)
+const GAS_DRIP_ENABLED =
+  String(process.env.GAS_DRIP_ENABLED ?? "false") === "true";
 // Máximo de drips por usuario por día (ventana rodante de 24h).
+// Este límite SÍ es global: es anti-abuso por usuario, no económico por red.
 const GAS_DRIP_MAX_PER_DAY = Number(process.env.GAS_DRIP_MAX_PER_DAY || 5);
-
-// Alias retrocompatibles (los usan poolController / scripts existentes).
-const GAS_DRIP_AMOUNT_BNB = GAS_DRIP_AMOUNT_NATIVE;
-const GAS_DRIP_MIN_BNB = GAS_DRIP_MIN_NATIVE;
 
 // ── RUNTIME POR RED (provider + admin wallet cacheados) ──
 // Se usa la MISMA PRIVATE_KEY como admin en todas las redes (los deploys del
@@ -108,12 +108,28 @@ export async function getBnbBalance(address, chainId) {
 
 /**
  * Determina si un usuario necesita un drip de gas en una red.
+ *
+ * El umbral es POR RED (`getGasDripParams`): 0.0001 ETH en Base no es lo mismo
+ * que 0.0015 tBNB en BSC. Si la red es mainnet y no está configurada, devuelve
+ * error en vez de aplicar un umbral de testnet.
+ *
  * @returns {Promise<{success:boolean, needsDrip:boolean, balanceNative?:number, error?:string}>}
  */
 export async function needsGas(address, chainId) {
   const bal = await getNativeBalance(address, chainId);
   if (!bal.success) return { success: false, needsDrip: false, error: bal.error };
-  const threshold = Number(GAS_DRIP_MIN_NATIVE);
+
+  let params;
+  try {
+    // getNativeBalance ya resolvió la red; usamos el chainId efectivo.
+    const { config } = getRuntime(chainId);
+    params = getGasDripParams(config.chainId);
+  } catch (error) {
+    // Mainnet sin configurar: NO aplicar un default de testnet.
+    return { success: false, needsDrip: false, error: error.message };
+  }
+
+  const threshold = Number(params.min);
   return {
     success: true,
     needsDrip: bal.balanceNative < threshold,
@@ -181,7 +197,7 @@ export async function dripGas({
     };
   }
 
-  // 2) Anti-abuso: rate-limit por usuario (24h).
+    // 2) Anti-abuso: rate-limit por usuario (24h).
   const recent = await countRecentDrips(userId);
   if (recent >= GAS_DRIP_MAX_PER_DAY) {
     return {
@@ -192,12 +208,24 @@ export async function dripGas({
     };
   }
 
-  // 3) Registrar el intento (pending) para auditoría.
-  const amountWei = ethers.parseEther(String(GAS_DRIP_AMOUNT_NATIVE));
+  // 3) Monto POR RED. Si la red es mainnet y no está configurada, abortamos:
+  //    preferimos NO entregar gas antes que entregar un monto de testnet
+  //    (p. ej. 0.003 ETH por drip en Base mainnet).
+  let params;
+  try {
+    params = getGasDripParams(config.chainId);
+  } catch (error) {
+    console.error("[GasDrip] Config inválida:", error.message);
+    return { success: false, error: error.message, configError: true };
+  }
+  const dripAmount = params.amount;
+
+  // 4) Registrar el intento (pending) para auditoría.
+  const amountWei = ethers.parseEther(String(dripAmount));
   const dripRow = await GasDrip.create({
     user: userId,
     walletAddress: walletAddress.toLowerCase(),
-    amountBnb: Number(GAS_DRIP_AMOUNT_NATIVE),
+    amountBnb: Number(dripAmount),
     amountWei: amountWei.toString(),
     reason,
     refId,
@@ -208,7 +236,7 @@ export async function dripGas({
 
   try {
     console.log(
-      `[GasDrip] Enviando ${GAS_DRIP_AMOUNT_NATIVE} ${config.nativeSymbol} a ${walletAddress} (${reason}, chain ${config.chainId})...`,
+      `[GasDrip] Enviando ${dripAmount} ${config.nativeSymbol} a ${walletAddress} (${reason}, chain ${config.chainId}, src ${params.source})...`,
     );
     const tx = await adminWallet.sendTransaction({
       to: walletAddress,
@@ -235,13 +263,13 @@ export async function dripGas({
     dripRow.txHash = tx.hash;
     await dripRow.save();
 
-    console.log(`[GasDrip] ✓ Drip confirmado en bloque ${receipt.blockNumber}`);
+        console.log(`[GasDrip] ✓ Drip confirmado en bloque ${receipt.blockNumber}`);
     return {
       success: true,
       delivered: true,
       txHash: tx.hash,
-      amountNative: Number(GAS_DRIP_AMOUNT_NATIVE),
-      amountBnb: Number(GAS_DRIP_AMOUNT_NATIVE), // compat
+      amountNative: Number(dripAmount),
+      amountBnb: Number(dripAmount), // compat
       nativeSymbol: config.nativeSymbol,
       blockNumber: receipt.blockNumber,
     };
@@ -358,11 +386,9 @@ export async function prepareFunding({
   };
 }
 
-export {
-  GAS_DRIP_ENABLED,
-  GAS_DRIP_AMOUNT_BNB,
-  GAS_DRIP_AMOUNT_NATIVE,
-  GAS_DRIP_MIN_BNB,
-  GAS_DRIP_MIN_NATIVE,
-  GAS_DRIP_MAX_PER_DAY,
-};
+// ⚠️ Ya NO se exportan `GAS_DRIP_AMOUNT_BNB` / `GAS_DRIP_MIN_BNB` globales:
+// eran un único valor aplicado a todas las redes (justo el bug que corregimos).
+// El monto/umbral por red se obtiene con `getGasDripParams(chainId)` desde
+// `../config/chains.js`. Si algún script externo necesitaba esos valores, debe
+// pasar a usar esa función.
+export { GAS_DRIP_ENABLED, GAS_DRIP_MAX_PER_DAY };

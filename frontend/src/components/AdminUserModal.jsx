@@ -306,7 +306,7 @@ const AdminUserModal = ({ user, isOpen, onClose, onStatusChange }) => {
                   <InfoItem
                     icon={Hash}
                     label="Supabase ID"
-                    value={data.supabaseId || data.privyDid || data._id}
+                    value={data.supabaseId || data._id}
                     mono
                   />
                 </div>

@@ -51,6 +51,82 @@ export const BSC_TESTNET_CHAIN_ID = 97;
 export const BASE_SEPOLIA_CHAIN_ID = 84532;
 export const POLYGON_AMOY_CHAIN_ID = 80002;
 
+// ════════════════════════════════════════════════════════════════════════════
+// PARÁMETROS DEL GAS DRIP, POR RED
+// ────────────────────────────────────────────────────────────────────────────
+// POR QUÉ ES POR RED Y YA NO GLOBAL:
+//   Antes había UN solo GAS_DRIP_AMOUNT_BNB / GAS_DRIP_MIN_BNB aplicado a TODAS
+//   las redes. Eso mezcla tres economías distintas con un valor pensado en tBNB:
+//   el mismo "0.003" es calderilla en BSC testnet y ~10-100x lo necesario en
+//   Base/Polygon mainnet. Un valor único es un error de configuración esperando
+//   a pasar a producción.
+//
+// REGLA DURA (mainnet):
+//   Los valores de abajo son DEFAULT DE TESTNET. Si una red es mainnet
+//   (`isTestnet === false`) y no se declararon sus valores explícitos en el
+//   .env, `getGasDripParams()` LANZA. Preferimos que el server no arranque a
+//   entregar 0.003 ETH por drip en Base mainnet. El objetivo es que mainnet sea
+//   una decisión EXPLÍCITA, nunca un default heredado de testnet.
+//
+// El monto NO es "cuánto gasto por usuario por día": es CUÁNTO ENTREGO cuando el
+// user se quedó sin gas. La regla de diseño es: cubrir ~3-5 UserOps con margen.
+//
+// ⚠️ MEDIDO (no estimado) — costo de 1 UserOp (~300k gas) en cada testnet:
+//     BSC testnet    @0.1 gwei  → ~0.00003 tBNB
+//     Polygon Amoy   @30 gwei   → ~0.009 POL   ← el más caro lejos
+//     Base Sepolia   @0.011 gwei→ ~0.0000033 ETH
+//
+// De ahí salen los montos: BSC y Base necesitan MUY poco; Polygon necesita más
+// porque el gwei de Amoy es alto. Un único "0.003" para las tres (lo que había)
+// era 100x de más en BSC/Base y casi insuficiente en Polygon.
+//
+// OJO: un DEPÓSITO de colateral son DOS UserOps (approve + deposit) más el
+// approve del token. Por eso el monto cubre varios UserOps y no uno.
+const GAS_DRIP_DEFAULTS = {
+  [BSC_TESTNET_CHAIN_ID]: { amount: "0.0002", min: "0.0001", alias: "BSC_TESTNET" },
+  [POLYGON_AMOY_CHAIN_ID]: { amount: "0.05", min: "0.03", alias: "POLYGON_AMOY" },
+  [BASE_SEPOLIA_CHAIN_ID]: { amount: "0.00002", min: "0.00001", alias: "BASE_SEPOLIA" },
+};
+
+/**
+ * Devuelve los parámetros de gas drip de una red { amount, min, source }.
+ *
+ * @param {number} chainId
+ * @returns {{amount:string, min:string, source:"env"|"testnet-default"}}
+ * @throws {Error} si la red es mainnet y no tiene valores explícitos en el .env.
+ */
+export function getGasDripParams(chainId) {
+  const chain = getChainConfig(chainId);
+  const def = GAS_DRIP_DEFAULTS[chain.chainId];
+
+  // 1) Valores explícitos en el .env (tienen prioridad SIEMPRE).
+  const envAmount = def
+    ? process.env[`GAS_DRIP_AMOUNT_${def.alias}`]
+    : undefined;
+  const envMin = def ? process.env[`GAS_DRIP_MIN_${def.alias}`] : undefined;
+
+  if (envAmount || envMin) {
+    return {
+      amount: envAmount || def.amount,
+      min: envMin || def.min,
+      source: "env",
+    };
+  }
+
+  // 2) Sin valores explícitos: solo permitido en TESTNET.
+  if (chain.isTestnet && def) {
+    return { amount: def.amount, min: def.min, source: "testnet-default" };
+  }
+
+  // 3) Mainnet sin configurar → fallar fuerte (ver nota de arriba).
+  throw new Error(
+    `[chains] Gas drip sin configurar para la red ${chain.name} (chainId ${chain.chainId}). ` +
+      `Es mainnet: definí GAS_DRIP_AMOUNT_${def?.alias || "MAINNET"} y ` +
+      `GAS_DRIP_MIN_${def?.alias || "MAINNET"} en el .env del backend. ` +
+      `No se usan defaults de testnet en producción a propósito.`,
+  );
+}
+
 // ── ESCROW DE PAGOS CRYPTO (multichain) ──────────────────────────────────────
 // El escrow (NeroEscrow) está desplegado en varias redes. Cada red tiene su
 // propio contrato (admin = misma wallet backend) y su propio token de pago.
@@ -310,8 +386,91 @@ export function serializeChain(chain) {
     contractAddress: chain.contractAddress,
     explorerUrl: chain.explorerUrl,
     isTestnet: chain.isTestnet,
-    nativeCurrency: chain.nativeCurrency,
+        nativeCurrency: chain.nativeCurrency,
   };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// CONFIG DE COLATERAL PARA EL FRONTEND (fuente ÚNICA de verdad)
+// ────────────────────────────────────────────────────────────────────────────
+// POR QUÉ EXISTE:
+//   Antes el frontend tenía HARDCODEADAS (en CollateralManager.jsx, WalletPage.jsx
+//   y DepositCollateral.jsx) las direcciones de contrato y de token de cada red,
+//   con `import.meta.env.VITE_*` como "override" que NUNCA estaba definido en el
+//   .env. Resultado: había VARIAS direcciones distintas del mismo contrato dando
+//   vueltas y el .env quedaba decorativo. Ese es exactamente el escenario que
+//   produce un "depósito fantasma" que no impacta en el contrato real.
+//
+//   Ahora el backend es la ÚNICA fuente: el front lee esta config por
+//   `GET /api/config/collateral-options` y no tiene ni una sola dirección.
+//
+// NOMBRE QUE USA CROSSMINT:
+//   El SDK identifica la red por NOMBRE ("base-sepolia"), no por chainId. Ese
+//   nombre lo declaramos acá para no volver a hardcodearlo en el front.
+//
+// `sendable`:
+//   true  → Crossmint puede FIRMAR en esa red (depositar/retirar colateral).
+//   false → solo lectura (p. ej. BSC testnet, que Crossmint no soporta firmar).
+const CROSSMINT_CHAIN_NAME = {
+  [BSC_TESTNET_CHAIN_ID]: "bsc-testnet",
+  [BASE_SEPOLIA_CHAIN_ID]: "base-sepolia",
+  [POLYGON_AMOY_CHAIN_ID]: "polygon-amoy",
+  // ── MAINNET: al agregar la red a CHAINS con sus direcciones en el .env,
+  // aparece sola en la UI (no hay que tocar el frontend).
+  56: "bsc",
+  8453: "base",
+  137: "polygon",
+};
+
+/** Nombre de red usado por el SDK de Crossmint para firmar (o null). */
+export function getCrossmintChainName(chainId) {
+  return CROSSMINT_CHAIN_NAME[Number(chainId)] || null;
+}
+
+/**
+ * Devuelve las redes de COLATERAL utilizables, serializadas para el frontend.
+ *
+ * Solo incluye redes que tienen AMBOS: contrato de colateral y token. Así, al
+ * pasar a mainnet, basta con cargar las direcciones en el .env: la red aparece
+ * SOLA en la UI, sin tocar una línea de frontend.
+ *
+ * @param {number} [chainId] Si se pasa, devuelve solo esa red (o null).
+ * @returns {Array<Object>|Object|null}
+ */
+export function getCollateralOptions(chainId) {
+  const all = SUPPORTED_CHAIN_IDS.map((id) => {
+    const c = CHAINS[id];
+    // Sin contrato o sin token no se puede operar: no se ofrece.
+    if (!c?.contractAddress || !c?.collateralToken?.address) return null;
+
+    const chainName = CROSSMINT_CHAIN_NAME[id] || null;
+    return {
+      chainId: c.chainId,
+      key: c.key,
+      // Nombre exacto que espera el SDK de Crossmint en send()/writeContract().
+      chainName,
+      label: c.name,
+      shortLabel: c.shortName,
+      isTestnet: c.isTestnet,
+      explorerUrl: c.explorerUrl,
+      nativeCurrency: c.nativeCurrency,
+      // Contrato NeroCollateral de esta red.
+      contractAddress: c.contractAddress,
+      token: {
+        symbol: c.collateralToken.symbol,
+        address: c.collateralToken.address,
+        // ⚠️ NUNCA hardcodear decimales: BSC USDT=18, Base/Polygon stable=6.
+        decimals: c.collateralToken.decimals,
+      },
+      // ¿Crossmint puede firmar acá? (false → la UI lo muestra solo lectura).
+      sendable: Boolean(chainName),
+    };
+  }).filter(Boolean);
+
+  if (chainId != null) {
+    return all.find((o) => o.chainId === Number(chainId)) || null;
+  }
+  return all;
 }
 
 export default CHAINS;
