@@ -80,6 +80,16 @@ Montaje en `index.js`. **`/api/admin`** tiene dos routers: el principal y
 
 Orden típico en admin: `verifyAuth, attachUser, isAdmin, handler`.
 
+- `requireElitAccess` → gate del CATÁLOGO DE PROVEEDORES (Elit). Deja pasar a
+admins (`role` o `ADMIN_EMAILS`) **o** a emails en `ELIT_ALLOWED_EMAILS`
+(`.env`, separados por coma, minúsculas). Se monta como
+`[verifyAuth, attachUser, requireElitAccess]` en `elitRoutes.js`. Cierra la
+brecha de que antes CUALQUIER user logueado podía pegarle a `/api/elit/*`.
+En el front, `useUserStore.canUseElitCatalog` (admin o email en
+`VITE_ELIT_ALLOWED_EMAILS`) muestra el link "Proveedor" y gatea la ruta.
+⚠️ Compara contra el email de la JWT de Supabase (`req.user.email`), no el
+del perfil. Cuenta habilitada hoy: `atomichardware@protonmail.com`.
+
 ### Modelos (`backend/src/models/`)
 `User`, `Product`, `Order`, `Pool`, más configs (`ReferralConfig`, escrow, etc.).
 - **User:** `supabaseId` (opcional, sparse) + `role`. El campo `privyDid` fue **eliminado**.

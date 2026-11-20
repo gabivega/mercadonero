@@ -11,7 +11,7 @@ import { useUserStore } from '../store/useUserStore';
 const Sidebar = ({ handleLogout }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const { dbUser, isAdmin } = useUserStore();
+  const { dbUser, isAdmin, canUseElitCatalog } = useUserStore();
 
   const menuItems = [
     { name: 'Perfil', icon: <User size={20} />, path: '/perfil' },
@@ -27,7 +27,9 @@ const Sidebar = ({ handleLogout }) => {
     // Puntos de retiro: solo visible para vendedores con tienda activa.
     ...(dbUser?.shop?.active ? [{ name: 'Puntos de retiro', icon: <MapPin size={20} />, path: '/puntos-retiro' }] : []),
     // { name: 'Referidos', icon: <Users size={20} />, path: '/referidos' },
-    ...(isAdmin ? [{ name: 'Proveedor', icon: <Truck size={20} />, path: '/proveedor' }] : []),
+    // Proveedores (Elit, etc.): admins y cuentas habilitadas puntualmente
+    // (VITE_ELIT_ALLOWED_EMAILS). El backend revalida el permiso igual.
+    ...(isAdmin || canUseElitCatalog ? [{ name: 'Proveedor', icon: <Truck size={20} />, path: '/proveedor' }] : []),
     ...(isAdmin ? [{ name: 'Admin', icon: <ShieldCheck size={20} />, path: '/admin' }] : []),
   ];
 

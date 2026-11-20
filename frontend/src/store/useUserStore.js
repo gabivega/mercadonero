@@ -20,20 +20,44 @@ const emailIsAdmin = (userData) => {
   return !!email && ADMIN_EMAILS.has(email);
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ACCESO AL CATÁLOGO DE PROVEEDORES (Elit, etc.) sin ser admin total.
+// Espeja ELIT_ALLOWED_EMAILS del backend: una cuenta puntual (p.ej. la tienda
+// de hardware) puede usar el panel de proveedores sin heredar los permisos de
+// administrador (aprobar tiendas, liberar escrow, etc.).
+// Solo se usa para MOSTRAR/ocultar el link y la ruta; el backend valida igual.
+// ─────────────────────────────────────────────────────────────────────────────
+const ELIT_ALLOWED_EMAILS = new Set(
+  (import.meta.env.VITE_ELIT_ALLOWED_EMAILS || "")
+    .split(/[,;]+/)
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+const emailCanUseElit = (userData) => {
+  const email = (userData?.email || "").toLowerCase().trim();
+  return !!email && ELIT_ALLOWED_EMAILS.has(email);
+};
+
 export const useUserStore = create(
   persist(
     (set) => ({
             dbUser: null,
       isAdmin: false,
+      canUseElitCatalog: false,
 
       // El rol ahora viene del backend (User.role en Mongo), no de un id de Privy.
       // Además, si el email está en VITE_ADMIN_EMAILS lo consideramos admin
       // aunque la BD aún no tenga el rol (acceso bootstrap al panel).
+      // `canUseElitCatalog` habilita el panel de proveedores a cuentas puntuales
+      // (VITE_ELIT_ALLOWED_EMAILS) sin darles admin total.
       // `_legacyId` se mantiene por compatibilidad de firma (ya no se usa).
       setDbUser: (userData, _legacyId) => {
+        const admin = userData?.role === "admin" || emailIsAdmin(userData);
         set({
           dbUser: userData || null,
-          isAdmin: userData?.role === "admin" || emailIsAdmin(userData),
+          isAdmin: admin,
+          canUseElitCatalog: admin || emailCanUseElit(userData),
         });
       },
 
@@ -43,7 +67,7 @@ export const useUserStore = create(
           dbUser: state.dbUser ? { ...state.dbUser, addresses: newAddresses } : null,
         })),
 
-      clearUser: () => set({ dbUser: null, isAdmin: false }),
+      clearUser: () => set({ dbUser: null, isAdmin: false, canUseElitCatalog: false }),
     }),
     {
       name: 'user-storage',
@@ -53,8 +77,10 @@ export const useUserStore = create(
       // sin volver a loguearte). El backend igual valida cada acción sensible.
       onRehydrateStorage: () => (state) => {
         if (state?.dbUser) {
-          state.isAdmin =
+          const admin =
             state.dbUser?.role === "admin" || emailIsAdmin(state.dbUser);
+          state.isAdmin = admin;
+          state.canUseElitCatalog = admin || emailCanUseElit(state.dbUser);
         }
       },
     }

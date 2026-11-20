@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { Server, Package, RefreshCw, Wine, Car, ShoppingBag } from 'lucide-react';
+import { useUserStore } from '../../store/useUserStore';
 import ElitCatalogExplorer from '../../components/ElitCatalogExplorer.jsx';
 import ElitSyncPanel from '../../components/ElitSyncPanel.jsx';
 import FlamingCatalogExplorer from '../../components/FlamingCatalogExplorer.jsx';
@@ -52,6 +54,15 @@ const TABS_BY_PROVIDER = {
 export default function ProveedorPanel() {
   const [activeProvider, setActiveProvider] = useState('elit');
   const [activeTab, setActiveTab] = useState('catalogo');
+
+  // Gate de UX: si la cuenta no está habilitada (ni admin ni en
+  // VITE_ELIT_ALLOWED_EMAILS), no mostramos el panel aunque entre por URL.
+  // El backend igual revalida (requireElitAccess); esto evita un panel vacío
+  // o errores 403 confusos.
+  const canUseElitCatalog = useUserStore((s) => s.canUseElitCatalog);
+  if (!canUseElitCatalog) {
+    return <Navigate to="/" replace />;
+  }
 
   const providerMeta = PROVIDERS.find((p) => p.id === activeProvider) || PROVIDERS[0];
   const ProviderIcon = providerMeta.icon;

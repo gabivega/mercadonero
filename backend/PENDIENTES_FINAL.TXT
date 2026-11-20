@@ -48,6 +48,18 @@ va en la sección 7 con el POR QUÉ, para no volver a abrir la discusión.
     la tienda, y getProductById pasa a 404. El producto queda en la DB (oculto,
     no borrado). Estado restaurado tras la prueba.
 
+[x] ACCESO AL CATÁLOGO DE ELIT restringido de verdad (era una brecha).
+    Antes: elitRoutes.js solo exigía verifyAuth → CUALQUIER user logueado podía
+    consumir el catálogo del proveedor pegándole a /api/elit/productos. "Solo
+    el admin" era una ilusión del menú, no una defensa.
+    Ahora: middleware requireElitAccess (backend) deja pasar a admin (role o
+    ADMIN_EMAILS) O email en ELIT_ALLOWED_EMAILS (.env). Front: canUseElitCatalog
+    (admin o VITE_ELIT_ALLOWED_EMAILS) muestra "Proveedor" y gatea /proveedor.
+    Cuenta habilitada: atomichardware@protonmail.com (tienda de hardware).
+    FALTA para activarla: cargar el email en ELIT_ALLOWED_EMAILS (backend/.env)
+    y VITE_ELIT_ALLOWED_EMAILS (frontend/.env) + redeploy. La cuenta se crea sola
+    al primer login con Supabase (magic link a ese correo — revisar spam).
+
 [ ] Pasar a USDXM en Polygon Amoy para seguir testeando el flujo completo
     (se clammea fácil desde Crossmint). Antes de cambiar:
       a) backend/.env → COLLATERAL_TOKEN_POLYGON + COLLATERAL_SYMBOL_POLYGON
