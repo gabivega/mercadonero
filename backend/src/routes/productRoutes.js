@@ -1,6 +1,6 @@
 import express from 'express';
 const router = express.Router();
-import { createProduct, getMyProducts, deleteProduct, toggleProductStatus , getProducts, getProductById, updateProduct} from '../controllers/productController.js';
+import { createProduct, getMyProducts, deleteProduct, toggleProductStatus , getProducts, getProductById, updateProduct, getVisibleCategories, getProductsByIds} from '../controllers/productController.js';
 import { importFromMercadoLibre } from '../controllers/importController.js';
 import { bulkImport } from '../controllers/bulkImportController.js';
 import verifyAuth from '../middleware/verifyAuth.js';
@@ -9,6 +9,12 @@ import requireSellerOnboarding from '../middleware/requireSellerOnboarding.js';
 
 // Ruta protegida
 router.get('/my-products', verifyAuth, attachUser, getMyProducts);
+// ⚠️ ORDEN CRÍTICO: '/categories' va ANTES de '/:id'. Si estuviera después,
+// Express matchearía '/categories' como un id de producto y devolvería 404
+// desde getProductById (el error clásico de "ruta que no existe").
+router.get('/categories', getVisibleCategories);
+// Destacados del Home: lista MANUAL de ids (siempre antes de '/:id').
+router.get('/featured', getProductsByIds);
 router.get('/products',getProducts);
 router.get('/:id', getProductById);
 router.post('/create', verifyAuth, attachUser, requireSellerOnboarding, createProduct);

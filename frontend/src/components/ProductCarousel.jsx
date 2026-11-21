@@ -9,7 +9,7 @@ import axios from 'axios'
 import { useUserStore } from '../store/useUserStore';
 import { useNavigate } from 'react-router-dom';
 
-export default function ProductCarousel({ title, category, subCategory, sectionId = 'carousel', random = false, exploreTo }) {
+export default function ProductCarousel({ title, category, subCategory, sectionId = 'carousel', random = false, exploreTo, ids }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const { dbUser } = useUserStore()
@@ -25,47 +25,81 @@ export default function ProductCarousel({ title, category, subCategory, sectionI
     return copy;
   };
 
+      // ── CLAVE ESTABLE PARA LA DEPENDENCIA DEL useEffect ──
+  // `ids` suele venir de una constante (config), pero si llegara como array
+  // literal inline en el JSX, cambiaría de REFERENCIA en cada render y el
+  // useEffect se dispararía en loop (fetch infinito). Derivamos una string y
+  // dependemos de ESA, así el efecto solo corre si los ids cambian DE VERDAD.
+  const idsKey = Array.isArray(ids) ? ids.join(',') : '';
+
   useEffect(() => {
-const fetchProducts = async () => {
-  try {
-    setLoading(true);
-    
-    // Volvemos a la llamada simple (sin tokens ni headers por ahora)
-    const response = await axios.get(`${import.meta.env.VITE_SERVER_URL}/api/product/products`, {
-      params: {
-        category,
-        subCategory,
-        limit: 20 // Pedimos un poco más porque vamos a filtrar algunos
-      }
-    });
+    const fetchProducts = async () => {
+      try {
+        setLoading(true);
 
-    // --- EL FILTRO MÁGICO EN EL FRONT ---
-    const allProducts = response.data.products;
-    
+        // ── MODO DESTACADOS (lista manual de ids) ──
+        // Cuando llega `ids`, no filtramos por categoría: pedimos exactamente
+        // esos productos. El backend los devuelve ya visibles (descarta los
+        // pausados, pendientes, eliminados o de tiendas no habilitadas) y EN EL
+        // ORDEN de la lista, que es la curaduría.
+        if (Array.isArray(ids)) {
+          if (ids.length === 0) {
+            setProducts([]);
+            return;
+          }
+          const response = await axios.get(
+            `${import.meta.env.VITE_SERVER_URL}/api/product/featured`,
+            { params: { ids: ids.join(',') } },
+          );
+          const allProducts = response.data.products || [];
+          // Anti-autocompra: mismo criterio que el resto del catálogo.
+          const filtered = dbUser?._id
+            ? allProducts.filter(
+                (p) => (p.seller?._id || p.seller) !== dbUser._id,
+              )
+            : allProducts;
+          setProducts(filtered);
+          return;
+        }
+
+        // Volvemos a la llamada simple (sin tokens ni headers por ahora)
+        const response = await axios.get(`${import.meta.env.VITE_SERVER_URL}/api/product/products`, {
+          params: {
+            category,
+            subCategory,
+            limit: 20 // Pedimos un poco más porque vamos a filtrar algunos
+          }
+        });
+
+        // --- EL FILTRO MÁGICO EN EL FRONT ---
+        const allProducts = response.data.products;
+
         // Si hay usuario logueado, filtramos sus productos. Si no, mostramos todo.
-    // seller puede venir como ObjectId plano o como objeto poblado (con _id).
-    const filtered = dbUser?._id
-      ? allProducts.filter(
-          (p) => (p.seller?._id || p.seller) !== dbUser._id,
-        )
-      : allProducts;
+        // seller puede venir como ObjectId plano o como objeto poblado (con _id).
+        const filtered = dbUser?._id
+          ? allProducts.filter(
+              (p) => (p.seller?._id || p.seller) !== dbUser._id,
+            )
+          : allProducts;
 
-    // Si `random` está activo, mezclamos los resultados antes de recortar, para
-    // que cada carga del carrusel muestre una selección distinta (12 al azar
-    // entre los primeros 20). Si no, respetamos el orden del backend
-    // (más recientes primero).
-    const ordered = random ? shuffle(filtered) : filtered;
+        // Si `random` está activo, mezclamos los resultados antes de recortar, para
+        // que cada carga del carrusel muestre una selección distinta (12 al azar
+        // entre los primeros 20). Si no, respetamos el orden del backend
+        // (más recientes primero).
+        const ordered = random ? shuffle(filtered) : filtered;
 
-    setProducts(ordered.slice(0, 12)); // Nos quedamos con los 12 finales
+        setProducts(ordered.slice(0, 12)); // Nos quedamos con los 12 finales
+      } catch (error) {
+        console.error("Error:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  } catch (error) {
-    console.error("Error:", error);
-  } finally {
-    setLoading(false);
-  }
-};
-   fetchProducts();
-  }, [category, subCategory]); // Se dispara si cambia cualquiera de los dos
+    fetchProducts();
+    // Dependemos de idsKey (string estable), no de `ids` (posible array inline).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category, subCategory, idsKey]);
 
   if (!loading && products.length === 0) return null;
 

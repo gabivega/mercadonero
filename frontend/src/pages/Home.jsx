@@ -3,6 +3,9 @@ import ProductCarousel from "../components/ProductCarousel";
 import BannerCarousel from "../components/BannerCarousel";
 import productosRaw from "../data/mercadolibre_productos.json";
 import HowToBuy from "../components/HowToBuy";
+// Lista MANUAL de destacados (ids de Mongo). Ver el archivo para instrucciones.
+// Si está vacía, el carousel se auto-oculta (no rompe el Home).
+import { featuredProductIds, FEATURED_LIMIT } from "../config/featuredProducts";
 // Transform raw ML data to product card format
 const transformProduct = (product, index) => {
   // Price is now an integer string like "16452"
@@ -73,27 +76,80 @@ export default function Home() {
     const offersProducts = useMemo(() => createCategoryProducts(30), []);
   const fashionProducts = useMemo(() => createCategoryProducts(30), []);
 
+    // Slice defensivo: el backend también lo acota, pero así no pedimos de más.
+  const featuredIds = useMemo(
+    () => featuredProductIds.slice(0, FEATURED_LIMIT),
+    [],
+  );
+
   return (
     <div className="space-y-8">
       {/* Banner Carousel */}
       <BannerCarousel />
-      {/* Recently Added Carousel */}
+
+      {/* ── DESTACADOS (curaduría manual) ──
+          Va PRIMERO: es el espacio premium / monetizable. El orden sale de
+          `config/featuredProducts.js`. Si no hay ids, o ninguno es visible, el
+          componente se auto-oculta y el Home sigue de largo. */}
+      <ProductCarousel
+        title="Destacados"
+        sectionId="featured"
+        ids={featuredIds}
+        exploreTo="/search"
+      />
+
+      {/* Recientemente Agregado: renombrado a "Novedades" para que no compita
+          conceptualmente con Destacados. El orden aleatorio ayuda, pero el
+          problema de fondo (todo de la misma categoría) se resuelve con los
+          carousels temáticos de abajo. */}
       {validProducts.length > 0 && (
-                <ProductCarousel
-          title="Recientemente Agregado"
+        <ProductCarousel
+          title="Novedades"
           products={recentlyAdded}
-                    sectionId="recently-added"
-          category="recently-added" // 🔥 Le pasamos un flag claro en lugar de dejarlo undefined
-          random // 🔀 Mezcla los resultados en cada carga (12 al azar de los últimos 20)
+          sectionId="recently-added"
+          category="recently-added"
+          exploreTo="/search?category=recently-added"
         />
       )}
 
-      {/* Comprá en grupo — productos (estándar) con Social Selling habilitado */}
-      {/* <ProductCarousel
-        title="Comprá en grupo y ahorrá"
-        category="social-selling"
-        sectionId="social-selling"
-      /> */}
+      {/* ── CAROUSELS TEMÁTICOS ──
+          Cada uno se auto-oculta si no tiene productos (ProductCarousel hace
+          `return null` cuando la lista queda vacía). Así no aparecen títulos
+          con carousels pelados mientras el catálogo no tiene stock del rubro.
+          ⚠️ Los slugs están verificados contra `data/allCategories.js`. */}
+      <ProductCarousel
+        title="Monitores"
+        category="computacion"
+        subCategory="monitores-y-accesorios"
+        sectionId="monitores"
+        exploreTo="/c/computacion?subCategory=monitores-y-accesorios"
+      />
+
+      <ProductCarousel
+        title="Notebooks"
+        category="computacion"
+        subCategory="notebooks-y-accesorios"
+        sectionId="notebooks"
+        exploreTo="/c/computacion?subCategory=notebooks-y-accesorios"
+      />
+
+      <ProductCarousel
+        title="Parlantes y Auriculares"
+        category="electronica-audio-y-video"
+        subCategory="audio"
+        sectionId="audio"
+        exploreTo="/c/electronica-audio-y-video?subCategory=audio"
+      />
+
+      {/* Placares: el catálogo NO tiene subcategoría de placas de video ni de
+          madre (se verificó contra allCategories). Se usan búsquedas por nombre,
+          que es lo mejor disponible hoy. Si mañana se crean esas subcategorías,
+          se cambia `exploreTo` y se agrega subCategory. */}
+      <ProductCarousel
+        title="Placas de Video y Motherboards"
+        sectionId="placas"
+        exploreTo="/search?q=placa%20de%20video"
+      />
 
       {/* Offers Products Carousel */}
       {validProducts.length > 0 && (
@@ -105,14 +161,10 @@ export default function Home() {
         />
       )}
 
-      <HowToBuy />
+            <HowToBuy />
 
-      <ProductCarousel
-          title="Notebooks y Accesorios"
-        category="computacion"
-        subCategory="notebooks-y-accesorios"
-        sectionId="notebooksyaccesorios"
-      />
+      {/* ⚠️ Se quitó el carousel duplicado de "Notebooks y Accesorios" (ahora
+          está arriba como "Notebooks", en el bloque temático). */}
 
       <ProductCarousel
         title="Consolas y Accesorios"

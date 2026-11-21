@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { ShoppingCart, Heart, BadgeCheck, Users } from "lucide-react";
 import { usePrivy } from "../Utils/authClient";
 import { useCartStore } from "../store/useCartStore";
@@ -25,12 +25,17 @@ export default function ProductCard({ product }) {
     Boolean(currentUserId) &&
     String(product.seller?._id || product.seller) === String(currentUserId);
 
-    const handleCardClick = () => {
-    navigate(productPath(product));
-  };
+        // Ya NO hace falta navegar por JS: el <Link> hace la navegación nativa
+    // (y así el navegador puede interceptar Ctrl+Click / clic con rueda).
+    // El onClick quedó vacío a propósito en vez de borrarlo para dejar claro
+    // que la navegación se delegó al <Link> de abajo.
 
-        const handleAddToCart = (e) => {
+                const handleAddToCart = (e) => {
     e.stopPropagation();
+    // La card entera es un <Link>: sin preventDefault, un Ctrl+Click sobre
+    // este botón abriría el PRODUCTO en una pestaña nueva en vez de (o además
+    // de) agregar al carrito.
+    e.preventDefault();
 
     // Bloqueo duro: no permitir comprarse a sí mismo.
     if (isOwnProduct) {
@@ -129,8 +134,11 @@ export default function ProductCard({ product }) {
     });
   };
 
-  const handleFavorite = async (e) => {
+    const handleFavorite = async (e) => {
     e.stopPropagation();
+    // Mismo motivo que en handleAddToCart: la card es un <Link>, así que hay
+    // que cortar la acción nativa del <a> padre en Ctrl+Click.
+    e.preventDefault();
     // Si no está logueado, lo mandamos a la página principal para iniciar sesión.
     if (!ready || !authenticated) {
       showFavToast("Iniciá sesión", "Inicia sesión para guardar tus favoritos.");
@@ -173,11 +181,21 @@ export default function ProductCard({ product }) {
   //   product.listingType === "product" && !!product.socialSelling?.enabled;
   const isSocialSelling = false; // Desactivamos temporalmente la sección de Social Selling hasta que esté lista para producción.
 
-  return (
-    <div
-      className="poly-card poly-card--grid poly-card--xlarge bg-white dark:bg-zinc-800 rounded-lg overflow-hidden hover:shadow-lg transition-shadow flex flex-col cursor-pointer"
-      style={{ minWidth: "170px", height: "340px" }}
-      onClick={handleCardClick}
+    return (
+    // La card es un <Link> REAL (no un <div> con onClick) para que el navegador
+    // la trate como link nativo. Sin esto NO funcionan:
+    //   · Ctrl/Cmd + Click (abrir en pestaña nueva)
+    //   · clic con la rueda del mouse
+    //   · clic derecho → "Abrir enlace en pestaña nueva"
+    //   · pasar el mouse y ver la URL destino en la barra de estado
+    // Abrir varios productos a la vez es un uso real de comprador.
+    // ⚠️ Por ser <Link> (= <a>), NO puede contener otros <a> adentro. Los
+    // controles internos son <button> (carrito/favorito) o <span> con navigate
+    // (vendedor), que cortan la propagación para no disparar la navegación.
+    <Link
+      to={productPath(product)}
+      className="poly-card poly-card--grid poly-card--xlarge bg-white dark:bg-zinc-800 rounded-lg overflow-hidden hover:shadow-lg transition-shadow flex flex-col cursor-pointer no-underline"
+            style={{ minWidth: "170px", height: "340px" }}
     >
       {/* Product Image Container */}
       <div
@@ -245,18 +263,24 @@ export default function ProductCard({ product }) {
               product.seller?.shop?.name ||
               product.sellerName || // fallback para productos viejos sin populate
               product.seller?.username;
-            if (sellerName && sellerId) {
+                        if (sellerName && sellerId) {
               return (
-                <a
-                  href={`/user/${sellerId}`}
+                // <span> y NO <a>: la card entera ya es un <Link> (<a>), y un
+                // <a> dentro de otro <a> es HTML inválido (el navegador lo
+                // rompe o duplica la navegación). Visualmente es igual, y el
+                // stopPropagation evita que además navegue al producto.
+                <span
+                  role="link"
+                  tabIndex={0}
                   onClick={(e) => {
+                    e.preventDefault();
                     e.stopPropagation();
                     navigate(`/user/${sellerId}`);
                   }}
-                  className="text-xs text-gray-500 dark:text-gray-400 capitalize line-clamp-1 hover:text-[#3483fa] hover:underline transition-colors"
+                  className="text-xs text-gray-500 dark:text-gray-400 capitalize line-clamp-1 hover:text-[#3483fa] hover:underline transition-colors cursor-pointer"
                 >
                   {sellerName}
-                </a>
+                </span>
               );
             }
             return sellerName ? (
@@ -347,7 +371,7 @@ export default function ProductCard({ product }) {
           </div>
         )}
 
-        {/* Rating and Sold Info */}
+                {/* Rating and Sold Info */}
         <div className="h-5 mt-[2px]">
           {product.rating > 0 && (
             <div className="text-[0.7rem] text-yellow-500">
@@ -357,7 +381,7 @@ export default function ProductCard({ product }) {
           )}
         </div>
       </div>
-    </div>
+    </Link>
   );
 }
 

@@ -33,7 +33,11 @@ import mobileLogoDark from "../assets/img/logo-dark-mobile.png";
 import whiteLogo from "../assets/img/logo-black.png";
 import whiteLogoGray from "../assets/img/mercado-nero-logo-full-white-gray.png";
 import blackLogo from "../assets/img/mn-logo-black.png";
-import { categories } from "../data/categories";
+// Categorías del menú DERIVADAS de los productos existentes (ver hook).
+// La vieja `data/categories.js` era una lista fija con slugs que no existían en
+// el catálogo (supermercado, hogar-y-muebles, moda, mas-vendidos...) y por lo
+// tanto llevaba a páginas "Sin resultados".
+import { useVisibleCategories } from "../Utils/useVisibleCategories";
 import SupabaseLogin from "./SupabaseLogin";
 
 const NavLink = ({ href, children, mobile = false }) => {
@@ -110,9 +114,13 @@ export default function Header() {
     const clearCart = useCartStore((state) => state.clearCart);
   const clearUser = useUserStore((state) => state.clearUser);
 
-  // Notificaciones: badge de la campanita + polling
+    // Notificaciones: badge de la campanita + polling
   const unreadNotifications = useNotificationStore((s) => s.unreadCount);
   useNotifications();
+
+  // Categorías con al menos un producto visible. Se calculan en el backend y se
+  // cachean por sesión: si mañana no queda nada en X, X desaparece del menú.
+  const { categories, loading: categoriesLoading } = useVisibleCategories();
   
   // Prevent hydration mismatch
   useEffect(() => {
@@ -234,16 +242,33 @@ export default function Header() {
                 <button type="button" className="cursor-pointer">
                   Categorias
                 </button>
-                <div className="absolute left-0 top-full w-56 bg-white dark:bg-zinc-900 rounded-lg shadow-lg border border-gray-100 dark:border-zinc-800 opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-all z-50">
+                                <div className="absolute left-0 top-full w-56 bg-white dark:bg-zinc-900 rounded-lg shadow-lg border border-gray-100 dark:border-zinc-800 opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-all z-50  max-h-[70vh] overflow-y-auto">
                   <ul className="py-2">
+                    {/* Estado de carga: spinner en vez de un menú vacío que
+                        parezca "no hay categorías" durante el primer fetch. */}
+                    {categoriesLoading && (
+                      <li className="flex items-center gap-2 px-4 py-2 text-sm text-gray-500 dark:text-zinc-400">
+                        <span className="w-3.5 h-3.5 border-2 border-gray-300 dark:border-zinc-600 border-t-[#F26722] rounded-full animate-spin" />
+                        Cargando...
+                      </li>
+                    )}
+                    {/* Regla del producto: sin productos no hay entrada. Si tras
+                        cargar no queda ninguna categoría, lo decimos explícito
+                        en vez de mostrar un dropdown vacío. */}
+                    {!categoriesLoading && categories.length === 0 && (
+                      <li className="px-4 py-2 text-xs text-gray-400 dark:text-zinc-500">
+                        Todavía no hay categorías con productos.
+                      </li>
+                    )}
                     {categories.map((cat) => (
-                      <li key={cat.name}>
-                        <a
-                          href={cat.url}
+                      <li key={cat.slug}>
+                        {/* Link (no <a>): navegación SPA, sin recargar la app. */}
+                        <Link
+                          to={`/c/${cat.slug}`}
                           className="block px-4 py-2 text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
                         >
                           {cat.name}
-                        </a>
+                        </Link>
                       </li>
                     ))}
                   </ul>
@@ -436,12 +461,29 @@ export default function Header() {
                       Categorias
                     </span>
                     <div className="mt-1 ml-2 bg-white dark:bg-zinc-900 rounded-lg shadow-lg border border-gray-100 dark:border-zinc-800">
-                      <ul className="py-2">
+                                            <ul className="py-2">
+                        {/* Estado de carga: un spinner es mejor UX que un menú
+                            vacío que se lee como "no hay categorías". */}
+                        {categoriesLoading && (
+                          <li className="flex items-center gap-2 px-4 py-2 text-sm text-gray-500 dark:text-zinc-400">
+                            <span className="w-3.5 h-3.5 border-2 border-gray-300 dark:border-zinc-600 border-t-[#F26722] rounded-full animate-spin" />
+                            Cargando...
+                          </li>
+                        )}
+
+                        {/* Regla del producto: sin productos no hay entrada. */}
+                        {!categoriesLoading && categories.length === 0 && (
+                          <li className="px-4 py-2 text-xs text-gray-400 dark:text-zinc-500">
+                            Todavía no hay categorías con productos.
+                          </li>
+                        )}
+
                         {/* First 6 categories always visible */}
                         {categories.slice(0, 6).map((cat) => (
-                          <li key={cat.name}>
+                          <li key={cat.slug}>
                             <Link
-                              to={cat.url}
+                              to={`/c/${cat.slug}`}
+                              onClick={() => setIsMobileMenuOpen(false)}
                               className="block px-4 py-2 text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
                             >
                               {cat.name}
@@ -490,10 +532,11 @@ export default function Header() {
                           transition={{ duration: 0.3, ease: "easeInOut" }}
                           className="overflow-hidden"
                         >
-                          {categories.slice(6).map((cat) => (
-                            <li key={cat.name}>
+                                                    {categories.slice(6).map((cat) => (
+                            <li key={cat.slug}>
                               <Link
-                                to={cat.url}
+                                to={`/c/${cat.slug}`}
+                                onClick={() => setIsMobileMenuOpen(false)}
                                 className="block px-4 py-2 text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
                               >
                                 {cat.name}

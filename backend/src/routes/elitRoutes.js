@@ -5,10 +5,13 @@ import {
   importElitImages,
   previewElitSync,
   applyElitSync,
+  importElitProduct,
+  bulkImportElit,
 } from '../controllers/elitController.js';
 import verifyAuth from '../middleware/verifyAuth.js';
 import attachUser from '../middleware/attachUser.js';
 import requireElitAccess from '../middleware/requireElitAccess.js';
+import requireSellerOnboarding from '../middleware/requireSellerOnboarding.js';
 
 const router = express.Router();
 
@@ -35,6 +38,15 @@ router.post('/import-images', ...gate, importElitImages);
 // apply:   aplica únicamente los cambios seleccionados por el usuario.
 router.post('/sync/preview', ...gate, previewElitSync);
 router.post('/sync/apply', ...gate, applyElitSync);
+
+// ── Importación a la tienda (individual y masiva) ─────────────────────────
+// Además del gate de proveedor, exigimos requireSellerOnboarding: publicar
+// (aunque sea importando) requiere onboarding completo + tienda APROBADA, tal
+// como POST /api/product/create y /api/product/bulk-import (ver AGENTS.md §5b).
+// Así un usuario con acceso al catálogo pero SIN tienda habilitada no puede
+// llenar sus publicaciones de productos del proveedor.
+router.post('/import', ...gate, requireSellerOnboarding, importElitProduct);
+router.post('/bulk-import', ...gate, requireSellerOnboarding, bulkImportElit);
 
 export default router;
 

@@ -13,9 +13,11 @@ import {
   ImageOff,
   TrendingUp,
   TrendingDown,
-  AlertTriangle,
+    AlertTriangle,
   PackageCheck,
   PackageX,
+  DownloadCloud,
+  Loader2,
 } from 'lucide-react';
 import { InlineLoadingSpinner } from './LoadingSpinner.jsx';
 import ElitImportModal from './ElitImportModal.jsx';
@@ -176,13 +178,18 @@ export default function ElitCatalogExplorer() {
   // Ocultar productos sin stock (stock_total === 0). Activado por defecto.
   const [hideOutOfStock, setHideOutOfStock] = useState(true);
 
-  // Lista visible: si está activo el filtro, quitamos los de stock 0.
+    // Lista visible: si está activo el filtro, quitamos los de stock 0.
   const visibleProducts = useMemo(() => {
     if (!hideOutOfStock) return products;
     return products.filter((p) => (Number(p?.stock_total) || 0) > 0);
   }, [products, hideOutOfStock]);
 
   const hiddenByStock = products.length - visibleProducts.length;
+
+  // Estado del import masivo (por tandas).
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState(null); // { done, total, created, skipped, errors }
+
 
   const totalPages = useMemo(
     () => (total > 0 ? Math.ceil(total / PAGE_SIZE) : 1),
@@ -266,11 +273,152 @@ export default function ElitCatalogExplorer() {
 
   const handleRefresh = () => loadProducts(page, filters);
 
-  const goToPage = (newPage) => {
+    const goToPage = (newPage) => {
     if (newPage < 1 || newPage > totalPages) return;
     loadProducts(newPage, filters);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  // ── Import masivo (por TANDAS) ──
+  // El backend acota cada request a 200 productos por el timeout, así que se
+  // recorre el catálogo pidiendo tandas con `next` hasta agotarlo. Las imágenes
+  // van por HOTLINK (sin Cloudinary) para no agotar el free tier con ~1.9k
+  // productos. Si hay una búsqueda activa, solo importa esos resultados.
+  const handleBulkImport = async () => {
+    const searchTerm = filters.nombre?.trim() || '';
+    const confirm = await Swal.fire({
+      title: '¿Importar el catálogo de Elit?',
+      html: `
+        <div style="text-align:left;font-size:13px">
+          Se van a importar productos ${searchTerm ? `que coincidan con "<b>${searchTerm}</b>"` : 'de <b>todo el catálogo</b>'} a tu tienda.<br/><br/>
+          ✔️ Solo <b>con stock</b>.<br/>
+          ✔️ Precio = costo + <b>markup</b> del proveedor.<br/>
+          ✔️ Imágenes por <b>hotlink</b> (sin gastar Cloudinary).<br/>
+          ✔️ Los productos nacen <b>pendientes de moderación</b>.<br/>
+          ⏭️ Los ya importados se <b>omiten</b> automáticamente.
+        </div>`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Sí, importar',
+      cancelButtonText: 'Cancelar',
+      background: '#1A1A1A',
+      color: '#ffffff',
+      confirmButtonColor: '#F26722',
+      cancelButtonColor: '#444',
+      customClass: { popup: 'rounded-3xl border border-gray-800' },
+    });
+
+    if (!confirm.isConfirmed) return;
+
+    setBulkRunning(true);
+    setBulkProgress({ done: 0, total: 0, created: 0, skipped: 0, errors: 0 });
+
+    // Modal de progreso que NO se cierra solo.
+    Swal.fire({
+      title: 'Importando catálogo de Elit...',
+      html: '<div id="elit-bulk-progress">Iniciando...</div>',
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      background: '#1A1A1A',
+      color: '#ffffff',
+    });
+
+    const TANDA = 100; // productos por request (el backend acepta hasta 200)
+    let offset = 1;
+    let next = 1;
+    let agg = { created: 0, skipped: 0, errors: 0, total: 0, processed: 0 };
+
+    try {
+      const token = await getAccessToken();
+
+      // Recorremos mientras el backend nos indique una tanda siguiente.
+      // Tope defensivo de iteraciones por si algo devuelve `next` infinito.
+      let guard = 0;
+      while (next && guard < 60) {
+        guard += 1;
+
+        const { data } = await axios.post(
+          `${serverUrl}/api/elit/bulk-import`,
+          {
+            limit: TANDA,
+            offset: next,
+            search: searchTerm || undefined,
+            onlyInStock: true,
+            imageMode: 'hotlink',
+            maxImages: 3,
+            skipExisting: true,
+          },
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            timeout: 10 * 60 * 1000,
+          }
+        );
+
+        const s = data?.summary || {};
+        agg.created += s.created || 0;
+        agg.skipped += s.skipped || 0;
+        agg.errors += s.errors || 0;
+        agg.total = data?.total || agg.total;
+        agg.processed = Math.min(
+          agg.total,
+          (data?.offsetReturned || offset) + (data?.limitReturned || TANDA) - 1
+        );
+
+        setBulkProgress({ done: agg.processed, total: agg.total, ...agg });
+
+        const pct = agg.total > 0 ? Math.min(100, Math.round((agg.processed / agg.total) * 100)) : 0;
+        const el = document.getElementById('elit-bulk-progress');
+        if (el) {
+          el.innerHTML = `
+            <div style="text-align:left;font-size:13px;line-height:1.9">
+              <div style="height:8px;background:#333;border-radius:99px;overflow:hidden;margin-bottom:10px">
+                <div style="height:100%;width:${pct}%;background:#F26722;transition:width .3s"></div>
+              </div>
+              Procesados: <b>${agg.processed.toLocaleString('es-AR')}</b> de <b>${agg.total.toLocaleString('es-AR')}</b> (${pct}%)<br/>
+              ✅ Creados: <b>${agg.created}</b> &nbsp; ⏭️ Omitidos: <b>${agg.skipped}</b> &nbsp; ⚠️ Errores: <b>${agg.errors}</b>
+            </div>`;
+        }
+
+        next = data?.next || null;
+        offset = next || offset;
+      }
+
+      await Swal.fire({
+        title: '¡Importación finalizada!',
+        html: `
+          <div style="text-align:left;font-size:14px">
+            <p>✅ Creados: <b>${agg.created}</b></p>
+            <p>⏭️ Omitidos (ya existían): <b>${agg.skipped}</b></p>
+            <p>⚠️ Errores: <b>${agg.errors}</b></p>
+            <p style="margin-top:8px;opacity:.7">Los productos importados quedan <b>pendientes de moderación</b>.</p>
+          </div>`,
+        icon: 'success',
+        background: '#1A1A1A',
+        color: '#ffffff',
+        confirmButtonColor: '#F26722',
+        customClass: { popup: 'rounded-3xl border border-gray-800' },
+      });
+
+      // Refrescamos la grilla.
+      loadProducts(page, filters);
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Error en la importación.';
+      Swal.fire({
+        title: 'Error al importar',
+        text: msg,
+        icon: 'error',
+        background: '#1A1A1A',
+        color: '#ffffff',
+        confirmButtonColor: '#F26722',
+        customClass: { popup: 'rounded-3xl border border-gray-800' },
+      });
+    } finally {
+      setBulkRunning(false);
+      setBulkProgress(null);
+    }
+  };
+
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -289,12 +437,31 @@ export default function ElitCatalogExplorer() {
               Vista de sólo lectura para validar la sincronización de stock y precios.
             </p>
           </div>
-          {total > 0 && (
-            <span className="ml-auto text-[11px] font-bold text-gray-400 whitespace-nowrap">
-              {total.toLocaleString('es-AR')} productos
-            </span>
-          )}
+                    {total > 0 && (
+                      <span className="ml-auto text-[11px] font-bold text-gray-400 whitespace-nowrap">
+                        {total.toLocaleString('es-AR')} productos
+                      </span>
+                    )}
+
+                    {/* Import masivo del catálogo (por tandas) */}
+                    <button
+                      onClick={handleBulkImport}
+                      disabled={bulkRunning || loading || total === 0}
+                      className={`flex items-center gap-2 px-4 py-2.5 bg-[#F26722] text-white rounded-xl font-bold text-xs uppercase tracking-tight hover:bg-[#d9531e] transition-all disabled:opacity-50 whitespace-nowrap ${total > 0 ? '' : 'ml-auto'}`}
+                      title="Importar el catálogo de Elit a mi tienda"
+                    >
+                      {bulkRunning ? (
+                        <Loader2 size={15} className="animate-spin" />
+                      ) : (
+                        <DownloadCloud size={15} />
+                      )}
+                      <span className="hidden sm:inline">
+                        {bulkRunning ? 'Importando...' : 'Importar todo'}
+                      </span>
+                    </button>
         </div>
+
+
 
         {/* Barra de filtros */}
         <div className="mt-4 flex flex-col md:flex-row gap-2">

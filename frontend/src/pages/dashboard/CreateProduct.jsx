@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { ImportSection } from "../../components/ImportProductsSection.jsx";
 import ElitCatalogExplorer from "../../components/ElitCatalogExplorer.jsx";
 import { ListingTypeSelector } from "../../components/ListingTypeSelector.jsx";
+import SellingBenefits from "../../components/SellingBenefits.jsx";
 import ProductForm from "../../components/ProductForm.jsx";
 import VehicleForm from "../../components/VehicleForm.jsx";
 import PropertyForm from "../../components/PropertyForm.jsx";
@@ -20,19 +21,13 @@ import ShippingQuoteCalculator from "../../components/ShippingQuoteCalculator.js
 
 
 import {
-  Package,
-  Image as ImageIcon,
   Plus,
-  X,
-  ArrowRight,
-    Truck,
   ArrowLeft,
   AlertTriangle,
   Clock,
   ShieldCheck,
   Wallet,
 } from "lucide-react";
-import HowToSell from "../../components/HowToSell.jsx";
 
 export default function CreateProduct() {
   const [formType, setFormType] = useState(null);
@@ -78,6 +73,29 @@ export default function CreateProduct() {
   // reintento de publicación; solo refrescamos el usuario en el store.
   const handleOnboardingComplete = async () => {
     await syncUser();
+  };
+
+  // CTA "Quiero vender" de la sección de beneficios. Como esa sección se
+  // muestra en varios estados, resolvemos acá qué hacer según dónde esté el
+  // usuario:
+  //   - sin sesión        → abrir el login
+  //   - sin onboarding    → abrir el modal de onboarding (waiting list)
+  //   - en lista de espera→ ya aplicó: refrescamos estado (sin reintentar)
+  //   - aprobado          → no aplica (ya ve el selector de tipo abajo)
+  const handleWantToSell = () => {
+    if (!authenticated || !user) {
+      setIsLoginOpen(true);
+      return;
+    }
+    if (!onboardingComplete) {
+      setIsOnboardingOpen(true);
+      return;
+    }
+    if (!shopApproved) {
+      syncUser();
+      return;
+    }
+    // Aprobado: el selector de tipo de publicación ya está en pantalla.
   };
 
   // Función unificada para errores
@@ -207,41 +225,22 @@ export default function CreateProduct() {
 
   if (!ready) return null;
 
-  // Si no está autenticado, mostramos llamada a la accion
+  // Si no está autenticado, mostramos los beneficios de vender + CTA de login.
+  // Antes caía directo al pedido de sesión sin explicar POR QUÉ conviene vender.
   if (!authenticated || !user) {
     return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in duration-300">
-        <div className="w-20 h-20 bg-blue-100 dark:bg-blue-900/20 rounded-full flex items-center justify-center mb-6">
-          <Package className="w-10 h-10 text-blue-600" />
-        </div>
-
-        <h2 className="text-3xl font-black uppercase tracking-tighter dark:text-white mb-4">
-          ¿Querés empezar a vender?
-        </h2>
-
-        <p className="text-zinc-500 dark:text-zinc-400 max-w-md mb-8 text-lg">
-          Publicá tus productos en Mercado Nero y llegá a miles de compradores.
-          Primero debés iniciar sesión para comenzar.
-        </p>
-
-        <div className="space-y-4">
-          <button
-            onClick={()=> setIsLoginOpen(true)}
-            className="group flex items-center gap-3 px-8 py-4 bg-[#F26722] text-white rounded-2xl font-black uppercase tracking-[0.2em] text-sm hover:scale-105 active:scale-95 transition-all shadow-lg shadow-[#F26722]/20"
-          >
-            Iniciar Sesión
-            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-          </button>
-
+      <div className="animate-in fade-in zoom-in duration-300">
+        <SellingBenefits onWantToSell={() => setIsLoginOpen(true)} />
+        <div className="max-w-md mx-auto text-center pb-16">
           <p className="text-sm text-zinc-400 dark:text-zinc-500">
-            No tenés cuenta? Se crea automáticamente al iniciar sesión. Sin contraseña ni datos biométricos.
+            ¿No tenés cuenta? Se crea automáticamente al iniciar sesión. Sin
+            contraseña ni datos biométricos.
           </p>
         </div>
         <SupabaseLogin
           isOpen={isLoginOpen}
           onClose={() => setIsLoginOpen(false)}
         />
-        <HowToSell />
       </div>
     );
   }
@@ -274,6 +273,13 @@ export default function CreateProduct() {
     const alreadyApplied = onboardingComplete && !shopApproved;
     return (
       <DashboardLayout>
+        {/* Beneficios siempre visibles: el que llega a /vender entiende las
+            condiciones antes de tocar la lista de espera. Si ya aplicó, no
+            mostramos el CTA "Quiero vender" (no tiene sentido pedirlo de nuevo). */}
+        <SellingBenefits
+          onWantToSell={handleWantToSell}
+          showCta={!alreadyApplied}
+        />
         <div className="max-w-2xl mx-auto p-6">
           <div className="mt-6 p-8 rounded-3xl border border-amber-300/60 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 text-center space-y-5">
             <div className="w-16 h-16 mx-auto rounded-2xl bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center">

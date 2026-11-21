@@ -564,17 +564,15 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
               value={product.category}
               onChange={handleInputChange}
             >
-              <option value="">Seleccionar Categoría...</option>
-              {launchCategoryTree
-                .filter(
-                  (cat) =>
-                    !["Vehículos", "Inmuebles", "Servicios"].includes(cat.name),
-                )
-                .map((cat) => (
-                  <option key={cat.id} value={cat.slug}>
-                    {cat.name}
-                  </option>
-                ))}
+                            <option value="">Seleccionar Categoría...</option>
+              {/* Catálogo de lanzamiento: computación/tecnología.
+                  Vehículos, Inmuebles y Servicios no aparecen porque tienen
+                  formulario propio (y están deshabilitados en CreateProduct). */}
+              {launchCategoryTree.map((cat) => (
+                <option key={cat.id} value={cat.slug}>
+                  {cat.name}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -592,7 +590,8 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
               onChange={handleInputChange}
             >
               <option value="">Seleccionar Sub-categoría...</option>
-              {/* Buscamos las subcategorías de la categoría elegida */}
+                            {/* Buscamos las subcategorías de la categoría elegida
+                  (ya vienen filtradas por la allowlist de lanzamiento). */}
               {launchCategoryTree
                 .find((c) => c.slug === product.category)
                 ?.subcategories?.map((sub) => (
@@ -1507,6 +1506,11 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                     salen de tu margen y se reparten 75/25 en USDT. Se descuenta
                     de tu garantía (colateral) al liberarse la orden.
                   </p>
+                  <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                    Este precio en USD es calculado en base al tipo de cambio del momento, 
+                    y puede variar según la cotización del dólar.
+                  </p>
+                  
                 </div>
               )}
 

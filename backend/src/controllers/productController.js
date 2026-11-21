@@ -833,6 +833,152 @@ export const getProducts = async (req, res) => {
   }
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// CATEGORÍAS CON PRODUCTOS VISIBLES (para el menú de navegación)
+// ═══════════════════════════════════════════════════════════════════════════
+// Regla de producto: si NO hay productos de la categoría X, X no se muestra en
+// el menú. No tiene sentido dejar navegar a una página que dice "todavía no hay
+// productos". Por eso el menú se DERIVA de los productos existentes y no de una
+// lista fija: cuando un vendedor publica la primera notebook, "Computación"
+// aparece sola, sin tocar código.
+//
+// ⚠️ La visibilidad debe ser la MISMA que `getProducts`, o el menú miente:
+//   status:"active" + moderation.status:"approved" (catálogo público)
+//   + vendedor con cuenta activa y tienda habilitada (sellerCanSellPublicly)
+//   + wallet en productos de pago (escrow) o clasificado.
+// Si no replicáramos esa regla, aparecerían categorías cuyo click rebota a la
+// pantalla de "Sin resultados".
+//
+// Devuelve SOLO slugs: los nombres legibles viven en el front
+// (`data/allCategories.js`), que es donde se traducen a texto para mostrar.
+export const getVisibleCategories = async (req, res) => {
+  try {
+    // ── PASO 1 (barato): qué categorías tienen productos "candidatos" ──
+    // Usamos distinct: Mongo resuelve esto con índice, sin traer documentos
+    // completos. Da un conjunto CHICO de categorías (≤32), así el paso 2
+    // consulta poco en vez de recorrer todo el catálogo.
+    const candidateCategories = (
+      await Product.distinct("category", {
+        status: "active",
+        "moderation.status": "approved",
+      })
+    ).filter(Boolean);
+
+    if (candidateCategories.length === 0) {
+      return res.json({ success: true, categories: [] });
+    }
+
+    // ── PASO 2 (por categoría): ¿queda al menos 1 producto VISIBLE? ──
+    // Necesitamos el seller populado para validar tienda/cuenta/wallet, y eso
+    // no se puede hacer en un distinct (el filtro depende de campos del
+    // vendedor). Traemos SOLO los campos mínimos y cortamos en cuanto
+    // encontramos un producto visible por categoría: como el resultado final
+    // es "esta categoría sí/no", no hace falta contar el resto.
+    const visibleCategories = [];
+
+    for (const category of candidateCategories) {
+      const candidates = await Product.find(
+        {
+          category,
+          status: "active",
+          "moderation.status": "approved",
+        },
+        { listingType: 1, seller: 1 }, // proyección mínima
+      )
+        .populate({
+          path: "seller",
+          select: "shop accountStatus walletAddress",
+        })
+        .lean();
+
+      const hasVisibleProduct = candidates.some((p) => {
+        // Misma regla que getProducts (ver comentario arriba).
+        if (!p.seller || !sellerCanSellPublicly(p.seller)) return false;
+        if (p.listingType === "product" && !p.seller.walletAddress) return false;
+        return true;
+      });
+
+      if (hasVisibleProduct) visibleCategories.push(category);
+    }
+
+    res.json({ success: true, categories: visibleCategories });
+  } catch (error) {
+    console.error("Error en getVisibleCategories:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Error al obtener las categorías" });
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PRODUCTOS DESTACADOS (carousel del Home) — lista MANUAL por IDs
+// ═══════════════════════════════════════════════════════════════════════════
+// Decisión de producto: el "destacado" NO es un campo del modelo. Es una lista
+// de IDs elegida a mano desde el front (`config/featuredProducts.js`), sin
+// tocar el flujo del vendedor ni el panel de admin. Cuando la monetización
+// madure, este endpoint puede pasar a leer un flag `featured` en Product sin
+// que el Home cambie: la interface de la respuesta es la misma.
+//
+// Recibe los IDs por query (`ids=a,b,c`) y devuelve los productos EN ESE ORDEN
+// (el orden es la curaduría: lo primero de la lista sale primero en el carousel).
+//
+// ⚠️ Se aplica la MISMA visibilidad que getProducts: si un ID elegido a mano se
+// despublica, se pausa o su vendedor pierde la tienda, simplemente no aparece.
+// La curaduría no debe ser una puerta trasera para mostrar algo que ya no
+// debería verse (una publicación eliminada daría 404 al hacer click).
+export const getProductsByIds = async (req, res) => {
+  try {
+    const raw = String(req.query.ids || "");
+    // Parseamos, deduplicamos y validamos ObjectIds (un id inválido haría
+    // fallar el cast de Mongo con un error 500 en vez de ignorarse).
+    const ids = [
+      ...new Set(
+        raw
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => mongoose.Types.ObjectId.isValid(s) && s.length === 24),
+      ),
+    ].slice(0, 60); // tope defensivo: el carousel no necesita más
+
+    if (ids.length === 0) {
+      return res.json({ success: true, products: [] });
+    }
+
+    const docs = await Product.find(
+      {
+        _id: { $in: ids },
+        status: "active",
+        "moderation.status": "approved",
+      },
+      { description: 0, specifications: 0 }, // el carousel no los usa
+    )
+      .populate({
+        path: "seller",
+        select: "username name shop isVerified walletAddress accountStatus",
+      })
+      .lean();
+
+    // Mismos filtros que el catálogo público (wallet para productos de pago y
+    // vendedor con cuenta activa + tienda habilitada).
+    const visible = docs.filter((p) => {
+      if (p.listingType === "product" && !p.seller?.walletAddress) return false;
+      return p.seller && sellerCanSellPublicly(p.seller);
+    });
+
+    // Reordenamos según la lista original: Mongo devuelve lo que quiere, pero
+    // el orden de la curaduría es intencional.
+    const byId = new Map(visible.map((p) => [String(p._id), p]));
+    const ordered = ids.map((id) => byId.get(String(id))).filter(Boolean);
+
+    res.json({ success: true, products: ordered });
+  } catch (error) {
+    console.error("Error en getProductsByIds:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Error al obtener los destacados" });
+  }
+};
+
 // Obtener un producto por ID o por slug SEO
 export const getProductById = async (req, res) => {
   try {

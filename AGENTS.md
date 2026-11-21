@@ -143,6 +143,39 @@ se interpreta como **"en lista de espera"**. Reglas vigentes:
 > ya pausa los productos (`active→paused`) al desactivar la tienda, pero así no depende de
 > que nadie se acuerde de pausarlos (cubre scripts, importadores y bugs futuros).
 
+### 5c. MENÚ DE CATEGORÍAS: derivado de PRODUCTOS EXISTENTES (no lista fija)
+
+> **Regla:** si no hay productos visibles de la categoría X, **X no aparece en el menú**.
+> No tiene sentido permitir navegar a una página que dice "todavía no hay productos".
+
+- **Fuente de verdad del MENÚ = productos existentes.** `GET /api/product/categories`
+  (`getVisibleCategories` en `productController.js`) devuelve los slugs de categoría con
+  al menos un producto **visible**, aplicando la MISMA regla que `getProducts`
+  (`status:"active"` + `moderation.status:"approved"` + `sellerCanSellPublicly` + wallet
+  si es producto de pago). Devuelve solo slugs; el front los traduce a nombre con
+  `data/allCategories.js`.
+  - **Por qué no un `distinct` solo:** la visibilidad depende del vendedor (tienda/wallet),
+    que no se puede evaluar en un `distinct`. Se usa `distinct` para acotar candidatas
+    (≤32) y luego se valida por categoría con proyección mínima.
+- **Front:** `Utils/useVisibleCategories.js` (hook con cache en módulo + suscriptores).
+  Usado por `Header.jsx` (desktop y mobile). Muestra **spinner** mientras carga y un
+  mensaje explícito si no hay ninguna categoría (nunca un dropdown vacío).
+- **`frontend/src/data/categories.js` FUE BORRADO.** Era una lista fija con slugs que no
+  existen en el catálogo (`supermercado`, `hogar-y-muebles`, `televisores`, `moda`,
+  `para-tu-negocio`, `mas-vendidos`, `tiendas-oficiales`) → todos callejones sin salida a
+  "Sin resultados". **No la resurrectes.**
+- **⚠️ NO confundir las dos fuentes:** el menú es dinámico (productos), pero el **selector
+  del formulario de publicación** sigue siendo `config/launchCategories.js` (lista FIJA).
+  Si el selector se derivara de productos, un vendedor nuevo vería un dropdown vacío
+  (problema del huevo y la gallina). Ver §5b.
+- **Solo Productos** habilitado: Vehículos, Inmuebles y Servicios están con candado
+  (`ListingTypeSelector`) y no deben aparecer en el menú. Como la regla es "sin productos
+  no hay entrada", desaparecen solos.
+- **⚠️ ORDEN DE RUTAS:** `GET /categories` va **antes** de `GET /:id` en `productRoutes.js`,
+  si no Express lo matchea como un id y devuelve 404.
+- **Cache:** es por sesión (módulo). Si se aprueba/publica un producto y querés ver la
+  categoría nueva sin recargar, llamá `invalidateVisibleCategories()`.
+
 ---
 
 ## 6. Flujo de órdenes / pagos
@@ -277,6 +310,26 @@ NO hay gas sponsorship premium (Crossmint lo exige en plan pago, sin pricing pú
 - **Migrar un campo de la DB:** antes de borrar un campo del schema, contar cuántos docs
   lo usan y si son la ÚNICA identidad de alguno (`db.users.countDocuments({campo:{$exists:true}})`).
   Si nadie depende de él, se borra; si hay docs que solo tienen ese id, se migran primero.
+- **⚠️ `walletAddress` JAMÁS se escribe desde `sync-user`** (bug crítico 2026-11). El
+  endpoint `POST /api/auth/sync-user` aceptaba `walletAddress` del body y la guardaba si el
+  campo estaba vacío. Como `useSyncUser` mandaba `user.wallet.address` —que `authClient`
+  arma desde `dbUser.walletAddress` del store de Zustand **persistido en localStorage**—
+  un cambio de sesión SIN `logout()` (otra pestaña, magic link con otro mail, expiración +
+  re-login) hacía que el usuario NUEVO heredara la wallet del ANTERIOR. Incidente real:
+  `atomichardware@protonmail.com` quedó con la address del admin. FIX aplicado en 3 capas:
+  1. **backend `authRoutes.js`**: `sync-user` NUNCA asigna `walletAddress`; el body solo
+     sirve para detectar colisión → 409 `WALLET_ALREADY_LINKED`. Un user nuevo nace SIN wallet.
+  2. **frontend `authClient.jsx`**: solo expone `user.wallet` si `dbUser.supabaseId ===
+     session.user.id`; si detecta store de otra sesión, lo limpia (`clearUser` +
+     `clearWalletCache`).
+  3. **frontend `userSync.jsx`**: `resolveWalletAddress()` devuelve `undefined` si el store
+     no corresponde a la sesión activa.
+  Regla: la wallet es dato de **negocio** y solo se vincula por `POST /api/user/wallet`
+  (`saveWallet`, que valida formato + unicidad). Auditoría: `node scripts/auditWalletCollisions.mjs`
+  (solo lectura; `--fix` quita la wallet a no-admins que tengan la de un admin).
+- **Store `user-storage` (Zustand) sobrevive al cambio de sesión:** `logout()` sí lo limpia,
+  pero cambiar de usuario de Supabase sin pasar por `logout()` NO. Todo dato de negocio
+  leído desde `dbUser` debe validarse contra `session.user.id` (ver punto anterior).
 
 ---
 

@@ -6,6 +6,8 @@ import FilterSidebar from '../components/FilterSidebar'; // Importamos tu compon
 import { SlidersHorizontal } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { useUserStore } from '../store/useUserStore';
+// Nombres legibles de categoría (el backend filtra por slug; acá mostramos texto).
+import { allCategories } from '../data/allCategories';
 
 // Tamaño de página estándar de la industria para grids de resultados
 // (~48 = 4 columnas x 12 filas, similar al default de los principales marketplaces).
@@ -50,13 +52,19 @@ const SearchResults = () => {
   // "Publicaciones de @..." en vez de una búsqueda genérica.
   const isSellerView = Boolean(sellerId);
 
-  // Vista por categoría: derivamos un nombre legible desde el slug.
+    // Vista por categoría: derivamos un nombre legible desde el slug.
+  // Si el slug está en el catálogo oficial usamos su nombre real ("Electrónica,
+  // Audio y Video" en vez de "Electronica Audio Y Video"); si no, prettificamos
+  // el slug como fallback (categorías legacy fuera del catálogo).
   const isCategoryView = Boolean(categorySlug);
   const formatSlug = (slug) =>
     (slug || "")
       .replace(/-/g, " ")
       .replace(/\b\w/g, (l) => l.toUpperCase());
-  const categoryLabel = isCategoryView ? formatSlug(categorySlug) : "";
+  const categoryLabel = isCategoryView
+    ? allCategories.find((c) => c.slug === categorySlug)?.name ||
+      formatSlug(categorySlug)
+    : "";
 
   // Función de fetch con paginación (segmentada de a PAGE_SIZE resultados)
   const fetchPage = async (pageNumber, append = false) => {

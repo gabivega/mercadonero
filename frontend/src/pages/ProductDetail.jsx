@@ -448,12 +448,17 @@ export default function ProductDetail() {
                 {/* Solo mostramos Nuevo/Usado si NO es un clasificado */}
 
                 {product.listingType === "product" ? (
-                  <div className="flex justify-between">
+                                    <div className="flex justify-between">
                     <div className="flex flex-row w-full">
                       <span className="text-xs font-medium text-gray-500">
                         {product.condition === "new" ? "Nuevo " : "Usado"}
                       </span>
-                      <span className="ml-1">| {product.sold} vendidos</span>
+                      {/* Vendidos: solo si tiene al menos 1. Un "0 vendidos"
+                          en un producto nuevo resta confianza en vez de
+                          aportar información. */}
+                      {Number(product.sold) > 0 && (
+                        <span className="ml-1">| {product.sold} vendidos</span>
+                      )}
                     </div>
                     <span className="whitespace-nowrap">⭐ {product.rating}</span>
                   </div>
