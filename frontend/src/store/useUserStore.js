@@ -41,8 +41,8 @@ const emailCanUseElit = (userData) => {
 
 export const useUserStore = create(
   persist(
-    (set) => ({
-            dbUser: null,
+        (set) => ({
+      dbUser: null,
       isAdmin: false,
       canUseElitCatalog: false,
 
@@ -51,8 +51,20 @@ export const useUserStore = create(
       // aunque la BD aún no tenga el rol (acceso bootstrap al panel).
       // `canUseElitCatalog` habilita el panel de proveedores a cuentas puntuales
       // (VITE_ELIT_ALLOWED_EMAILS) sin darles admin total.
-      // `_legacyId` se mantiene por compatibilidad de firma (ya no se usa).
+            // `_legacyId` se mantiene por compatibilidad de firma (ya no se usa).
+      //
+      // ⚠️ AISLAMIENTO DE SESIONES (bug 2026-11): el dueño del store es
+      // `supabaseId`. Un `dbUser` SIN `supabaseId` no se puede atar a ninguna
+      // sesión y, persistido en localStorage, sobrevive al cambio de usuario
+      // exponiendo datos (incluida la wallet) del anterior. No lo guardamos.
       setDbUser: (userData, _legacyId) => {
+        if (userData && !userData.supabaseId) {
+          console.warn(
+            "[useUserStore] dbUser sin supabaseId: no se persiste (evita mezclar identidades).",
+          );
+          set({ dbUser: null, isAdmin: false, canUseElitCatalog: false });
+          return;
+        }
         const admin = userData?.role === "admin" || emailIsAdmin(userData);
         set({
           dbUser: userData || null,

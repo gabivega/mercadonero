@@ -8,17 +8,30 @@ import verifyAuth from "../middleware/verifyAuth.js";
  * de SUPABASE (única fuente de auth tras eliminar Privy).
  *
  *   - `req.user.did` es el uuid de Supabase.
- *   - Buscamos por `supabaseId`, con fallbacks por `email` y `walletAddress`
+  *   - Buscamos por `supabaseId`, con fallbacks por `email` y `walletAddress`
  *     (para adoptar cuentas preexistentes sin duplicar).
+ *
+ * ⚠️ IMPORTANTE — LA WALLET NO SE ESCRIBE DESDE ACÁ (bug 2026-11):
+ *   Antes este endpoint aceptaba `walletAddress` del body y lo guardaba en el
+ *   usuario si el campo estaba vacío. Eso permitía que el CLIENTE dictara la
+ *   wallet de una cuenta. Combinado con el `dbUser` de Zustand persistido en
+ *   localStorage (que puede sobrevivir a un cambio de sesión sin logout),
+ *   provocaba que un usuario NUEVO heredara la wallet del usuario ANTERIOR
+ *   logueado. Visto en producción: `atomichardware@protonmail.com` quedó con
+ *   la address del admin.
+ *
+ *   La wallet es un dato de NEGOCIO, no una identidad de auth: se vincula
+ *   únicamente vía `POST /api/user/wallet` (saveWallet), que valida unicidad.
+ *   Acá el `walletAddress` del body se usa SOLO como señal para detectar una
+ *   colisión y responder 409; NUNCA para escribir en el documento.
  */
 router.post("/sync-user", verifyAuth, async (req, res) => {
   try {
     const { did } = req.user;
     // El email del JWT es la fuente de verdad; usamos el del body como fallback.
         const email = (req.user.email || req.body?.email || "").toLowerCase().trim();
-    // Normalizamos la wallet a minúsculas (las EVM son case-insensitive). Así
-    // la búsqueda por wallet y el guardado usan SIEMPRE la misma forma, y una
-    // address en formato checksum no esquivar el índice único.
+        // Normalizamos la wallet a minúsculas (las EVM son case-insensitive). Solo
+    // se usa para BUSCAR/validar colisiones; NO se persiste desde este endpoint.
     const walletAddress = req.body?.walletAddress
       ? String(req.body.walletAddress).trim().toLowerCase()
       : undefined;
@@ -69,9 +82,10 @@ router.post("/sync-user", verifyAuth, async (req, res) => {
       const shortId = String(did).replace(/[^a-z0-9]/gi, "").slice(-6) || "user";
       const tempUsername = `nero-${shortId}`;
 
+            // ⚠️ El usuario NACE SIN WALLET (ver nota del encabezado). La wallet se
+      // vincula luego con POST /api/user/wallet cuando crea su billetera.
       user = new User({
         email,
-        walletAddress: walletAddress || undefined,
         username: tempUsername,
         role: "user",
         shop: {
@@ -81,10 +95,29 @@ router.post("/sync-user", verifyAuth, async (req, res) => {
       });
     }
 
+        // ── GUARD DE UNICIDAD DE WALLET (defensa en profundidad) ─────────────
+    // Si el cliente nos manda una wallet que YA pertenece a OTRA cuenta, lo
+    // rechazamos explícitamente. Sin esto, un `dbUser` viejo en localStorage
+    // (del login anterior) podía hacer que sync-user intentara escribir la
+    // address ajena. Devolvemos 409 para que el front limpie el estado y el
+    // usuario vuelva a iniciar sesión / cree su propia billetera.
+    if (walletAddress) {
+      const owner = await User.findOne({ walletAddress }).select("_id");
+      if (owner && String(owner._id) !== String(user._id)) {
+        return res.status(409).json({
+          message:
+            "Esta billetera ya está vinculada a otra cuenta. Iniciá sesión con el email asociado a la billetera.",
+          code: "WALLET_ALREADY_LINKED",
+          walletAddress,
+        });
+      }
+    }
+
     // 3. Persistimos el identificador del origen + migración pasiva de datos.
+    //    ⚠️ `walletAddress` NO se asigna acá (ver nota del encabezado): la
+    //    wallet sólo se vincula con POST /api/user/wallet.
         if (did) user.supabaseId = did;
     if (email && !user.email) user.email = email;
-    if (!user.walletAddress && walletAddress) user.walletAddress = walletAddress;
 
     await user.save();
     res.status(200).json(user);

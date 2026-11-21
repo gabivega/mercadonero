@@ -94,9 +94,46 @@ export function AuthProvider({ children }) {
   const openLogin = useCallback(() => setLoginOpen(true), []);
   const closeLogin = useCallback(() => setLoginOpen(false), []);
 
-  // Wallet vinculada: vive en Mongo (dbUser.walletAddress). Nos suscribimos al
+    // Wallet vinculada: vive en Mongo (dbUser.walletAddress). Nos suscribimos al
   // store para que `user.wallet.address` (compat Privy) refleje el dato real.
+  //
+  // ⚠️ FIX DE AISLAMIENTO DE SESIONES (bug 2026-11):
+  // El store de Zustand está PERSISTIDO en localStorage y `dbWalletAddress` es
+  // el del ÚLTIMO usuario sincronizado. Si cambia el usuario de la sesión de
+  // Supabase SIN pasar por `logout()` (otra pestaña, magic link con otro mail,
+  // expiración + re-login, etc.), el store queda con los datos del usuario
+  // ANTERIOR y este provider los expone como si fueran del actual → `syncUser`
+  // reenvía esa wallet al backend. Sólo exponemos la wallet si pertenece a la
+  // sesión activa.
+  const dbUserId = useUserStore((s) => s.dbUser?._id || null);
+  const dbUserSupabaseId = useUserStore((s) => s.dbUser?.supabaseId || null);
   const dbWalletAddress = useUserStore((s) => s.dbUser?.walletAddress || null);
+
+  const sessionUserId = session?.user?.id || null;
+  const storeBelongsToSession =
+    !!dbUserSupabaseId &&
+    !!sessionUserId &&
+    String(dbUserSupabaseId) === String(sessionUserId);
+  // Wallet "confiable": solo si el store corresponde a la sesión actual.
+  const walletForSession = storeBelongsToSession ? dbWalletAddress : null;
+
+  // Si detectamos que el store quedó de OTRA sesión, lo limpiamos (y tiramos la
+  // caché de wallets Crossmint). Así ningún flujo puede leer datos del usuario
+  // anterior mientras se re-sincroniza el actual.
+  useEffect(() => {
+    if (!sessionUserId) return;
+    if (dbUserId && !storeBelongsToSession) {
+      console.warn(
+        "[authClient] El store tenía datos de otra sesión; limpiando para evitar mezclar identidades.",
+      );
+      clearWalletCache();
+      try {
+        useUserStore.getState().clearUser?.();
+      } catch (err) {
+        console.warn("[authClient] no se pudo limpiar el store:", err);
+      }
+    }
+  }, [sessionUserId, dbUserId, storeBelongsToSession]);
 
   useEffect(() => {
     let mounted = true;
@@ -232,14 +269,14 @@ export function AuthProvider({ children }) {
       ready,
       authenticated: Boolean(session),
       session,
-      user: mapSupabaseUser(session?.user, dbWalletAddress),
+            user: mapSupabaseUser(session?.user, walletForSession),
       getAccessToken,
       login,
       logout,
       openLogin,
       supabase,
     }),
-    [ready, session, dbWalletAddress, getAccessToken, login, logout, openLogin],
+    [ready, session, walletForSession, getAccessToken, login, logout, openLogin],
   );
 
   return (
