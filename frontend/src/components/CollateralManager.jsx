@@ -457,13 +457,15 @@ export default function CollateralManager() {
         if (mounted) setContractStatus({ hasCode: false, codeLength: 0 });
         return;
       }
-      const res = await checkContractHasCode(CONTRACT_ADDRESS, network.chainName);
+            const res = await checkContractHasCode(CONTRACT_ADDRESS, network.chainName);
       if (mounted) setContractStatus(res);
     })();
     return () => {
       mounted = false;
     };
-  }, [CONTRACT_ADDRESS, network.chainName]);
+    // ⚠️ `network?.chainName`: mientras carga la config del backend `network`
+    // es null y esto se evalúa SIEMPRE (el early return de render no llega acá).
+  }, [CONTRACT_ADDRESS, network?.chainName]);
 
   // Resolver la address real del signer (smart wallet Crossmint) al montar.
   useEffect(() => {
@@ -479,7 +481,7 @@ export default function CollateralManager() {
 
   // 1. FUNCIÓN PARA LEER LOS SALDOS (READ) — contra la address del signer y la
   // red seleccionada.
-  const fetchBalances = useCallback(async () => {
+    const fetchBalances = useCallback(async () => {
     const addr = signerAddress || (await resolveSignerAddress(walletAddress));
     if (!addr || !CONTRACT_ADDRESS) return;
     setLoadingBalances(true);
@@ -489,7 +491,7 @@ export default function CollateralManager() {
         abi: COLLATERAL_POOL_ABI,
         functionName: "vendors",
         args: [addr],
-        chain: network.chainName,
+        chain: network?.chainName,
       });
 
       const total = fromBaseUnits(totalCollateral, COLLATERAL_TOKEN_DECIMALS);
@@ -511,7 +513,11 @@ export default function CollateralManager() {
     walletAddress,
     CONTRACT_ADDRESS,
     COLLATERAL_TOKEN_DECIMALS,
-    network.chainName,
+    // ⚠️ `network?.chainName`: en el primer render `network` es null (la config
+    // del backend todavía no llegó) y este array se evalúa SIEMPRE, antes de
+    // los early returns de render. Sin el `?.` tira
+    // "Cannot read properties of null (reading 'chainName')".
+    network?.chainName,
   ]);
 
   // Lee las órdenes del vendedor (role=seller) y se queda solo con las que
@@ -881,11 +887,13 @@ export default function CollateralManager() {
     }
   };
 
-  // No permitimos operar si no hay wallet, si el contrato no tiene código, o si
+    // No permitimos operar si no hay wallet, si el contrato no tiene código, o si
   // la red no es firmable con Crossmint (BSC testnet). La lectura sigue visible.
   const contractMissing = contractStatus?.hasCode === false;
-  const canSign = network.sendable;
-    const disabled = loading || !walletAddress || contractMissing || !canSign;
+  // ⚠️ `network?.sendable`: mientras carga la config `network` es null y estas
+  // líneas se evalúan ANTES del early return de render (como todo el cuerpo).
+  const canSign = Boolean(network?.sendable);
+  const disabled = loading || !walletAddress || contractMissing || !canSign;
   const withdrawDisabled =
     disabled || loadingBalances || balances.available === "0.00";
 
