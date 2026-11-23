@@ -7,6 +7,7 @@ import {
   resolveProductReferral,
   getReferralConfig,
 } from "../services/referralService.js";
+import { notifyAdmin, escapeTelegramHtml as tgEsc } from "../services/telegramService.js";
 
 // Acepta un id (ObjectId) o un slug SEO. Devuelve el filtro de b√∫squeda
 // adecuado para Mongo. Los slugs siempre contienen guiones y letras, por lo
@@ -362,10 +363,31 @@ if (listingType !== 'classified' && shipping) {
     }
     const savedProduct = await newProduct.save();
 
-    // 4. Actualizamos el array de productos del vendedor
+        // 4. Actualizamos el array de productos del vendedor
     await User.findByIdAndUpdate(userId, {
       $push: { products: savedProduct._id },
     });
+
+    // ‚îÄ‚îÄ Aviso al ADMIN por TELEGRAM: publicaci√≥n pendiente de moderaci√≥n ‚îÄ‚îÄ
+    // El producto nace en moderation.status="pending" y NO se ve en el cat√°logo
+    // hasta que el admin lo apruebe, as√≠ que este aviso es el disparador del
+    // flujo de moderaci√≥n. No bloquea la respuesta (fire-and-forget).
+    try {
+      const seller = await User.findById(userId).select("username shop.name email");
+      notifyAdmin("product_created", {
+        header: "üìù <b>Publicaci√≥n pendiente de aprobaci√≥n</b>",
+        lines: [
+          `${tgEsc(savedProduct.name || "")}`,
+          `Vendedor: ${tgEsc(seller?.shop?.name || seller?.username || seller?.email || "")}`,
+          `Categor√≠a: ${tgEsc(savedProduct.category || "‚Äî")} ¬∑ ID: ${savedProduct._id}`,
+        ],
+        data: { productId: savedProduct._id },
+      }).catch(() => {});
+    } catch (notifyErr) {
+      // El aviso nunca debe romper la publicaci√≥n.
+      console.warn("[Telegram] product_created:", notifyErr?.message);
+    }
+
 
     res.status(201).json({
       success: true,
@@ -1232,5 +1254,51 @@ export const updateProduct = async (req, res) => {
   } catch (err) {
     console.error("Error al editar producto:", err);
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+// ----------------------------------------------------------------------------
+// getMyProductById ó detalle COMPLETO de un producto propio (para EDITAR)
+// ----------------------------------------------------------------------------
+// øPor quÈ existe si ya hay `getProductById`?
+//
+//  1. `getProducts`/`getMyProducts` usan la proyecciÛn `-description
+//     -specifications` para aligerar el listado (100 filas con descripciÛn
+//     completa inflan el payload). Consecuencia: el objeto que el panel tiene en
+//     memoria NO trae `description`, y como el textarea es `required`, el
+//     navegador BLOQUEA el guardado de cualquier ediciÛn ("la descripciÛn est·
+//     vacÌa"). El bug NO era del formulario: era del origen de los datos.
+//
+//  2. `getProductById` (p˙blico) exige status "active" + moderation
+//     "approved" + vendedor habilitado. Un producto `pending`, `paused` o
+//     `out_of_stock` ó justo los que m·s se quieren editar ó devolverÌa 404.
+//
+// Este endpoint devuelve el documento TAL CUAL (sin proyectar) y solo al DUE—O.
+// El front lo llama al abrir el modal de ediciÛn, asÌ el formulario se precarga
+// con lo que realmente est· en la base.
+export const getMyProductById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "ID inv·lido." });
+    }
+
+    // Sin proyecciÛn: necesitamos description/specifications completas.
+    const product = await Product.findById(id).lean();
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Producto no encontrado." });
+    }
+
+    // SEGURIDAD: solo el dueÒo puede leer su producto completo (incluye datos
+    // internos como costos/markup que NO deben salir al p˙blico).
+    if (String(product.seller) !== String(req.user._id)) {
+      return res.status(403).json({ success: false, message: "No tenÈs permiso sobre esta publicaciÛn." });
+    }
+
+    res.status(200).json({ success: true, product });
+  } catch (error) {
+    console.error("Error en getMyProductById:", error);
+    res.status(500).json({ success: false, message: "Error al obtener la publicaciÛn." });
   }
 };
