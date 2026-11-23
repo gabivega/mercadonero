@@ -9,7 +9,13 @@ import noImage from "../assets/img/no-image.png";
 import Swal from "sweetalert2";
 import { productPath } from "../Utils/productUrl";
 
-export default function ProductCard({ product }) {
+export default function ProductCard({ product, variant = "grid" }) {
+  // Variante HORIZONTAL ("row"): imagen a la izquierda y detalle a la derecha.
+  // Pensada SOLO para listados en mobile (SearchResults), donde una card
+  // vertical de 170px deja mucho aire a los costados. Por defecto es "grid"
+  // (vertical 170x340) para no alterar Home, Favoritos, Offers, Shop, etc.
+  const isRow = variant === "row";
+
   const navigate = useNavigate();
   const { ready, authenticated } = usePrivy();
   const { toggleFavorite } = useFavorites();
@@ -192,15 +198,28 @@ export default function ProductCard({ product }) {
     // ⚠️ Por ser <Link> (= <a>), NO puede contener otros <a> adentro. Los
     // controles internos son <button> (carrito/favorito) o <span> con navigate
     // (vendedor), que cortan la propagación para no disparar la navegación.
-    <Link
+        <Link
       to={productPath(product)}
-      className="poly-card poly-card--grid poly-card--xlarge bg-white dark:bg-zinc-800 rounded-lg overflow-hidden hover:shadow-lg transition-shadow flex flex-col cursor-pointer no-underline"
-            style={{ minWidth: "170px", height: "340px" }}
+      className={
+        isRow
+          ? // Horizontal (mobile): imagen izquierda + detalle derecha, ocupa
+            // todo el ancho disponible del listado.
+            "poly-card poly-card--row bg-white dark:bg-zinc-800 rounded-xl overflow-hidden border border-zinc-100 dark:border-zinc-700/60 hover:shadow-lg transition-shadow flex flex-row cursor-pointer no-underline w-full h-[136px]"
+          : "poly-card poly-card--grid poly-card--xlarge bg-white dark:bg-zinc-800 rounded-lg overflow-hidden hover:shadow-lg transition-shadow flex flex-col cursor-pointer no-underline"
+      }
+      style={
+        isRow ? { width: "100%", height: "136px" } : { minWidth: "170px", height: "340px" }
+      }
     >
       {/* Product Image Container */}
       <div
-        className="poly-card__portada relative bg-white dark:bg-zinc-700 overflow-hidden flex-shrink-0"
-        style={{ minWidth: "170px", height: "160px" }}
+        className={
+          isRow
+            ? // En horizontal la imagen va a la izquierda, cuadrada y fija.
+              "poly-card__portada relative bg-white dark:bg-zinc-700 overflow-hidden flex-shrink-0 w-[124px] h-full"
+            : "poly-card__portada relative bg-white dark:bg-zinc-700 overflow-hidden flex-shrink-0"
+        }
+        style={isRow ? { height: "100%" } : { minWidth: "170px", height: "160px" }}
       >
         <img
           src={product.images?.[0]?.url || noImage}
@@ -227,33 +246,47 @@ export default function ProductCard({ product }) {
             </div>
           )} */}
 
-        {/* Hover Actions */}
-                <div className="absolute inset-0 bg-black/0 hover:bg-black/10 transition-colors flex items-end justify-center gap-2 pb-3 opacity-0 hover:opacity-100">
+                {/* Hover Actions */}
+                <div
+          className={
+            isRow
+              ? // En horizontal las acciones se anclan abajo a la derecha de la
+                // imagen para no tapar el producto.
+                "absolute inset-0 bg-black/0 hover:bg-black/10 transition-colors flex items-end justify-end gap-1.5 p-1.5 opacity-0 hover:opacity-100"
+              : "absolute inset-0 bg-black/0 hover:bg-black/10 transition-colors flex items-end justify-center gap-2 pb-3 opacity-0 hover:opacity-100"
+          }
+        >
           {product.listingType !== "classified" && !isOwnProduct && (
             <button
               onClick={handleAddToCart}
-              className="bg-[#F26722] text-white p-2 rounded-full hover:bg-[#d9531e] transition-colors"
+              className={`bg-[#F26722] text-white rounded-full hover:bg-[#d9531e] transition-colors ${isRow ? "p-1.5" : "p-2"}`}
               aria-label="add-to-cart"
             >
-              <ShoppingCart className="w-5 h-5" />
+              <ShoppingCart className={isRow ? "w-4 h-4" : "w-5 h-5"} />
             </button>
           )}
                     <button
             onClick={handleFavorite}
-            className="bg-white dark:bg-zinc-700 text-[#F26722] p-2 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-600 transition-colors"
+            className={`bg-white dark:bg-zinc-700 text-[#F26722] rounded-full hover:bg-gray-100 dark:hover:bg-zinc-600 transition-colors ${isRow ? "p-1.5" : "p-2"}`}
             aria-label="favorite"
           >
             <Heart
-              className="w-5 h-5"
+              className={isRow ? "w-4 h-4" : "w-5 h-5"}
               fill={isFavorite ? "#F26722" : "none"}
             />
           </button>
         </div>
       </div>
 
-      {/* Product Content */}
-      <div className="poly-card__content p-3 flex flex-col flex-grow">
-        <div className="poly-component__title text-sm font-medium text-gray-900 dark:text-white line-clamp-2 h-[2.5rem] hover:text-[#F26722] transition-colors">
+            {/* Product Content */}
+      <div
+        className={`poly-card__content flex flex-col flex-grow min-w-0 ${isRow ? "p-2.5 justify-center" : "p-3"}`}
+      >
+        <div
+          className={`poly-component__title text-sm font-medium text-gray-900 dark:text-white hover:text-[#F26722] transition-colors ${
+            isRow ? "line-clamp-2" : "line-clamp-2 h-[2.5rem]"
+          }`}
+        >
           {product.name}
         </div>
                 <div className="flex items-center gap-2 mt-1">
@@ -298,26 +331,19 @@ export default function ProductCard({ product }) {
           )}
         </div>
 
-                {/* Price Section */}
-        <div className="poly-component__price mt-2">
+                                {/* Price Section */}
+        <div className={`poly-component__price ${isRow ? "mt-1" : "mt-2"}`}>
           {product.sale?.price > 0 ? (
-            <span className="text-xs text-gray-500 dark:text-gray-400 line-through block">
+            <span className="text-xs text-gray-500 dark:text-gray-400 line-through block leading-none">
               {formatPrice(product.price, product.currency)}
             </span>
           ) : isSocialSelling && ssBestPrice ? (
             <span className="text-xs text-[#228B22] dark:text-green-400 font-semibold block line-clamp-1">
               Hasta {formatPrice(ssBestPrice, product.currency)} en grupo
             </span>
-          ) : (
-            <span
-              className="text-xs opacity-0 block select-none leading-none"
-              aria-hidden="true"
-            >
-              $0
-            </span>
-          )}
-          <div className="flex items-baseline gap-2">
-            <div className="text-lg font-bold text-gray-900 dark:text-white">
+          ) : null}
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <div className="text-lg font-bold text-gray-900 dark:text-white leading-tight">
               {formatPrice(
                 product.sale?.price || product.price,
                 product.currency,
@@ -332,14 +358,16 @@ export default function ProductCard({ product }) {
           </div>
         </div>
 
-        {/* Spacer to push bottom content down */}
-        {product.category !== "autos-motos-y-otros" && (
+        {/* Spacer to push bottom content down.
+            En horizontal NO hace falta: la altura es fija y el contenido se
+            centra verticalmente con justify-center. */}
+        {!isRow && product.category !== "autos-motos-y-otros" && (
           <div className="flex-grow"></div>
         )}
 
                 {/* Envío / Condición / Cashback */}
         {product.listingType == "product" ? (
-          <div className="flex items-center gap-2 h-5">
+          <div className={`flex items-center gap-2 ${isRow ? "mt-1 flex-wrap" : "h-5"}`}>
               {product.shipping?.free === true && (
             <div>
                 <div className="text-xs text-green-600 dark:text-green-400 font-semibold">
@@ -357,13 +385,15 @@ export default function ProductCard({ product }) {
             )}
           </div>
         ) : (
-          <div className="h-5">
+          <div className={isRow ? "mt-1" : "h-5"}>
             {product.category === "autos-motos-y-otros" && (
               <span>
                 {getSpec("Año")} | {getSpec("Kilómetros")}
               </span>
             )}
-            <span className="text-xs font-medium text-gray-600 dark:text-gray-400 inline-block py-[2px] rounded mb-4">
+            <span
+              className={`text-xs font-medium text-gray-600 dark:text-gray-400 inline-block py-[2px] rounded ${isRow ? "" : "mb-4"}`}
+            >
               {product.listingType === "classified" &&
                 product.location &&
                 `${product.location.city} - ${product.location.province}`}
@@ -371,15 +401,18 @@ export default function ProductCard({ product }) {
           </div>
         )}
 
-                {/* Rating and Sold Info */}
-        <div className="h-5 mt-[2px]">
-          {product.rating > 0 && (
-            <div className="text-[0.7rem] text-yellow-500">
-              ⭐ {product.rating}{" "}
-              {product.sold && `| +${product.sold} vendidos`}
-            </div>
-          )}
-        </div>
+                {/* Rating and Sold Info (en horizontal se oculta: 136px no
+                    alcanza para todo y rating/sold es lo menos esencial). */}
+        {!isRow && (
+          <div className="h-5 mt-[2px]">
+            {product.rating > 0 && (
+              <div className="text-[0.7rem] text-yellow-500">
+                ⭐ {product.rating}{" "}
+                {product.sold && `| +${product.sold} vendidos`}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </Link>
   );

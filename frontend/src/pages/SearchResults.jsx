@@ -219,13 +219,25 @@ const SearchResults = () => {
           <>
             {Array.isArray(products) && products.length > 0 ? (
               <>
-                {/* Grid de ANCHO FIJO (170px = ancho de la ProductCard). Con
-                    auto-fill el navegador mete tantas columnas como entren: en
-                    mobile angosto cae a UNA centrada, sin estirar las cards. */}
-                <div className="grid grid-cols-[repeat(auto-fill,170px)] gap-6 justify-center flex-1 w-full">
+                                {/* MOBILE (<md): UNA columna de cards HORIZONTALES full-width.
+                    Una card vertical de 170px dejaba enorme aire a los costados
+                    en el celular; la variante "row" (imagen izq. + detalle der.)
+                    aprovecha todo el ancho y se apila en filas fáciles de leer.
+                    DESKTOP (≥md): grid de ancho fijo (170px = card vertical),
+                    con auto-fill metiendo tantas columnas como entren. */}
+                <div className="flex flex-col gap-3 md:grid md:grid-cols-[repeat(auto-fill,170px)] md:gap-6 md:justify-center flex-1 w-full">
                   {products.map((p) => (
-                    <div key={p._id} className="w-[170px]">
-                      <ProductCard product={p} />
+                    <div key={p._id} className="w-full md:w-[170px]">
+                      {/* ProductCard con variant: "row" solo aplica en mobile.
+                          En desktop le pasamos "grid" para ignorar el layout
+                          horizontal (no podemos condicionar por CSS porque el
+                          markup cambia, no solo los estilos). */}
+                      <div className="md:hidden">
+                        <ProductCard product={p} variant="row" />
+                      </div>
+                      <div className="hidden md:block">
+                        <ProductCard product={p} />
+                      </div>
                     </div>
                   ))}
                 </div>

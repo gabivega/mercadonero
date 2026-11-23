@@ -91,24 +91,29 @@ export default function Home() {
           Va PRIMERO: es el espacio premium / monetizable. El orden sale de
           `config/featuredProducts.js`. Si no hay ids, o ninguno es visible, el
           componente se auto-oculta y el Home sigue de largo. */}
-      <ProductCarousel
+            <ProductCarousel
         title="Destacados"
         sectionId="featured"
         ids={featuredIds}
-        exploreTo="/search"
+        // SIN "Explorar todo": es una curaduría manual por ids y no existe una
+        // página que liste SOLO estos destacados. Con exploreTo="/search" el
+        // botón llevaba al catálogo completo, que no tiene relación con lo que
+        // se está mostrando. Cuando haya una ruta de destacados, se agrega acá.
       />
 
       {/* Recientemente Agregado: renombrado a "Novedades" para que no compita
           conceptualmente con Destacados. El orden aleatorio ayuda, pero el
           problema de fondo (todo de la misma categoría) se resuelve con los
           carousels temáticos de abajo. */}
-      {validProducts.length > 0 && (
+            {validProducts.length > 0 && (
         <ProductCarousel
           title="Novedades"
           products={recentlyAdded}
           sectionId="recently-added"
-          category="recently-added"
-          exploreTo="/search?category=recently-added"
+          // Sin "Explorar todo" (ni exploreTo ni category): `recently-added`
+          // NO es una categoría real del catálogo, así que el botón caía en
+          // "Sin resultados". Es una lista interna del Home, no una vista
+          // navegable. Cuando exista una ruta de novedades, se agrega acá.
         />
       )}
 

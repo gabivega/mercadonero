@@ -101,7 +101,17 @@ export default function ProductCarousel({ title, category, subCategory, sectionI
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category, subCategory, idsKey]);
 
-  if (!loading && products.length === 0) return null;
+    if (!loading && products.length === 0) return null;
+
+  // "Explorar todo" SOLO si hay un destino con sentido:
+  //   · exploreTo explícito (ej: /c/computacion?subCategory=notebooks), o
+  //   · una category (fallback histórico `/search?category=...`).
+  // En modo DESTACADOS (curaduría por `ids`) no hay ninguno de los dos, así
+  // que el botón se oculta: antes apuntaba a `/search` y traía TODO el catálogo,
+  // sin relación con lo mostrado. También evita `/search?category=undefined`
+  // en carruseles que no declaran category (ej: Novedades).
+  const hasExploreTarget = Boolean(exploreTo) || Boolean(category);
+  const exploreHref = exploreTo || `/search?category=${category}`;
 
   return (
     <section className="mb-12 px-0">
@@ -112,12 +122,14 @@ export default function ProductCarousel({ title, category, subCategory, sectionI
           </h2>
           <div className="h-1 w-12 bg-[#F26722] mt-1" />
         </div>
-              <button 
-  onClick={() => navigate(exploreTo || `/search?category=${category}`)} 
+              {hasExploreTarget && (
+  <button 
+  onClick={() => navigate(exploreHref)} 
   className="text-[#F26722] text-xs font-black uppercase tracking-widest hover:opacity-80 transition-opacity bg-transparent border-none p-0 cursor-pointer inline-flex items-center"
 >
   Explorar todo →
 </button>
+              )}
       </div>
 
       <div className="relative group">
