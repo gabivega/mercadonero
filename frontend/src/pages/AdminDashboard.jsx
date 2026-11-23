@@ -11,6 +11,7 @@ import {
   Wallet,
   Store,
   UserCheck,
+  BellRing,
 } from "lucide-react";
 import AdminOrdersTable from "../components/AdminOrdersTable";
 import AdminUsersTable from "../components/AdminUsersTable";
@@ -19,6 +20,7 @@ import AdminProductsTable from "../components/AdminProductsTable";
 import AdminCollateralAudit from "../components/AdminCollateralAudit";
 import AdminStoreConnections from "../components/AdminStoreConnections";
 import AdminReferralRequests from "../components/AdminReferralRequests";
+import AdminTelegram from "../components/AdminTelegram";
 import { useAuth } from "../Utils/authClient";
 import { useUserStore } from "../store/useUserStore";
 
@@ -36,6 +38,8 @@ const AdminDashboard = () => {
     { id: "stores", label: "Tiendas Tiendanube", icon: Store },
     { id: "referrers", label: "Referidores", icon: UserCheck },
     { id: "users", label: "Usuarios", icon: Users },
+    // Notificaciones del panel al celular del admin (Telegram). Ver AdminTelegram.
+    { id: "telegram", label: "Telegram", icon: BellRing },
     { id: "escrow", label: "Smart Contract", icon: ShieldCheck },
     { id: "settings", label: "Configuración", icon: Settings },
   ];
@@ -132,14 +136,16 @@ const AdminDashboard = () => {
                                                                                 {activeTab === "products" && <AdminProductsTable />}
                     {activeTab === "stores" && <AdminStoreConnections />}
                     {activeTab === "referrers" && <AdminReferralRequests />}
-                    {activeTab === "users" && <AdminUsersTable />}
+                                        {activeTab === "users" && <AdminUsersTable />}
+                    {activeTab === "telegram" && <AdminTelegram />}
                     {activeTab !== "stats" &&
                       activeTab !== "orders" &&
                       activeTab !== "collateral" &&
                       activeTab !== "products" &&
                       activeTab !== "stores" &&
                       activeTab !== "referrers" &&
-                      activeTab !== "users" && (
+                      activeTab !== "users" &&
+                      activeTab !== "telegram" && (
             <div className="h-64 flex items-center justify-center border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-[2.5rem]">
               <p className="text-zinc-400 font-medium italic">
                 Sección en desarrollo...

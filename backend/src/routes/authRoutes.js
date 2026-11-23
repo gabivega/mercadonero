@@ -2,6 +2,7 @@ import express from "express";
 const router = express.Router();
 import User from "../models/User.js";
 import verifyAuth from "../middleware/verifyAuth.js";
+import { notifyAdmin, escapeTelegramHtml as tgEsc } from "../services/telegramService.js";
 
 /**
  * Sincroniza (o crea) el usuario en Mongo a partir de la sesión autenticada
@@ -113,14 +114,29 @@ router.post("/sync-user", verifyAuth, async (req, res) => {
       }
     }
 
-    // 3. Persistimos el identificador del origen + migración pasiva de datos.
-    //    ⚠️ `walletAddress` NO se asigna acá (ver nota del encabezado): la
-    //    wallet sólo se vincula con POST /api/user/wallet.
-        if (did) user.supabaseId = did;
-    if (email && !user.email) user.email = email;
+        // 3. Persistimos el identificador del origen + migración pasiva de datos.
+        //    ⚠️ `walletAddress` NO se asigna acá (ver nota del encabezado): la
+        //    wallet sólo se vincula con POST /api/user/wallet.
+            if (did) user.supabaseId = did;
+        if (email && !user.email) user.email = email;
 
-    await user.save();
-    res.status(200).json(user);
+        // `isNew` = el documento NO existía en Mongo (Mongoose lo marca antes del
+        // save). Lo capturamos ANTES de guardar porque después pasa a false.
+        const isNewUser = user.isNew === true;
+
+        await user.save();
+
+        // ── Aviso al ADMIN por TELEGRAM: usuario nuevo ──
+        // No bloquea ni afecta la respuesta (fire-and-forget).
+        if (isNewUser) {
+          notifyAdmin("user_registered", {
+            header: "👤 <b>Nuevo usuario registrado</b>",
+            lines: [`${tgEsc(user.email || "sin email")} · ${tgEsc(user.username || "")}`],
+            data: { userId: user._id },
+          }).catch(() => {});
+        }
+
+        res.status(200).json(user);
   } catch (error) {
     // ── Red de seguridad ante colisión de identidad (carrera entre find/save) ──
     // Si dos requests simultáneos intentan crear/actualizar el mismo user con

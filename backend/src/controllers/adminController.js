@@ -7,6 +7,7 @@ import {
   auditCollateral,
   summarizeAudit,
 } from '../services/collateralAuditService.js';
+import { notifyAdmin, escapeTelegramHtml as tgEsc } from '../services/telegramService.js';
 
 export const getAllOrders = async (req, res) => {
   try {
@@ -271,7 +272,7 @@ export const adminSetUserStatus = async (req, res) => {
       status === "suspended" ? String(reason).trim() : "";
     await user.save();
 
-    let productsPaused = 0;
+        let productsPaused = 0;
     if (status === "suspended") {
       const r = await Product.updateMany(
         { seller: user._id, status: "active" },
@@ -279,6 +280,17 @@ export const adminSetUserStatus = async (req, res) => {
       );
       productsPaused = r.modifiedCount || 0;
     }
+
+    // ── Espejo en TELEGRAM (solo admin): trazabilidad de acciones de cuenta ──
+    notifyAdmin(status === "suspended" ? "user_suspended" : "user_reactivated", {
+      header: status === "suspended" ? "⛔ <b>Cuenta suspendida</b>" : "♻️ <b>Cuenta reactivada</b>",
+      lines: [
+        `${tgEsc(user.email || "")} · ${tgEsc(user.username || "")}`,
+        status === "suspended" ? `Motivo: ${tgEsc(String(reason).trim())}` : "",
+        status === "suspended" ? `Publicaciones pausadas: ${productsPaused}` : "",
+      ].filter(Boolean),
+      data: { userId: user._id },
+    }).catch(() => {});
 
     res.status(200).json({
       success: true,
@@ -348,7 +360,7 @@ export const adminSetShopStatus = async (req, res) => {
     user.shop.approvalReason = approved ? "" : String(reason).trim();
     await user.save();
 
-    let productsPaused = 0;
+        let productsPaused = 0;
     if (!approved) {
       const r = await Product.updateMany(
         { seller: user._id, status: "active" },
@@ -356,6 +368,17 @@ export const adminSetShopStatus = async (req, res) => {
       );
       productsPaused = r.modifiedCount || 0;
     }
+
+    // ── Espejo en TELEGRAM (solo admin) ──
+    notifyAdmin(approved ? "shop_approved" : "shop_disabled", {
+      header: approved ? "✅ <b>Tienda aprobada</b>" : "🚫 <b>Tienda desactivada</b>",
+      lines: [
+        `${tgEsc(user.shop?.name || "")} · ${tgEsc(user.email || "")}`,
+        !approved && reason ? `Motivo: ${tgEsc(String(reason).trim())}` : "",
+        !approved ? `Publicaciones pausadas: ${productsPaused}` : "",
+      ].filter(Boolean),
+      data: { userId: user._id },
+    }).catch(() => {});
 
     res.status(200).json({
       success: true,
@@ -490,9 +513,23 @@ export const adminModerateProduct = async (req, res) => {
       product.moderation.approvedAt = now;
     }
 
-    await product.save();
+        await product.save();
 
     await product.populate("seller", "username firstName lastName email shop isVerified");
+
+    // ── Espejo en TELEGRAM (solo admin) ──
+    notifyAdmin(action === "approve" ? "product_approved" : "product_rejected", {
+      header:
+        action === "approve"
+          ? "🟢 <b>Publicación aprobada</b>"
+          : "🔴 <b>Publicación rechazada</b>",
+      lines: [
+        `${tgEsc(product.name || "")}`,
+        `Vendedor: ${tgEsc(product.seller?.shop?.name || product.seller?.username || "")}`,
+        action === "reject" ? `Motivo: ${tgEsc(String(reason).trim())}` : "",
+      ].filter(Boolean),
+      data: { productId: product._id },
+    }).catch(() => {});
 
     res.status(200).json({
       success: true,
@@ -577,6 +614,24 @@ export const adminModerateProductsBulk = async (req, res) => {
     }
 
     const result = await Product.updateMany(match, update);
+
+    // ── Espejo en TELEGRAM (solo admin) ──
+    // El debounce del servicio agrupa: 50 aprobaciones en bloque = UN mensaje.
+    const nBulk = result.modifiedCount || 0;
+    if (nBulk > 0) {
+      notifyAdmin(action === "approve" ? "product_approved" : "product_rejected", {
+        header:
+          action === "approve"
+            ? "🟢 <b>Publicaciones aprobadas</b>"
+            : "🔴 <b>Publicaciones rechazadas</b>",
+        lines: [
+          `${nBulk} publicación(es)${search ? ` (filtro: "${tgEsc(search)}")` : ""}`,
+          action === "reject" ? `Motivo: ${tgEsc(String(reason).trim())}` : "",
+        ].filter(Boolean),
+        data: { modifiedCount: nBulk },
+      }).catch(() => {});
+    }
+
 
     // Contadores actualizados para que el panel refresque las pestaÃ±as.
     const [pendingCount, approvedCount, rejectedCount] = await Promise.all([

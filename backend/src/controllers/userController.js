@@ -1,5 +1,6 @@
 import User from "../models/User.js";
 import Product from "../models/Product.js";
+import { notifyAdmin, escapeTelegramHtml as tgEsc } from "../services/telegramService.js";
 
 // -- VALIDACION DE TELEFONO (defensa en profundidad) --
 // El front sanitiza el input, pero la API puede llamarse directo. Replicamos la
@@ -94,7 +95,22 @@ export const completeSellerOnboarding = async (req, res) => {
     updates["shop.approved"] = false;
     updates.isSeller = true;
 
-    const updatedUser = await User.findByIdAndUpdate(userId, { $set: updates }, { new: true, runValidators: true });
+        const updatedUser = await User.findByIdAndUpdate(userId, { $set: updates }, { new: true, runValidators: true });
+
+    // ── Aviso al ADMIN por TELEGRAM: hay una tienda en LISTA DE ESPERA ──
+    // Este es el aviso que le permite al admin aprobar al vendedor y que el
+    // flujo de venta (hoy por invitación) pueda avanzar. No bloquea la respuesta.
+    const ownerName = [updatedUser?.firstName, updatedUser?.lastName].filter(Boolean).join(" ");
+    notifyAdmin("shop_approval_requested", {
+      header: "🏪 <b>Tienda en lista de espera</b>",
+      lines: [
+        `${tgEsc(shopName.trim())}`,
+        `Titular: ${tgEsc(ownerName || updatedUser?.email || "—")}`,
+        `Ubicación: ${tgEsc(`${city}, ${province}`)}`,
+        `ID usuario: ${updatedUser?._id}`,
+      ],
+      data: { userId: updatedUser?._id },
+    }).catch(() => {});
 
     res.status(200).json({
       success: true,

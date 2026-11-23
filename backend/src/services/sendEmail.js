@@ -1,4 +1,5 @@
 import { Resend } from 'resend';
+import { notifyAdmin, escapeTelegramHtml as tgEsc } from './telegramService.js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -53,9 +54,24 @@ export const sendOrderCreatedToBuyer = async ({
       `,
     });
 
-    if (error) {
+        if (error) {
       console.error('Error enviando email al comprador:', error);
     }
+
+    // ── Espejo en TELEGRAM (solo admin) ──
+    // Mandamos la MISMA alerta al admin por Telegram, además del mail al
+    // comprador. Internamente respeta el catálogo de eventos: si el admin
+    // apagó `order_created`, no se envía nada. No se espera (fire-and-forget).
+    notifyAdmin("order_created", {
+      header: "🛒 <b>Nueva orden (transferencia)</b>",
+      lines: [
+        `#${shortOrderId} · $${amount} ARS`,
+        `Comprador: ${tgEsc(buyerName)}`,
+        `Vendedor: ${tgEsc(vendorName)}`,
+      ],
+      data: { orderId },
+    }).catch(() => {});
+
     return { data, error };
   } catch (err) {
     console.error('Exception en sendOrderCreatedToBuyer:', err);
@@ -142,9 +158,17 @@ export const sendPaymentConfirmedToVendor = async ({
       `,
     });
 
-    if (error) {
+        if (error) {
       console.error('Error enviando email de pago al vendedor:', error);
     }
+
+    // ── Espejo en TELEGRAM (solo admin) ──
+    notifyAdmin("order_paid", {
+      header: "💰 <b>El comprador notificó el pago</b>",
+      lines: [`#${shortOrderId} · $${amount} ARS`],
+      data: { orderId },
+    }).catch(() => {});
+
     return { data, error };
   } catch (err) {
     console.error('Exception en sendPaymentConfirmedToVendor:', err);
@@ -200,9 +224,20 @@ export const sendShippingDetailsToBuyer = async ({
       `,
     });
 
-    if (error) {
+        if (error) {
       console.error('Error enviando email de envío al comprador:', error);
     }
+
+    // ── Espejo en TELEGRAM (solo admin) ──
+    notifyAdmin("order_shipped", {
+      header: "📦 <b>Pedido enviado</b>",
+      lines: [
+        `#${shortOrderId}`,
+        `Proveedor: ${tgEsc(providerDisplay)}${trackingNumber ? ` · ${tgEsc(trackingNumber)}` : ""}`,
+      ],
+      data: { orderId },
+    }).catch(() => {});
+
     return { data, error };
   } catch (err) {
     console.error('Exception en sendShippingDetailsToBuyer:', err);
@@ -239,7 +274,7 @@ export const sendOrderCompletedToVendor = async ({
       `,
     });
 
-    if (error) {
+        if (error) {
       console.error('Error enviando email de orden completada al vendedor:', error);
     }
     return { data, error };
@@ -318,6 +353,14 @@ export const sendRefundRequestedToVendor = async ({
       `,
     });
     if (error) console.error('Error email reembolso al vendedor:', error);
+
+    // ── Espejo en TELEGRAM (solo admin) ──
+    notifyAdmin("refund_requested", {
+      header: "↩️ <b>Reembolso solicitado</b>",
+      lines: [`#${shortOrderId} · $${amount} ARS`, `Comprador: ${tgEsc(buyerName)}`],
+      data: { orderId },
+    }).catch(() => {});
+
     return { data, error };
   } catch (err) {
     console.error('Exception en sendRefundRequestedToVendor:', err);
@@ -354,6 +397,14 @@ export const sendOrderCancelledToBuyer = async ({
       `,
     });
     if (error) console.error('Error email cancelación al comprador:', error);
+
+    // ── Espejo en TELEGRAM (solo admin) ──
+    notifyAdmin("order_cancelled", {
+      header: "🚫 <b>Orden cancelada</b>",
+      lines: [`#${shortOrderId} · $${amount} ARS${withRefund ? " · con reembolso" : ""}`],
+      data: { orderId },
+    }).catch(() => {});
+
     return { data, error };
   } catch (err) {
     console.error('Exception en sendOrderCancelledToBuyer:', err);
@@ -487,6 +538,17 @@ export const sendOrderCreatedToBuyerEscrow = async ({
     });
 
     if (error) console.error("Error enviando email de escrow al comprador:", error);
+
+    // ── Espejo en TELEGRAM (solo admin) ──
+    notifyAdmin("order_created", {
+      header: "🔒 <b>Nueva orden (cripto / escrow)</b>",
+      lines: [
+        `#${shortOrderId}${amountUsdt != null ? ` · US$ ${amountUsdt}` : ""}`,
+        "Esperando fondeo del escrow por el comprador.",
+      ],
+      data: { orderId },
+    }).catch(() => {});
+
     return { data, error };
   } catch (err) {
     console.error("Exception en sendOrderCreatedToBuyerEscrow:", err);
@@ -1024,6 +1086,20 @@ export const sendAdminOrderIssueReport = async ({
       `,
     });
     if (error) console.error("Error email de reporte de problema al admin:", error);
+
+    // ── Espejo en TELEGRAM (solo admin) ──
+    // Reporte libre de un usuario: el admin debe leerlo antes de que escale.
+    // Recortamos el mensaje para no pasarnos del límite de Telegram.
+    notifyAdmin("issue_reported", {
+      header: "⚠️ <b>Problema reportado en una orden</b>",
+      lines: [
+        `#${shortOrderId} · estado: ${tgEsc(orderStatus || "—")}`,
+        `Reportado por: ${tgEsc(reporterRole)}${reporterName ? ` (${tgEsc(reporterName)})` : ""}`,
+        `Mensaje: ${tgEsc(String(message || "").slice(0, 500))}`,
+      ],
+      data: { orderId },
+    }).catch(() => {});
+
     return { data, error };
   } catch (err) {
     console.error("Exception en sendAdminOrderIssueReport:", err);
@@ -1071,6 +1147,19 @@ export const sendDisputeOpenedToBuyer = async ({
       `,
     });
     if (error) console.error("Error email disputa abierta al comprador:", error);
+
+    // ── Espejo en TELEGRAM (solo admin) ──
+    // Se manda desde el espejo del COMPRADOR (el doc llama a los dos helpers en
+    // adminOpenDispute), así no duplicamos: el de vendedor NO notifica.
+    notifyAdmin("dispute_opened", {
+      header: "⚖️ <b>Disputa abierta</b>",
+      lines: [
+        `#${shortOrderId}${amount != null ? ` · $${amount} ARS` : ""}`,
+        safeDesc ? `Motivo: ${tgEsc(safeDesc.slice(0, 400))}` : "Sin descripción.",
+      ].filter(Boolean),
+      data: { orderId },
+    }).catch(() => {});
+
     return { data, error };
   } catch (err) {
     console.error("Exception en sendDisputeOpenedToBuyer:", err);
