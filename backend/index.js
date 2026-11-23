@@ -27,7 +27,7 @@ import redirectRoutes from './src/routes/redirectRoutes.js';
 import startOrderCleanup from './src/services/orderCleanup.js';
 import startElitSyncCron from './src/services/elitSyncCron.js';
 import { getSitemap } from './src/controllers/seoController.js';
-import { getEscrowPaymentOptions } from './src/config/chains.js';
+import { getEscrowPaymentOptions, getCollateralOptions } from './src/config/chains.js';
 
 const PORT = process.env.PORT || 3000;
 const app = express();
@@ -125,6 +125,23 @@ try {
       res.status(500).json({ success: false, message: error.message });
     }
   });
+  // Config PÚBLICA de COLATERAL (redes donde un vendedor puede depositar su
+  // garantía). Misma idea que payment-options: el backend es la ÚNICA fuente
+  // de direcciones de contrato/token. Antes el front las tenía hardcodeadas en
+  // 3 archivos con valores que NO coincidían entre sí, lo que producía
+  // depósitos que no impactaban en el contrato esperado.
+  //
+  // Solo se listan redes con contrato Y token configurados: al cargar las
+  // direcciones de mainnet en el .env, la red aparece sola en la UI.
+  app.get('/api/config/collateral-options', (req, res) => {
+    try {
+      res.json({ success: true, options: getCollateralOptions() });
+    } catch (error) {
+      console.error('Error al obtener collateral-options:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
   // Healthcheck: no toca DB ni logica de negocio. Lo usa deploy.sh para rollback.
   app.get('/health', (req, res) => {
     res.json({ success: true, status: 'ok', uptime: Math.floor(process.uptime()), timestamp: new Date().toISOString() });
