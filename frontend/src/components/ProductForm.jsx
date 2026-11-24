@@ -218,9 +218,13 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
                   ...product.payment,
                   ...initialData.payment,
                 },
-                shipping: {  
+                                shipping: {  
           ...product.shipping, 
           ...initialData.shipping,
+          // Digital DESHABILITADO: aunque el producto editado viniera con
+          // isDigital=true, lo forzamos a false porque el checkbox está oculto
+          // (si no, el vendedor vería un producto digital sin poder destildarlo).
+          isDigital: false,
           dimensions: { ...product.shipping.dimensions, ...initialData.shipping?.dimensions },
                     delivery: {
             ...product.shipping.delivery,
@@ -695,41 +699,16 @@ const ProductForm = ({ handleSubmit, isSubmitting, initialData }) => {
             Logística
           </h2>
 
-          <div className="space-y-4">
-            <div className="flex items-center gap-4 p-4 bg-blue-500/5 rounded-2xl border border-blue-500/20">
-              <input
-                type="checkbox"
-                id="isDigital"
-                name="shipping.isDigital" // Usamos la ruta completa
-                className="w-5 h-5 accent-blue-600"
-                checked={product.shipping.isDigital}
-                onChange={handleInputChange} // Usamos la función universal que ya maneja puntos
-              />
-              <label
-                htmlFor="isDigital"
-                className="text-sm font-bold dark:text-white cursor-pointer"
-              >
-                ¿Es un producto digital / servicio? (Sin envío físico)
-              </label>
-            </div>
+                    {/* ── PRODUCTOS DIGITALES: DESHABILITADO POR AHORA ──
+              El checkbox "¿Es un producto digital / servicio?" y su campo de
+              URL de descarga quedan OCULTOS a propósito: en esta etapa solo se
+              publican productos físicos (todo el flujo de envío, escrow y
+              colateral asume paquete físico). El estado sigue existiendo en el
+              objeto (`shipping.isDigital`), pero se envía siempre en false, así
+              que no hace falta tocar el payload ni el backend.
+              Para reactivarlo: volver a renderizar el bloque (ver git history)
+              y quitar el `isDigital: false` forzado en el estado inicial. */}
 
-            {/* URL Digital */}
-            {product.shipping.isDigital && (
-              <div className="animate-in fade-in slide-in-from-top-2 duration-300">
-                <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-2 uppercase ml-1">
-                  Link de descarga / Acceso
-                </label>
-                <input
-                  type="url"
-                  name="shipping.digitalUrl"
-                  placeholder="https://ejemplo.com/archivo-o-acceso"
-                  className="w-full bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 rounded-xl p-3 text-sm outline-none focus:border-blue-500 transition-all"
-                  value={product.shipping.digitalUrl || ""}
-                  onChange={handleInputChange}
-                />
-              </div>
-            )}
-          </div>
 
           {!product.shipping.isDigital && (
             <div className="animate-in duration-500 space-y-6">

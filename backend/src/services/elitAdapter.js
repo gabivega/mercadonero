@@ -66,10 +66,14 @@ const buildSpecifications = (elitProduct = {}) => {
   push('SKU', elitProduct.codigo_producto);
   push('EAN', elitProduct.ean);
   push('Garantía', elitProduct.garantia);
-  // Guardamos la categoría ORIGINAL del proveedor para no perder información
-  // que, por sí sola, no tiene un slug equivalente en la plataforma.
-  if (elitProduct.categoria) push('Categoría proveedor', elitProduct.categoria);
-  if (elitProduct.sub_categoria) push('Subcategoría proveedor', elitProduct.sub_categoria);
+  // NOTA: NO agregamos "Categoría proveedor"/"Subcategoría proveedor".
+  // La categoría de Elit es información interna del proveedor: la categoría
+  // real de la publicación es la de MN (`category`/`subCategory`, mapeada con
+  // elitCategoryMap.js) y ya se ve en el breadcrumb y en los filtros del
+  // catálogo. Si además la volcábamos a `specifications`, buildDescription la
+  // terminaba publicando en la descripción (detalle que no debe ver el
+  // comprador). Para limpiar lo ya importado:
+  //   node scripts/cleanElitProviderCategorySpecs.mjs --apply
   if (Number(elitProduct.peso) > 0) {
     push('Peso', `${elitProduct.peso} kg`);
   }
