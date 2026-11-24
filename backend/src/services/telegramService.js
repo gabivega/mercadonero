@@ -67,7 +67,7 @@ export const EVENT_CATALOG = {
   user_reactivated: { label: "Cuenta reactivada", default: false, group: "Usuarios" },
 
   // ── Publicaciones ──
-  product_created: { label: "Publicación creada (pendiente)", default: true, group: "Publicaciones" },
+  product_created: { label: "Publicación pendiente de aprobación (nueva o editada)", default: true, group: "Publicaciones" },
   product_approved: { label: "Publicación aprobada", default: false, group: "Publicaciones" },
   product_rejected: { label: "Publicación rechazada", default: false, group: "Publicaciones" },
 

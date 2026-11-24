@@ -1231,8 +1231,11 @@ export const updateProduct = async (req, res) => {
         // (se revisó ESTA versión) y se evita aprobar algo y luego verlo
         // modificado. Si estaba rejected/pending, se mantiene el flujo normal.
         // NO permitimos que el cliente setee/override de la moderación.
-        delete updateData.moderation;
-        if (product.moderation?.status === "approved") {
+                delete updateData.moderation;
+        // true si esta edicion devuelve el producto a la cola de moderacion.
+        // Es el disparador del aviso a Telegram de mas abajo.
+        const reopenedModeration = product.moderation?.status === "approved";
+        if (reopenedModeration) {
           updateData["moderation.status"] = "pending";
           updateData["moderation.reason"] = "";
           updateData["moderation.reviewedBy"] = null;
@@ -1243,7 +1246,29 @@ export const updateProduct = async (req, res) => {
           id,
           updateData,
           { new: true, runValidators: true },
-        );
+                );
+
+    // -- Aviso al ADMIN por TELEGRAM: publicacion EDITADA vuelve a moderacion --
+    // Editar un producto ya aprobado lo devuelve a "pending" y deja de verse en
+    // el catalogo. Sin este aviso el admin no se entera del trabajo pendiente
+    // (product_created solo cubria las publicaciones NUEVAS).
+    // Fire-and-forget: la edicion ya quedo guardada, el aviso nunca la rompe.
+    if (reopenedModeration) {
+      try {
+        const seller = await User.findById(req.user._id).select("username shop.name email");
+        notifyAdmin("product_created", {
+          header: "\u270f\ufe0f <b>Publicacion EDITADA - vuelve a aprobacion</b>",
+          lines: [
+            tgEsc(updatedProduct?.name || product.name || ""),
+            "Vendedor: " + tgEsc(seller?.shop?.name || seller?.username || seller?.email || ""),
+            "Categoria: " + tgEsc(updatedProduct?.category || "-") + " - ID: " + (updatedProduct?._id || id),
+          ],
+          data: { productId: updatedProduct?._id || id, edited: true },
+        }).catch(() => {});
+      } catch (notifyErr) {
+        console.warn("[Telegram] product_edited:", notifyErr?.message);
+      }
+    }
 
     res.json({ 
       success: true, 
