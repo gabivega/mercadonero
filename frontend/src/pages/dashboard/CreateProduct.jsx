@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 import Swal from "sweetalert2";
 import { usePrivy } from "../../Utils/authClient";
@@ -60,14 +60,21 @@ export default function CreateProduct() {
     taxCondition: dbUser?.shop?.taxCondition || "",
   };
 
-  // MURO DE ENTRADA: si está autenticado pero NO completo el onboarding, el
-  // modal se abre solo (antes de ver cualquier formulario). Así el vendedor no
-  // carga todo un producto para descubrir al final que no puede publicar.
-  useEffect(() => {
-    if (authenticated && user && dbUser && !onboardingComplete) {
-      setIsOnboardingOpen(true);
-    }
-  }, [authenticated, user, dbUser, onboardingComplete]);
+    // El modal de onboarding NO se abre solo.
+  //
+  // Antes había un useEffect que lo abría apenas detectaba sesión sin
+  // shop.active. El efecto secundario era que un usuario NUEVO caía con el
+  // modal encima y nunca llegaba a leer la página de beneficios ("Vendé en
+  // Mercado Nero...", comisión, condiciones). Justo la persona a la que más
+  // hay que explicarle la propuesta de valor.
+  //
+  // Ahora se dispara ÚNICAMENTE desde un botón de llamada a la acción:
+  //   - "Quiero vender" (SellingBenefits) → handleWantToSell
+  //   - "Completar mis datos" (tarjeta de lista de espera)
+  //
+  // El bloqueo real sigue intacto: sin shop.approved no se renderizan los
+  // formularios (ver el gate `if (!shopApproved)` más abajo), así que el
+  // vendedor nunca llega a cargar un producto para descubrirlo al final.
 
   // Al terminar el onboarding: el vendedor queda en LISTA DE ESPERA. No hay
   // reintento de publicación; solo refrescamos el usuario en el store.
@@ -266,9 +273,9 @@ export default function CreateProduct() {
     );
   }
 
-  // MURO DE ENTRADA (WAITING LIST): mientras el usuario cargue antes de estar
-  // aprobado, mostramos una pantalla informativa. El modal de onboarding se
-  // abre solo (useEffect) si todavía no completó los datos.
+    // MURO DE ENTRADA (WAITING LIST): mientras el usuario cargue antes de estar
+  // aprobado, mostramos una pantalla informativa. El modal de onboarding NO se
+  // abre solo: se abre desde "Quiero vender" o "Completar mis datos".
   if (!shopApproved) {
     const alreadyApplied = onboardingComplete && !shopApproved;
     return (
