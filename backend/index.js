@@ -25,6 +25,8 @@ import tiendanubeRoutes from './src/routes/tiendanubeRoutes.js';
 import myStoreRoutes from './src/routes/myStoreRoutes.js';
 import adminStoreRoutes from './src/routes/adminStoreRoutes.js';
 import redirectRoutes from './src/routes/redirectRoutes.js';
+// Contacto público + Botón de Arrepentimiento (Ley 24.240). No requiere auth.
+import contactRoutes from './src/routes/contactRoutes.js';
 import startOrderCleanup from './src/services/orderCleanup.js';
 import startElitSyncCron from './src/services/elitSyncCron.js';
 import { getSitemap } from './src/controllers/seoController.js';
@@ -114,6 +116,9 @@ try {
   app.use('/api/admin/store-connections', adminStoreRoutes);
   // Enlaces cortos de referido: /r/<code> → /producto/<slug>?ref=<id>
   app.use('/r', redirectRoutes);
+  // Contacto y Botón de Arrepentimiento (footer). Público (sin auth) con
+  // rate limit en memoria; el mensaje se envía al admin por mail + Telegram.
+  app.use('/api/contact', contactRoutes);
   // Sitemap dinámico para motores de búsqueda (SEO orgánico)
   app.get('/sitemap.xml', getSitemap);
   // Config PÚBLICA de medios de pago crypto: redes con escrow desplegado y su
