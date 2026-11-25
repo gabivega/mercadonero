@@ -28,48 +28,48 @@ import {
 const BENEFITS = [
   {
     icon: TrendingUp,
-    title: "Cobrás por adelantado",
-    detail: "Recibís el pago antes de despachar. La plataforma se ocupa de proteger al comprador.",
+    title: "Cobrá tu venta por adelantado",
+    detail: "Somos el único marketplace que permite recibir el pago por transferencia bancaria antes de despachar. Trabajá con el stock de tu proveedor.",
   },
   {
     icon: Percent,
     title: "Comisión fija del 3%",
-    detail: "Una sola comisión por venta. Sin cargos ocultos ni costo por publicar.",
+    detail: "Una sola comisión por venta. Sin cargos ocultos ni costo por publicar. Conocé de antemano cuanto vas a recibir por tu venta",
   },
   {
     icon: BadgeCheck,
     title: "Sin costos fijos",
-    detail: "Plan free: no pagás mensualidad ni por mantener tu tienda abierta.",
+    detail: "Plan gratuito: no pagás mensualidad ni por mantener tu tienda abierta, solo pagas comision fija por cada venta.",
   },
   {
     icon: Coins,
-    title: "Cobrás en USD (USDT)",
-    detail: "Tu venta se liquida en dólares cripto, garantizada por contrato inteligente.",
+    title: "Cobrás en USDC o USDT",
+    detail: "Podes cobrar en dólares cripto, garantizado por contratos inteligentes. Podes retirarlo a otras billeteras virtuales o exchanges cuando quieras",
   },
   {
     icon: Wallet,
-    title: "Billetera Web3 sin costo",
-    detail: "Creamos tu billetera y cubrimos el gas de red. Sin saber de cripto.",
+    title: "Billetera Web3 fácil y sin costo",
+    detail: "Creas tu billetera gratis y nosotros cubrimos el gas de red. No hace falta saber sobre criptomonedas.",
   },
   {
     icon: Smartphone,
-    title: "Clasificados sin comisión",
-    detail: "Vehículos, inmuebles y servicios: publicás gratis, sin escrow.",
+    title: "Transacciones protegidas",
+    detail: "Todas las transacciones estan protegidas por contratos inteligentes. Protegemos a compradores y vendedores de la misma forma.",
   },
   {
     icon: Truck,
     title: "Cotizador de envíos incluido",
-    detail: "Calculá el costo de envío al instante (Zipnova) en cada publicación.",
+    detail: "Calculá el costo de envío al instante en cada publicación.",
   },
   {
     icon: ShieldCheck,
     title: "Herramientas de promoción",
-    detail: "Sistema de referidos y reintegros para fomentar más ventas.",
+    detail: "Sistema de referidos personalizable y con ganancias en dólares. También reintegros en usd en todas las ventas para incentivar el uso.",
   },
   {
     icon: Lock,
-    title: "Sin requisitos fiscales para publicar",
-    detail: "No exigimos CUIT ni datos de facturación para vender. Tus datos, privados.",
+    title: "Registro fácil y rápido",
+    detail: "No exigimos datos biométricos. Respetamos tu privacidad manteniendo la seguridad de las transacciones.",
   },
 ];
 
@@ -77,13 +77,13 @@ const BENEFITS = [
 // (No es una comparación contra terceros, que se desactualiza y expone.)
 const INCLUDED = [
   { label: "Publicar productos", value: "Gratis" },
-  { label: "Costo mensual", value: "$0 · plan free" },
+  { label: "Costo mensual", value: "$0 · plan gratuito" },
   { label: "Comisión por venta", value: "3% fija" },
-  { label: "Cobro", value: "Por adelantado (transferencia o USDT)" },
+  { label: "Cobro", value: "Transferencia bancaria (por adelantado) o USDC/USDT" },
   { label: "Billetera y gas de red", value: "Incluido, sin costo" },
-  { label: "Protección al comprador (escrow)", value: "Incluido" },
-  { label: "Cotizador de envíos (Zipnova)", value: "Incluido" },
-  { label: "Clasificados (vehículos, inmuebles, servicios)", value: "Sin comisión" },
+  { label: "Protección al comprador", value: "Incluido" },
+  { label: "Cotizador de envíos", value: "Incluido" },
+  // { label: "Clasificados (vehículos, inmuebles, servicios)", value: "Sin comisión" },
 ];
 
 export default function SellingBenefits({ onWantToSell, showCta = true }) {
@@ -95,8 +95,9 @@ export default function SellingBenefits({ onWantToSell, showCta = true }) {
           Vendé en Mercado Nero y ganá más por cada venta
         </h1>
         <p className="text-sm md:text-base text-gray-600 dark:text-zinc-400 leading-relaxed">
-          Creamos un marketplace donde todos ganan: comisiones fijas súper
-          bajas, flexibilidad y privacidad. Protegemos a compradores y
+          Somos el único marketplace construido sobre blockchain, que permite pagos seguros mediante transferencia bancaria o criptomonedas. <br/>
+          En Mercado Nero todos ganan: comisiones fijas súper
+          bajas, seguridad y privacidad. Protegemos a compradores y
           vendedores con el poder de los contratos inteligentes.
         </p>
         <p className="text-sm md:text-base text-gray-600 dark:text-zinc-400 leading-relaxed">
@@ -173,23 +174,23 @@ export default function SellingBenefits({ onWantToSell, showCta = true }) {
         </h2>
         <ul className="text-xs text-amber-800 dark:text-amber-200 space-y-1.5 leading-relaxed list-disc list-inside">
           <li>
-            La comisión del <b>3%</b> se descuenta al <b>liberar el pago</b>, no al
-            publicar.
-          </li>
-          <li>
-            Para productos de pago se requiere una <b>garantía (colateral)</b> en tu
+            Para cobrar por adelantado se requiere una <b>garantía (colateral)</b> en tu
             billetera que cubre el <b>100% del importe del comprador</b> (incluido el
             envío).
           </li>
           <li>
+            La comisión del <b>3%</b> se descuenta al <b>liberar el pago</b>, tras las confirmación del comprador.
+          </li>
+          {/* <li>
             El <b>envío lo pagás vos a tu operador logístico</b>: el costo ya viene
-            incluido en lo que paga el comprador a través de la plataforma. Zipnova
-            hoy se usa como <b>cotizador de costos</b>.
+            incluido en lo que paga el comprador a través de la plataforma. El cotizador incorporado</b>.
+          </li> */}
+          <li>
+            Cupos limitados: El marketplace está en etapa de lanzamiento y la aprobación de tu tienda puede demorar unos días (sujeto a cupos disponibles).
           </li>
           <li>
-            Publicás recién <b>después de la aprobación</b> de tu tienda (por eso la
-            lista de espera).
-          </li>
+            Solicitamos datos fiscales solo para validar la cuenta bancaria utilizada para cobrar mediante transferencia bancaria por adelantado. No compartimos tus movimientos con nadie.
+          </li>          
         </ul>
       </div>
 
