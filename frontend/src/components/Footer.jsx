@@ -1,5 +1,8 @@
 import React from 'react';
 import { HelpCircle, Mail, ShieldAlert } from 'lucide-react';
+// Iconos de marca (X e Instagram): lucide v1.47 los eliminó por licencia, así
+// que los inlinamos como SVG propios. Ver assets/icons/SocialIcons.jsx.
+import { XIcon, InstagramIcon } from '../assets/icons/SocialIcons';
 import logoWhite from '../assets/img/logo-white.png';
 // Logo negro reservado para cuando se reactive el light theme.
 // import logoBlack from '../assets/img/logo-black.png';
@@ -26,13 +29,13 @@ export default function Footer() {
               />
             </div>
             <p className="text-xs text-gray-500 dark:text-zinc-400 leading-relaxed max-w-xs">
-              El primer marketplace multivendor Web3 de la región. Conectamos compradores y vendedores de forma segura y transparente con las comisiones mas bajas del mercado.
+              El único marketplace multivendor descentralizado de la región. Conectamos compradores y vendedores de forma segura y transparente con las comisiones mas bajas del mercado.
             </p>
             {/* Status de Red Escencial para Web3 */}
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/30 text-[11px] font-medium font-mono">
+            {/* <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/30 text-[11px] font-medium font-mono">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
               BSC Testnet Connected
-            </div>
+            </div> */}
           </div>
 
           {/* Columna 2: Navegación del Ecosistema */}
@@ -41,11 +44,11 @@ export default function Footer() {
               Marketplace
             </h4>
             <ul className="space-y-2.5 text-sm">
-              <li>
+              {/* <li>
                 <a href="/productos" className="text-gray-600 dark:text-zinc-400 hover:text-[#F26722] dark:hover:text-[#F26722] transition-colors">
                   Explorar Productos
                 </a>
-              </li>
+              </li> */}
               <li>
                 <a href="/vender" className="text-gray-600 dark:text-zinc-400 hover:text-[#F26722] dark:hover:text-[#F26722] transition-colors">
                   Publicar un Artículo
@@ -98,13 +101,13 @@ export default function Footer() {
             </p> */}
             <div className="flex items-center gap-3">
               <a
-                href="https://twitter.com"
+                href="https://x.com/mercadoneroarg"
                 target="_blank"
                 rel="noreferrer"
                 className="p-2 bg-gray-50 dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800/60 rounded-xl text-gray-600 dark:text-zinc-400 hover:text-white hover:bg-[#F26722] dark:hover:bg-[#F26722] hover:border-[#F26722] transition-all"
-                aria-label="Twitter X"
+                                aria-label="X (Twitter)"
               >
-                {/* <Twitter className="w-4 h-4" /> */}
+                <XIcon className="w-4 h-4" />
               </a>
               <a
                 href="https://instagram.com"
@@ -113,7 +116,7 @@ export default function Footer() {
                 className="p-2 bg-gray-50 dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800/60 rounded-xl text-gray-600 dark:text-zinc-400 hover:text-white hover:bg-[#F26722] dark:hover:bg-[#F26722] hover:border-[#F26722] transition-all"
                 aria-label="Instagram"
               >
-                {/* <Instagram className="w-4 h-4" /> */}
+                <InstagramIcon className="w-4 h-4" />
               </a>
             </div>
 

@@ -18,9 +18,13 @@
 // DISEÑO:
 //   - PÚBLICO (sin verifyAuth): una persona puede arrepentirse o escribirnos sin
 //     haber creado cuenta.
-//   - Anti-abuso SIN dependencias externas: rate limit en memoria por IP
-//     (mapa con TTL). No es perfecto (se resetea al reiniciar), pero corta el
-//     spam trivial sin agregar paquetes.
+//   - Anti-abuso SIN dependencias externas ni captcha:
+//       1. RATE LIMIT en memoria por IP (mapa con TTL).
+//       2. HONEYPOT: un campo oculto del formulario que los bots llenan y los
+//          humanos no. Si viene con contenido, se descarta el envío.
+//     Ninguna de las dos es infalible (un bot con navegador headless real
+//     puede pasar), pero frenan el 95% del spam automatizado sin molestar al
+//     usuario ni requerir claves de terceros.
 //
 // Contrato de respuesta: { success, message, ...data }
 // ────────────────────────────────────────────────────────────────────────────
@@ -68,6 +72,7 @@ const KINDS = ["contact", "refund"];
  *     orderId?: string   (arrepentimiento: orden a revocar)
  *     purchaseDate?: string
  *     phone?:   string
+ *     companyWebsite?: string  (HONEYPOT: debe venir vacío)
  *   }
  */
 router.post("/", async (req, res) => {
@@ -82,6 +87,27 @@ router.post("/", async (req, res) => {
     }
 
     const body = req.body || {};
+
+    // ── HONEYPOT ──────────────────────────────────────────────────────────
+    // El formulario del front incluye un campo `companyWebsite` oculto por
+    // CSS que un humano nunca ve ni completa. Los bots que parsean el HTML y
+    // rellenan todo lo que encuentran SÍ lo completan.
+    //
+    // Si viene con algo: descartamos el envío y respondemos 200 con un mensaje
+    // de éxito genérico. ¿Por qué 200 y no 400? Para que el bot no pueda
+    // distinguir "me detectaron" de "funcionó" y no reintente ajustando.
+    // El envío NO se manda al admin y no consume el rate limit.
+    //
+    // Se revisa ANTES de validar el resto: si es un bot, no tiene sentido
+    // gastar ciclos validando ni loguear sus datos.
+    if (String(body.companyWebsite || "").trim() !== "") {
+      console.warn(`[contact] Honeypot activado desde ${ip} — envío descartado.`);
+      return res.status(200).json({
+        success: true,
+        message: "¡Gracias! Recibimos tu mensaje y te vamos a responder a la brevedad.",
+      });
+    }
+
     const kind = KINDS.includes(body.kind) ? body.kind : "contact";
     const email = String(body.email || "").toLowerCase().trim();
     const message = String(body.message || "").trim();

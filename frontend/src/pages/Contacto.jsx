@@ -69,6 +69,9 @@ export default function Contacto() {
     purchaseDate: "",
     subject: "",
     message: "",
+    // HONEYPOT: campo trampa anti-bot. Ver <Honeypot/> más abajo. Debe
+    // empezar VACÍO; si llega con contenido, el backend descarta el envío.
+    companyWebsite: "",
   });
 
   // Si la sesión carga después del primer render, completamos lo que esté vacío.
@@ -115,6 +118,8 @@ export default function Contacto() {
         purchaseDate: form.purchaseDate.trim(),
         subject: form.subject.trim(),
         message: form.message.trim(),
+        // Trampa: un humano nunca ve ni completa este campo.
+        companyWebsite: form.companyWebsite,
       });
       setStatus("success");
       setFeedback(data?.message || "¡Listo! Recibimos tu mensaje.");
@@ -207,6 +212,19 @@ export default function Contacto() {
             onSubmit={handleSubmit}
             className="bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800 rounded-2xl p-6 space-y-4"
           >
+            {/* ── HONEYPOT ──────────────────────────────────────────────
+                Campo trampa invisible para los HUMANOS pero presente en el
+                DOM, así los bots que parsean formularios lo "ven" y lo llenan.
+                El backend descarta silenciosamente cualquier envío con este
+                campo no vacío (responde 200 para no darle señal al bot).
+                Sin captcha, sin claves, sin dependencias. */}
+            <Honeypot
+              name="companyWebsite"
+              label="No completar este campo"
+              value={form.companyWebsite}
+              onChange={setField("companyWebsite")}
+            />
+
             {/* Aviso legal del derecho de revocación */}
             {isRefund && (
               <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40">
@@ -351,5 +369,49 @@ function Field({ label, required, children }) {
       </span>
       {children}
     </label>
+  );
+}
+
+/**
+ * Campo trampa (honeypot) anti-bot.
+ *
+ * ¿Cómo funciona? Un bot que recorre el HTML completando todos los <input>
+ * encuentra este campo y le escribe algo; una persona no lo ve, así que queda
+ * vacío. Si llega con valor, el backend NO envía el mail.
+ *
+ * Detalles importantes para que funcione de verdad:
+ *  - NO usamos `display:none` ni `hidden`: algunos bots ignoran los campos
+ *    ocultos por CSS. En su lugar lo sacamos del viewport con posicionamiento
+ *    absoluto fuera del contenedor.
+ *  - `aria-hidden` + `tabIndex={-1}` + `autoComplete="off"` para que tampoco
+ *    lo toquen lectores de pantalla ni el autocompletado del navegador (si el
+ *    navegador lo autocompleta, un humano enviaría el form "como bot" y se
+ *    perdería su mensaje).
+ *  - El nombre del campo es genérico y creíble ("companyWebsite"), que es lo
+ *    que hace que los bots de spam lo prefieran.
+ */
+function Honeypot({ name, label, value, onChange }) {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: "absolute",
+        left: "-9999px",
+        width: "1px",
+        height: "1px",
+        overflow: "hidden",
+      }}
+    >
+      <label htmlFor={`hp-${name}`}>{label}</label>
+      <input
+        id={`hp-${name}`}
+        name={name}
+        type="text"
+        value={value}
+        onChange={onChange}
+        tabIndex={-1}
+        autoComplete="off"
+      />
+    </div>
   );
 }
