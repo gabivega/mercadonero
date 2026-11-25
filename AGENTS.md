@@ -43,6 +43,88 @@ cd frontend && npm run dev          # Vite dev server (5173)
 
 ---
 
+## 2b. DESPLIEGUE — FLUJO OBLIGATORIO tras CUALQUIER cambio
+
+> **REGLA.** Todo cambio que quede listo **se commitea, se pushea y se despliega al
+> server de producción**. No alcanza con `git push`: el server NO se actualiza solo —
+> tiene que correr el script de deploy. Trabajar solo en local y decir "listo" es un
+> error: producción queda con la versión vieja y el bug "sigue existiendo".
+
+### Acceso SSH (ya configurado — usá el alias)
+
+```shell
+ssh nero        # → root@31.220.90.55, con ~/.ssh/id_ed25519
+```
+
+- **IP de producción: `31.220.90.55`** (Contabo, host `vmi2740913`).
+- La clave que AUTORIZA el server es **`id_ed25519`** (no `id_rsa`).
+- `~/.ssh/config` define los alias `nero` (oficial), `server-gabi.vps` y
+  `contaboServer` (legacy, re-apuntados al mismo host).
+- ⚠️ Si otra sesión "no detecta" el server: casi siempre es porque usa una IP/clave
+  vieja. Verificar el `~/.ssh/config` antes de tocar nada.
+- ⚠️ Al reescribir `~/.ssh/config` usar **UTF-8 SIN BOM** ([System.IO.File]::WriteAllText
+  con `UTF8Encoding($false)`): un BOM rompe el parseo (`Bad configuration option`) y
+  deja el SSH inutilizable para TODAS las sesiones.
+
+### Paso a paso
+
+```shell
+# 1) Verificar estado y que no haya otra cosa sin commitear de rebote
+cd C:\dev\mercadonero && git status --short
+
+# 2) Probar el cambio LOCALMENTE antes de commitear
+cd frontend && npx vite build          # frontend: build limpio
+# backend: node --check <archivo>      # para cada .js tocado
+
+# 3) Commit (en bloques por tema, mensaje en español)
+git add <archivos> && git commit -m "tipo(area): resumen" -m "por qué..."
+
+# 4) Push a origin/main
+git push origin main                   # esperado: "abc1234..def5678  main -> main"
+
+# 5) Deploy en el server (pull + npm ci + build + pm2 + healthcheck)
+ssh nero "cd /var/www/nero-mvp && bash deploy.sh 2>&1 | tail -40"
+
+# 6) VERIFICAR que el server quedó en el commit nuevo
+ssh nero "cd /var/www/nero-mvp && git log --oneline -1"
+```
+
+El script `deploy.sh` (en la raíz del repo, copiado en `/var/www/nero-mvp/`) hace:
+guardar commit previo → `git fetch`/`reset --hard origin/main` → `npm ci` backend →
+**verificar que todos los imports del backend resuelvan** → `npm ci` frontend (salteado
+si el `package-lock.json` no cambió) → `npx vite build` → `pm2 restart nero-mvp` →
+`systemctl reload nginx` → healthcheck (`http://127.0.0.1:4000/health`) → probe HTTPS.
+**Si algo falla, hace ROLLBACK automático** al commit anterior.
+
+### Verificaciones mínimas post-deploy
+
+```shell
+ssh nero "cd /var/www/nero-mvp && git log --oneline -1"        # commit correcto
+ssh nero "curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:4000/api/<ruta>"
+#   401 = la ruta EXISTE y pide auth  ✅
+#   404 = NO está registrada          ❌ (deploy no tomó / falta export)
+```
+
+- Para un cambio de **frontend**, confirmar que el texto nuevo está en el bundle:
+  `grep -c '<texto nuevo>' frontend/dist/assets/index-*.js` en el server.
+- Avisar al usuario que recargue con **Ctrl+Shift+R** (si no, ve el bundle cacheado).
+
+### ⚠️ `backend/.env` NO viaja con el deploy
+
+Está en `.gitignore` (correcto, es secreto). Si un cambio necesita una variable nueva,
+**hay que agregarla A MANO en el server** y reiniciar con `pm2 restart nero-mvp --update-env`.
+El script no la crea ni la valida. Síntoma típico: el código está deployado pero la feature
+"no se ve" porque la env está vacía y el servicio es no-op silencioso.
+
+### ⚠️ Scripts manuales NO se ejecutan solos
+
+Los scripts de mantenimiento (`backend/scripts/*.mjs`, p.ej. `repriceElitProducts.mjs`,
+`cleanElitProviderCategorySpecs.mjs`) modifican DATOS y son intencionalmente manuales:
+el deploy no los corre. Correrlos aparte, primero sin `--apply` para ver el dry-run,
+y con el usuario informado.
+
+---
+
 ## 3. Convenciones de código
 
 - **Idioma:** comentarios, mensajes de UI y de API en **español (es-AR)**. Código
@@ -114,10 +196,17 @@ Hay **dos aprobaciones independientes** que NO hay que confundir:
 ### 5b. WAITING LIST (lista de espera) — flujo de acceso a vender
 En esta etapa **vender es por invitación**. `shop.active=true` + `shop.approved=false`
 se interpreta como **"en lista de espera"**. Reglas vigentes:
-- **El onboarding es un MURO DE ENTRADA**, no un gate de submit: `CreateProduct` abre el
-  modal `SellerOnboarding` automáticamente si `!shop.active`, y **NO muestra ningún
-  formulario ni el selector de tipo** hasta `shop.approved === true`. Aplica a TODOS los
-  tipos (productos, vehículos, inmuebles, servicios).
+- **El onboarding es un MURO DE ENTRADA**, pero **el modal NO se abre solo**. Antes
+  `CreateProduct` lo abría con un `useEffect` al detectar sesión sin `shop.active`, y eso
+  tapaba la página de beneficios (propuesta de valor, comisión, condiciones) justo al
+  usuario nuevo. Ahora se dispara **solo desde un CTA**: `handleWantToSell`
+  ("Quiero vender" en `SellingBenefits`) o el botón "Completar mis datos" de la tarjeta
+  de lista de espera. El bloqueo real se mantiene a nivel de render: sin
+  `shop.approved === true` **NO se muestran formularios ni el selector de tipo**. Aplica
+  a TODOS los tipos (productos, vehículos, inmuebles, servicios).
+- **`VenderPage.jsx` fue BORRADO:** era código muerto (la ruta `/vender` apunta a
+  `CreateProduct`) y tenía un `useEffect` después de un `return` (rompe las reglas de
+  hooks) más un `navigate('/vender')` hacia la misma ruta. No lo resurrectes.
 - **Onboarding = 2 pasos** (datos de usuario + datos de tienda). **YA NO pide datos
   bancarios** (se administran en el Perfil / `BankAccountSection`). Ver
   `completeSellerOnboarding` en `userController.js` y `requireSellerOnboarding.js`.
@@ -370,3 +459,11 @@ Comprobar lo no versionado que falte: `git status --ignored` en la carpeta vieja
 4. **Comentá el "por qué"** en español, manteniendo el estilo del repo.
 5. **Al mover/editar, verificá que el cambio quedó en disco** (node --check / relanzar).
 6. **Si encontrás una trampa nueva, agregala a §9.** Este archivo es memoria compartida.
+7. **Un cambio NO está terminado hasta estar en producción.** Después de implementar:
+   build local → commit → push → `ssh nero` + `deploy.sh` → verificar commit y ruta.
+   Ver **§2b**. No digas "listo" con el server en el commit viejo.
+8. **Verificá, no supongas.** Un `401` en una ruta nueva prueba que existe; `404` prueba
+   que el deploy no la tomó. Un `git push` NO despliega nada por sí solo.
+9. **Cuidado con el encoding al reescribir archivos.** No reescribas archivos con
+   `Out-File`/`Set-Content` de PowerShell (rompen los acentos: `publicación` →
+   `publicaciÃ³n`). Usá las herramientas de edición del agente.
