@@ -87,8 +87,14 @@ export const EVENT_CATALOG = {
   collateral_soon_to_expire: { label: "Garantía pendiente (vendedor debe depositar)", default: true, group: "Riesgo" },
   collateral_released: { label: "Garantía liberada", default: false, group: "Riesgo" },
 
-  // ── Economía / referidos ──
+    // ── Economía / referidos ──
   referral_requested: { label: "Solicitud de referidor", default: true, group: "Economía" },
+
+  // ── Sitio / soporte ──
+  // Mensajes del formulario de contacto del footer y del "Botón de
+  // Arrepentimiento" (Ley 24.240). El admin debe verlos enseguida.
+  contact_message: { label: "Mensaje de contacto / arrepentimiento", default: true, group: "Sitio" },
+
 
   // ── Sistema ──
   gas_drip_rate_limited: { label: "Gas drip bloqueado por límite (posible abuso)", default: true, group: "Sistema" },

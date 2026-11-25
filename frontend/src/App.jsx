@@ -41,6 +41,8 @@ import HelpSeller from "./pages/HelpSeller";
 import HelpBuyer from "./pages/HelpBuyer";
 import DisclaimerBanner from "./components/DisclaimerBanner";
 import Ayuda from "./pages/Ayuda";
+// Contacto + Botón de Arrepentimiento (Ley 24.240). Ver pages/Contacto.jsx.
+import Contacto from "./pages/Contacto";
 import Team from "./pages/Team";
 import Mensajes from "./pages/dashboard/Mensajes";
 // import VirtualPet from "./components/VirtualPet/VirtualPet"; // Mascota "Nerito" deshabilitada temporalmente
@@ -99,6 +101,10 @@ export default function App() {
             <Route path="/ayuda/vender" element={<HelpSeller />} />
             <Route path="/ayuda/comprar" element={<HelpBuyer />} />
             <Route path="/ayuda" element={<Ayuda />} />
+            {/* Contacto general y Botón de Arrepentimiento (mismo componente,
+                cambia de modo con ?motivo=refund). */}
+            <Route path="/contacto" element={<Contacto />} />
+            <Route path="/arrepentimiento" element={<Contacto />} />
             <Route path="/equipo" element={<Team />} />
             <Route path="referidos" element={<Referrals />} />
             <Route element={<DashboardLayout />}>
@@ -119,8 +125,13 @@ export default function App() {
               {/* Agrega historial y posts de la misma forma */}
             </Route>
             <Route path="/admin" element={<AdminDashboard />} />
-            <Route path="/terminos-y-condiciones" element={<TermsAndConditions />} />
+                        <Route path="/terminos-y-condiciones" element={<TermsAndConditions />} />
             <Route path="/politica-de-privacidad" element={<PrivacyPolicy />} />
+            {/* Alias viejos que el Footer enlazaba como /legal/*: no existían
+                como ruta y caían en el 404 (un enlace legal roto es un
+                problema de compliance, no sólo de UX). */}
+            <Route path="/legal/terminos" element={<TermsAndConditions />} />
+            <Route path="/legal/privacidad" element={<PrivacyPolicy />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
                 </main>

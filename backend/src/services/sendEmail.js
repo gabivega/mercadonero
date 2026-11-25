@@ -1203,9 +1203,112 @@ export const sendDisputeOpenedToVendor = async ({
         </div>
       `,
     });
-    if (error) console.error("Error email disputa abierta al vendedor:", error);
+        if (error) console.error("Error email disputa abierta al vendedor:", error);
     return { data, error };
   } catch (err) {
     console.error("Exception en sendDisputeOpenedToVendor:", err);
+  }
+};
+
+/**
+ * 21. NOTIFICACIÓN AL ADMIN (mensaje de contacto desde el sitio).
+ *
+ * ¿Qué resuelve? El footer tiene "Ayuda y contacto" y el "Botón de
+ * Arrepentimiento" (Ley 24.240, AR). No queremos exponer una casilla de correo
+ * en texto plano (spam) ni obligar al usuario a tener un cliente de mail. Por
+ * eso el frontend manda el mensaje al backend, que lo ENVÍA POR MAIL al admin
+ * y lo ESPEJA EN TELEGRAM. Si el mail falla, la solicitud igual llegó por
+ * Telegram; si Telegram no está configurado, queda el mail.
+ *
+ * `kind`:
+ *   - "contact"  → consulta general / ayuda
+ *   - "refund"   → Botón de Arrepentimiento (derecho de revocación)
+ *
+ * `replyTo` permite al admin responder el correo tocando "Responder": nunca
+ * usamos el email del usuario como remitente (el `from` debe ser el dominio
+ * verificado en Resend, si no rebota).
+ */
+export const sendContactMessageToAdmin = async ({
+  adminEmail,
+  kind = "contact",
+  fromEmail,
+  subject,
+  message,
+  context,
+}) => {
+  const isRefund = kind === "refund";
+  const recipient = adminEmail || process.env.ADMIN_CONTACT_EMAIL || "";
+  if (!recipient) {
+    return { data: null, error: { message: "Sin destinatario configurado" } };
+  }
+
+  try {
+    const safeSubject = String(subject || "").slice(0, 160);
+    const safeMessage = String(message || "").slice(0, 4000);
+    // El "contexto" es un objeto con datos opcionales que el usuario completó
+    // en el formulario (orden, nombre, teléfono, fecha de compra, etc.).
+    const contextRows = Object.entries(context || {})
+      .filter(([, v]) => v != null && String(v).trim() !== "")
+      .map(
+        ([k, v]) =>
+          `<p style="margin: 0 0 6px 0;"><strong>${String(k)}:</strong> ${String(v).slice(0, 500)}</p>`,
+      )
+      .join("");
+
+    const title = isRefund
+      ? "BOTÓN DE ARREPENTIMIENTO (solicitud de revocación)"
+      : "Nuevo mensaje de contacto";
+
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [recipient],
+      // Responder va directo al usuario, sin exponer su mail en el cuerpo.
+      ...(fromEmail ? { reply_to: fromEmail } : {}),
+      subject: isRefund
+        ? `[Mercado Nero] Arrepentimiento - ${safeSubject || "sin asunto"}`
+        : `[Mercado Nero] Contacto - ${safeSubject || "sin asunto"}`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+          <h2 style="color: #111;">${title}</h2>
+          <p style="font-size: 13px; color: #555;">
+            Recibido desde el sitio el ${new Date().toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })}.
+          </p>
+          <div style="background-color: #f4f4f5; padding: 15px; border-radius: 6px; margin: 15px 0;">
+            ${contextRows || '<p style="margin: 0;">Sin datos adicionales.</p>'}
+          </div>
+          <div style="background-color: #fffbeb; border: 1px solid #fcd34d; padding: 14px; border-radius: 6px; margin: 15px 0;">
+            <p style="margin: 0 0 6px 0; font-weight: bold; color: #92400e;">Mensaje:</p>
+            <p style="margin: 0; font-size: 13px; color: #7c2d12; white-space: pre-wrap;">${safeMessage}</p>
+          </div>
+          ${
+            isRefund
+              ? `<p style="font-size: 12px; color: #b45309;">Recordá: la Ley 24.240 otorga 10 días corridos desde la recepción del producto para revocar la compra. Respondé a este correo (Reply-To) para contactar al usuario.</p>`
+              : ""
+          }
+        </div>
+      `,
+    });
+
+    if (error) console.error("Error enviando mensaje de contacto al admin:", error);
+
+    // ── Espejo en TELEGRAM (solo admin) ──
+    // Si el admin apagó el evento, no se manda nada; el mail queda igual.
+    notifyAdmin("contact_message", {
+      header: isRefund
+        ? "🛡️ <b>Botón de Arrepentimiento</b>"
+        : "📨 <b>Nuevo mensaje de contacto</b>",
+      lines: [
+        ...Object.entries(context || {})
+          .filter(([, v]) => v != null && String(v).trim() !== "")
+          .map(([k, v]) => `${tgEsc(k)}: ${tgEsc(String(v).slice(0, 200))}`),
+        `Mensaje: ${tgEsc(safeMessage.slice(0, 500))}`,
+      ],
+      data: { kind, fromEmail },
+    }).catch(() => {});
+
+    return { data, error };
+  } catch (err) {
+    console.error("Exception en sendContactMessageToAdmin:", err);
+    return { data: null, error: { message: err.message } };
   }
 };

@@ -1,5 +1,5 @@
 import React from 'react';
-import { HelpCircle } from 'lucide-react';
+import { HelpCircle, Mail, ShieldAlert } from 'lucide-react';
 import logoWhite from '../assets/img/logo-white.png';
 // Logo negro reservado para cuando se reactive el light theme.
 // import logoBlack from '../assets/img/logo-black.png';
@@ -59,7 +59,7 @@ export default function Footer() {
             </ul>
           </div>
 
-          {/* Columna 3: Soporte y Guías */}
+                    {/* Columna 3: Soporte y Guías */}
           <div>
             <h4 className="text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500 mb-4">
               Soporte y Ayuda
@@ -73,6 +73,16 @@ export default function Footer() {
               <li>
                 <a href="/ayuda/vender" className="text-gray-600 dark:text-zinc-400 hover:text-[#F26722] dark:hover:text-[#F26722] transition-colors flex items-center gap-1.5">
                   <HelpCircle className="w-3.5 h-3.5" /> Guía para Vendedores
+                </a>
+              </li>
+              <li>
+                <a href="/ayuda" className="text-gray-600 dark:text-zinc-400 hover:text-[#F26722] dark:hover:text-[#F26722] transition-colors flex items-center gap-1.5">
+                  <HelpCircle className="w-3.5 h-3.5" /> Preguntas Frecuentes
+                </a>
+              </li>
+              <li>
+                <a href="/contacto" className="text-gray-600 dark:text-zinc-400 hover:text-[#F26722] dark:hover:text-[#F26722] transition-colors flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5" /> Ayuda y contacto
                 </a>
               </li>
             </ul>
@@ -106,6 +116,21 @@ export default function Footer() {
                 {/* <Instagram className="w-4 h-4" /> */}
               </a>
             </div>
+
+            {/* Botón de Arrepentimiento.
+                Es OBLIGATORIO en Argentina (Ley 24.240 de Defensa del Consumidor):
+                el consumidor puede revocar una compra dentro de los 10 días
+                corridos de recibir el producto. Debe ser visible y accesible
+                permanentemente, por eso vive en el footer y no en un menú interno.
+                Lleva a /contacto?motivo=refund, que dispara el formulario
+                específico y el mail/Telegram al admin. */}
+            <a
+              href="/contacto?motivo=refund"
+              className="mt-5 inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-[#F26722]/40 text-[11px] font-bold text-[#F26722] hover:bg-[#F26722] hover:text-white transition-colors"
+            >
+              <ShieldAlert className="w-3.5 h-3.5" />
+              Botón de Arrepentimiento
+            </a>
           </div>
 
         </div>
@@ -113,14 +138,16 @@ export default function Footer() {
         {/* Separador */}
         <div className="h-px w-full bg-gray-100 dark:bg-zinc-800/40 my-6" />
 
-        {/* Barra de Derechos / Legal de Cierre */}
+                {/* Barra de Derechos / Legal de Cierre */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-gray-500 dark:text-zinc-500">
           <div>
-            © {currentYear} <strong>Mercado Nero</strong>
+            © {currentYear} <strong>Mercado Nero</strong> — Todos los derechos reservados.
           </div>
-          <div className="flex items-center gap-4">
-            <a href="/legal/terminos" className="hover:text-gray-800 dark:hover:text-zinc-300 transition-colors">Términos</a>
-            <a href="/legal/privacidad" className="hover:text-gray-800 dark:hover:text-zinc-300 transition-colors">Privacidad</a>
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+            <a href="/terminos-y-condiciones" className="hover:text-gray-800 dark:hover:text-zinc-300 transition-colors">Términos</a>
+            <a href="/politica-de-privacidad" className="hover:text-gray-800 dark:hover:text-zinc-300 transition-colors">Privacidad</a>
+            <a href="/contacto" className="hover:text-gray-800 dark:hover:text-zinc-300 transition-colors">Contacto</a>
+            <a href="/contacto?motivo=refund" className="hover:text-gray-800 dark:hover:text-zinc-300 transition-colors">Arrepentimiento</a>
             <span className="text-gray-300 dark:text-zinc-800">|</span>
             <span className="font-mono text-[10px] uppercase">v0.2.0-beta</span>
           </div>
