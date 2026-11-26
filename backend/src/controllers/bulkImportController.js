@@ -10,6 +10,45 @@ allCategories.forEach((cat) => {
 
 const categoriesWithoutBrand = ["inmuebles", "servicios"];
 
+// ── LÍMITE DE PUBLICACIONES POR CUENTA ─────────────────────────────────────
+// Hoy TODAS las cuentas son gratuitas, así que aplicamos un tope duro para
+// evitar que un vendedor (o un script) llene el catálogo de golpe. El cupo se
+// calcula sobre el TOTAL de publicaciones NO eliminadas del vendedor: lo que ya
+// publicó ocupa lugar, así que la carga masiva no sirve para saltearlo
+// publicando de a tandas.
+// Configurable por env (backend/.env → BULK_IMPORT_MAX_PRODUCTS=300) para poder
+// subirlo cuando existan planes pagos, sin tocar código.
+export const DEFAULT_MAX_PRODUCTS = 300;
+const MAX_PRODUCTS_PER_ACCOUNT = (() => {
+  const raw = Number(process.env.BULK_IMPORT_MAX_PRODUCTS);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_MAX_PRODUCTS;
+})();
+
+// Estados que "ocupan lugar" en el cupo. Los `deleted` NO cuentan: el vendedor
+// los dio de baja y puede reemplazarlos.
+const COUNTED_STATUSES = ["active", "paused", "out_of_stock"];
+
+// Tope de filas procesables en UNA sola request. El archivo puede subirse
+// completo; el front lo parte en tandas chicas para no colgar la API.
+const MAX_ROWS_PER_REQUEST = 1000;
+
+// Defaults alineados con `createProduct` (productController.js). La carga
+// masiva NO pasa por ese controlador, así que sin esto los productos del Excel
+// quedaban con otra configuración (p. ej. despacho 24h en vez de 48h, o entrega
+// a domicilio deshabilitada por el default del schema).
+const DEFAULT_SHIPPING_TIME = "48h";
+// Quién gestiona el envío a domicilio cuando no se especifica (ver Product.js).
+// "zipnova" = cotización de la plataforma; requiere peso/dimensiones cargados.
+const DEFAULT_HOME_DELIVERY_MODE = "zipnova";
+
+// Códigos que cortan TODA la tanda: no tiene sentido seguir creando productos
+// si el vendedor agotó su cupo o le falta lo que el checkout necesita.
+const BATCH_FATAL_CODES = new Set([
+  "PRODUCT_LIMIT_REACHED",
+  "PAYMENT_METHOD_REQUIRED",
+  "WALLET_REQUIRED",
+]);
+
 // Mapeo para normalizar los valores de envío booleano
 const toBoolean = (value) => {
   if (value === undefined || value === null || value === "") return false;
@@ -67,7 +106,12 @@ const mapRowToProduct = (row, index) => {
   const currency = normalizeCurrency(get("moneda") || get("currency") || get("MONEDA"));
   const condition = normalizeCondition(get("estado") || get("condition") || get("ESTADO"));
   const stock = Number(get("stock") || get("STOCK") || 1) || 1;
-  const shippingTime = normalizeShippingTime(get("tiempo_despacho") || get("shipping_time") || get("TIEMPO_DESPACHO"));
+    // OJO: si la columna viene vacía, el default es 48h (el del form de
+  // publicación), NO 24h. Por eso solo normalizamos cuando hay valor.
+  const shippingTimeRaw = get("tiempo_despacho") || get("shipping_time") || get("TIEMPO_DESPACHO");
+  const shippingTime = shippingTimeRaw
+    ? normalizeShippingTime(shippingTimeRaw)
+    : DEFAULT_SHIPPING_TIME;
   const isDigital = toBoolean(get("envio_digital") || get("is_digital") || get("ENVIO_DIGITAL"));
   const digitalUrl = get("link_digital") || get("digital_url") || get("LINK_DIGITAL");
   const freeShipping = !isDigital && toBoolean(get("envio_gratis") || get("free_shipping") || get("ENVIO_GRATIS"));
@@ -155,18 +199,92 @@ const mapRowToProduct = (row, index) => {
   return { data, errors, hasErrors: errors.length > 0 };
 };
 
+// Valida los campos que el CHECKOUT necesita y que `createProduct` exige pero
+// el cargador masivo antes NO chequeaba. Se aplican en el backend (y no solo en
+// el importador) porque la carga masiva saltea el controlador de publicación y
+// un archivo podía crear productos rotos: sin foto, sin método de pago o con
+// oferta inválida. Devuelve un mensaje de error o "" si está todo bien.
+const validateProductForSale = (productData) => {
+  if (!Array.isArray(productData?.images) || productData.images.length === 0) {
+    return "falta al menos una imagen. Cargá 'imagen1' con la URL directa de la foto (debe terminar en .jpg/.png/.webp), o subí las fotos después desde el editor del producto.";
+  }
+
+  const payment = productData?.payment || {};
+  if (payment.acceptsTransfer === false && payment.acceptsCrypto !== true) {
+    return "el producto no acepta ningún medio de pago. Dejá al menos transferencia o cripto.";
+  }
+
+  // La oferta tiene que ser un descuento REAL (menor que el precio). El modelo
+  // lo permite en 0, así que si viene mal la descartamos en vez de rechazar la fila.
+  const sale = productData?.sale;
+  if (!sale || sale.active !== true || !(Number(sale.price) > 0)) return "";
+
+  const base = Number(productData?.price);
+  if (Number(sale.price) >= base) {
+    return `el precio de oferta (${sale.price}) debe ser menor al precio (${base}).`;
+  }
+
+  // Si el archivo define 'sale' = precio OFERTA FINAL, esto normaliza el valor
+  // por si mañana se decide que la columna sea un descuento porcentual.
+  return "";
+};
+
+// Normaliza el bloque de envío para que quede igual que lo guarda
+// `createProduct`. Sin esto, el producto importado queda con el default del
+// schema (`homeDelivery: true` viene de createProduct, pero `shippingTime`
+// caía a "24h" y el digital no respetaba el modo de entrega).
+const buildShipping = (productData) => {
+  const shipping = productData?.shipping || {};
+  const isDigital = shipping.isDigital === true;
+  const dims = shipping.dimensions || {};
+
+  const normalized = {
+    isDigital,
+    free: isDigital ? false : shipping.free === true,
+    cost: isDigital ? 0 : Number(shipping.cost) || 0,
+    dimensions: {
+      weight: Number(dims.weight) || 0,
+      length: Number(dims.length) || 0,
+      width: Number(dims.width) || 0,
+      height: Number(dims.height) || 0,
+    },
+    shippingTime: shipping.shippingTime || DEFAULT_SHIPPING_TIME,
+    // Un producto digital no tiene entrega física.
+    delivery: {
+      homeDelivery: isDigital ? false : true,
+      pickup: false,
+      pickupLocationIds: [],
+      homeDeliveryMode: DEFAULT_HOME_DELIVERY_MODE,
+    },
+  };
+
+  if (isDigital && shipping.digitalUrl) {
+    normalized.digitalUrl = shipping.digitalUrl;
+  }
+
+  return normalized;
+};
+
 /**
  * POST /api/product/bulk-import
  * Carga masiva de productos desde Excel/CSV.
- * El body espera: { products: [...], rowErrors: [...] }
- * donde cada producto ya vino mapeado y validado desde el frontend.
+ * El body espera: { products: [...] } con cada producto ya mapeado y validado
+ * desde el frontend (ver ImportProductsSection.jsx).
+ *
+ * El backend VUELVE a validar la estructura mínima (nunca confiar solo en el
+ * cliente) y aplica el CUPO de publicaciones por cuenta.
+ *
+ * Respuesta:
+ *   { success, created, failed, blocked? , maxProducts,
+ *     createdProducts[], failedProducts[{ row, name, reason }] }
  */
 export const bulkImport = async (req, res) => {
   try {
     const userId = req.user._id;
 
-
-    const userProfile = await User.findById(userId).select("username shop isVerified addresses");
+    const userProfile = await User.findById(userId).select(
+      "username shop isVerified addresses",
+    );
     if (!userProfile) {
       return res.status(404).json({ success: false, message: "Usuario no encontrado" });
     }
@@ -194,13 +312,78 @@ export const bulkImport = async (req, res) => {
       });
     }
 
+    if (products.length > MAX_ROWS_PER_REQUEST) {
+      return res.status(400).json({
+        success: false,
+        message: `Máximo ${MAX_ROWS_PER_REQUEST} productos por importación. Partí el archivo en tandas más chicas.`,
+      });
+    }
+
+    // ── CUPO DE PUBLICACIONES POR CUENTA ──
+    // Contamos lo que el vendedor YA tiene (sin contar los eliminados). Si el
+    // cupo es 0 o negativo no dejamos importar: devolvemos `blocked` para que el
+    // front muestre el mensaje de límite en vez de un error genérico.
+    const alreadyPublished = await Product.countDocuments({
+      seller: userId,
+      status: { $in: COUNTED_STATUSES },
+    });
+    const remainingQuota = Math.max(0, MAX_PRODUCTS_PER_ACCOUNT - alreadyPublished);
+
+    if (remainingQuota <= 0) {
+      return res.status(403).json({
+        success: false,
+        blocked: "limit",
+        message: `Alcanzaste el límite de ${MAX_PRODUCTS_PER_ACCOUNT} publicaciones de tu cuenta gratuita. Eliminá publicaciones para liberar lugar.`,
+        maxProducts: MAX_PRODUCTS_PER_ACCOUNT,
+        currentProducts: alreadyPublished,
+      });
+    }
+
+    // Se importa hasta donde alcanza el cupo; el resto se informa como omitido.
+    const accepted = products.slice(0, remainingQuota);
+    const skippedByQuota = products.length - accepted.length;
+
     const createdProducts = [];
     const failedProducts = [];
+    let blocked = null;
+    let fatalMessage = "";
 
-    for (const productData of products) {
+    for (let i = 0; i < accepted.length; i += 1) {
+      const productData = accepted[i];
+
+      // Reconteo por si hay otra importación en paralelo o el cupo se llenó
+      // dentro de esta misma tanda (el count de arriba es un snapshot).
+      const currentCount = await Product.countDocuments({
+        seller: userId,
+        status: { $in: COUNTED_STATUSES },
+      });
+      if (currentCount >= MAX_PRODUCTS_PER_ACCOUNT) {
+        blocked = "limit";
+        fatalMessage = `Alcanzaste el límite de ${MAX_PRODUCTS_PER_ACCOUNT} publicaciones de tu cuenta gratuita.`;
+        for (let j = i; j < accepted.length; j += 1) {
+          failedProducts.push({
+            row: j + 1,
+            name: accepted[j]?.name || "Sin título",
+            reason: "Cupo de publicaciones agotado.",
+          });
+        }
+        break;
+      }
+
+      const rowError = validateProductForSale(productData);
+      if (rowError) {
+        failedProducts.push({
+          row: i + 1,
+          name: productData?.name || "Sin título",
+          reason: rowError,
+        });
+        continue;
+      }
+
       try {
         const newProduct = new Product({
           ...productData,
+          shipping: buildShipping(productData),
           seller: userId,
           sellerName: userProfile?.shop?.name || userProfile?.username,
           sellerIsVerified: userProfile?.isVerified || false,
@@ -224,17 +407,31 @@ export const bulkImport = async (req, res) => {
         });
       } catch (err) {
         failedProducts.push({
+          row: i + 1,
           name: productData?.name || "Sin título",
           reason: err.message,
         });
       }
     }
 
+    const totalOmitted = skippedByQuota + failedProducts.filter((f) =>
+      String(f.reason).includes("Cupo"),
+    ).length;
+
     res.status(201).json({
       success: true,
-      message: `Se importaron ${createdProducts.length} producto(s) correctamente.`,
+      blocked: blocked || undefined,
+      message: blocked
+        ? fatalMessage
+        : `Se importaron ${createdProducts.length} producto(s) correctamente.`,
       created: createdProducts.length,
       failed: failedProducts.length,
+      skipped: totalOmitted,
+      maxProducts: MAX_PRODUCTS_PER_ACCOUNT,
+      currentProducts: await Product.countDocuments({
+        seller: userId,
+        status: { $in: COUNTED_STATUSES },
+      }),
       createdProducts,
       failedProducts,
     });

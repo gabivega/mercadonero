@@ -74,6 +74,10 @@ export const ImportSection = () => {
   const [parsedRows, setParsedRows] = useState([]);
   const [parsing, setParsing] = useState(false);
   const [isBulkSubmitting, setIsBulkSubmitting] = useState(false);
+  // Cupo de publicaciones de la cuenta ({ max, current }). Se llena con la
+  // respuesta del backend después de importar; antes de eso es null.
+  const [quota, setQuota] = useState(null);
+
 
   const addLink = () => {
     if (links.length < MAX_LINKS) {
@@ -176,12 +180,43 @@ export const ImportSection = () => {
     };
 
     // â”€â”€ MAPEO DE FILAS DEL EXCEL â”€â”€
-    const mapRow = (row, index) => {
+        const mapRow = (row, index) => {
       const errors = [];
-      const get = (key) => {
-        const val = row[key];
-        if (val === undefined || val === null) return '';
-        return String(val).trim();
+      // Los encabezados ya vienen normalizados desde `handleFileChange`
+      // (minúsculas, sin acentos ni espacios). Acá solo leemos. Aceptamos los
+      // alias en inglés porque hay planillas exportadas de otras plataformas.
+      const ALIASES = {
+        titulo: ['titulo', 'title'],
+        marca: ['marca', 'brand'],
+        categoria: ['categoria', 'category'],
+        subcategoria: ['subcategoria', 'subcategory'],
+        descripcion: ['descripcion', 'description'],
+        precio: ['precio', 'price'],
+        precio_oferta: ['precio_oferta', 'sale_price'],
+        moneda: ['moneda', 'currency'],
+        estado: ['estado', 'condition'],
+        stock: ['stock'],
+        imagen1: ['imagen1', 'image1'],
+        imagen2: ['imagen2', 'image2'],
+        imagen3: ['imagen3', 'image3'],
+        envio_digital: ['envio_digital', 'is_digital'],
+        link_digital: ['link_digital', 'digital_url'],
+        envio_gratis: ['envio_gratis', 'free_shipping'],
+        costo_envio: ['costo_envio', 'shipping_cost'],
+        peso_kg: ['peso_kg', 'weight_kg'],
+        largo_cm: ['largo_cm', 'length_cm'],
+        ancho_cm: ['ancho_cm', 'width_cm'],
+        alto_cm: ['alto_cm', 'height_cm'],
+        tiempo_despacho: ['tiempo_despacho', 'shipping_time'],
+      };
+      const get = (campo) => {
+        const keys = ALIASES[campo] || [campo];
+        for (const k of keys) {
+          const val = row[k];
+          if (val === undefined || val === null || val === '') continue;
+          return String(val).trim();
+        }
+        return '';
       };
 
       const name = get('titulo');
@@ -195,21 +230,27 @@ export const ImportSection = () => {
       const conditionRaw = get('estado').toLowerCase();
       const condition = conditionRaw.includes('us') ? 'used'
         : conditionRaw.includes('reacond') ? 'refurbished' : 'new';
-      const stock = Number(get('stock')) || 1;
+      // Stock ausente o 0 explícito se lleva a 1: no creamos productos que
+      // nazcan sin stock (el modelo permite 0 y quedarían invendibles).
+      const stockRaw = Number(get('stock'));
+      const stock = Number.isFinite(stockRaw) && stockRaw >= 1 ? Math.floor(stockRaw) : 1;
 
-      const isDigital = ['si', 'sí', 'true', '1', 's'].includes(get('envio_digital').trim().toLowerCase());
+      const isDigital = ['si', 'true', '1', 's', 'y', 'yes'].includes(get('envio_digital').trim().toLowerCase());
       const digitalUrl = get('link_digital');
-      const freeShipping = !isDigital && ['si', 'sí', 'true', '1', 's'].includes(get('envio_gratis').trim().toLowerCase());
+      const freeShipping = !isDigital && ['si', 'true', '1', 's', 'y', 'yes'].includes(get('envio_gratis').trim().toLowerCase());
       const shippingCost = Number(get('costo_envio')) || 0;
       const weight = Number(get('peso_kg')) || 0;
       const length = Number(get('largo_cm')) || 0;
       const width = Number(get('ancho_cm')) || 0;
-      const height = Number(get('alto_cm')) || 0;
-      const shippingTimeRaw = get('tiempo_despacho');
+            const height = Number(get('alto_cm')) || 0;
+      // Si la columna viene vacía usamos 48h (default del formulario de
+      // publicación), NO 24h.
+      const shippingTimeRaw = get('tiempo_despacho').toLowerCase();
       const shippingTime = shippingTimeRaw.includes('48') ? '48h'
         : shippingTimeRaw.includes('72') ? '72h'
         : shippingTimeRaw.includes('mas') || shippingTimeRaw.includes('más') ? 'more'
-        : '24h';
+        : shippingTimeRaw.includes('24') ? '24h'
+        : '48h';
 
       // URLs de imágenes (máximo 3)
       const imageUrls = [get('imagen1'), get('imagen2'), get('imagen3')]
@@ -246,8 +287,8 @@ export const ImportSection = () => {
         description,
         price,
         currency,
-        sale: salePrice > 0 ? { active: true, price: salePrice } : { active: false, price: 0 },
-        stock: Math.floor(stock),
+                        sale: salePrice > 0 ? { active: true, price: salePrice } : { active: false, price: 0 },
+        stock,
         category,
         subCategory: subCategory || '',
         condition,
@@ -255,10 +296,14 @@ export const ImportSection = () => {
         shipping: {
           isDigital,
           free: freeShipping,
-          cost: isDigital ? 0 : shippingCost,
+                    cost: isDigital ? 0 : shippingCost,
           dimensions: { weight, length, width, height },
           shippingTime,
         },
+        // Métodos de pago: la planilla NO pregunta por esto, así que usamos los
+        // mismos defaults del formulario (transferencia activa, cripto off) en
+        // lugar de dejar el producto sin ningún medio de pago.
+        payment: { acceptsTransfer: true, acceptsCrypto: false },
                 listingType: 'product',
         source: 'manual',
       };
@@ -277,7 +322,7 @@ export const ImportSection = () => {
       setFileName(file.name);
 
       try {
-        const buffer = await file.arrayBuffer();
+                const buffer = await file.arrayBuffer();
         const workbook = XLSX.read(buffer, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
@@ -285,7 +330,34 @@ export const ImportSection = () => {
 
         if (jsonRows.length === 0) throw new Error('El archivo está vacío o no tiene filas con datos.');
 
-        const rows = jsonRows.map((row, i) => mapRow(row, i));
+        // ── NORMALIZACIÓN DE ENCABEZADOS ──
+        // Un Excel real viene con "TÍTULO", "Categoría", " Precio " o "MARCA".
+        // Si comparamos literal, NINGUNA columna matchea y todo da error. Por eso
+        // pasamos cada clave a minúsculas, sin acentos y sin espacios/guiones
+        // repetidos. También colapsamos Columnas duplicadas (Excel a veces repite
+        // el header de stock o precio) conservando la primera con valor.
+        // OJO: el orden de los valores por fila NO cambia, solo las claves.
+        const normalizeKey = (key) =>
+          String(key)
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .trim()
+            .replace(/\s+/g, '_');
+
+        const normalizeRowKeys = (rawRow) => {
+          const out = {};
+          Object.entries(rawRow).forEach(([k, v]) => {
+            const nk = normalizeKey(k);
+            if (!nk) return;
+            if (out[nk] === undefined || out[nk] === '' || out[nk] === null) {
+              out[nk] = v;
+            }
+          });
+          return out;
+        };
+
+        const rows = jsonRows.map((rawRow, i) => mapRow(normalizeRowKeys(rawRow), i));
         setParsedRows(rows);
 
         const validCount = rows.filter((r) => !r.hasErrors).length;
@@ -364,23 +436,71 @@ export const ImportSection = () => {
 
       setIsBulkSubmitting(true);
       try {
-        const token = await getAccessToken();
-        const { data } = await axios.post(
-          `${import.meta.env.VITE_SERVER_URL}/api/product/bulk-import`,
-          { products: validProducts },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+                const token = await getAccessToken();
+
+        // ── ENVÍO POR TANDAS ──
+        // Un Excel de 300+ filas en UNA sola request puede tardar minutos
+        // (cada producto se guarda con sus hooks) y el proxy corta la conexión.
+        // Mandamos de a TANDA y acumulamos el resultado. Si una tanda devuelve
+        // `blocked` (p.ej. cupo agotado), cortamos y lo informamos.
+        const TANDA = 50;
+        let created = 0;
+        let failed = 0;
+        const failedDetails = [];
+        let blockedData = null;
+        let lastResponse = null;
+
+        for (let i = 0; i < validProducts.length; i += TANDA) {
+          const chunk = validProducts.slice(i, i + TANDA);
+          const { data } = await axios.post(
+            `${import.meta.env.VITE_SERVER_URL}/api/product/bulk-import`,
+            { products: chunk },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          lastResponse = data;
+          created += data.created || 0;
+          failed += data.failed || 0;
+          if (Array.isArray(data.failedProducts)) {
+            failedDetails.push(...data.failedProducts);
+          }
+          // El backend cortó por cupo: no seguimos mandando tandas.
+          if (data.blocked) {
+            blockedData = data;
+            break;
+          }
+        }
+
+        const skipped = lastResponse?.skipped || 0;
+
+        // Refrescamos el cupo visible (publicaciones restantes) si vino.
+        if (lastResponse?.maxProducts != null) {
+          setQuota({
+            max: lastResponse.maxProducts,
+            current: lastResponse.currentProducts ?? 0,
+          });
+        }
 
         setParsedRows([]);
         setFileName('');
 
+
         Swal.fire({
-          title: data.success ? '¡Importación completada!' : 'Importación parcial',
+          title: blockedData ? 'Importacion detenida' : failed > 0 ? 'Importacion parcial' : 'Importacion completada',
           html: `<p class="text-sm text-gray-400">
-            <span class="text-green-400">âœ… ${data.created} producto(s) importado(s)</span><br/>
-            ${data.failed > 0 ? `<span class="text-red-400">⚠️ ${data.failed} con errores</span>` : ''}
+            <span class="text-green-400">${created} producto(s) importado(s)</span><br/>
+            ${failed > 0 ? `<span class="text-red-400">${failed} con errores</span><br/>` : ''}
+            ${skipped > 0 ? `<span class="text-amber-400">${skipped} no se importaron por el cupo de la cuenta</span><br/>` : ''}
+            ${blockedData ? `<br/><span class="text-amber-300 text-xs">${blockedData.message || ''}</span>` : ''}
+            ${
+              failedDetails.length > 0
+                ? `<br/><span class="text-[11px] text-red-300">${failedDetails
+                    .slice(0, 5)
+                    .map((f) => `- ${f.name}: ${f.reason}`)
+                    .join('<br/>')}</span>`
+                : ''
+            }
           </p>`,
-          icon: data.failed > 0 ? 'warning' : 'success',
+          icon: blockedData ? 'info' : failed > 0 ? 'warning' : 'success',
           background: '#1A1A1A',
           color: '#ffffff',
           confirmButtonColor: '#2563eb',
@@ -681,6 +801,17 @@ export const ImportSection = () => {
                 )}
 
                               <div className="mt-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                {/* Cupo de la cuenta: el backend limita las publicaciones
+                    gratuitas. Mostrarlo ANTES de importar evita que el
+                    vendedor suba 300 filas y se entere a mitad de camino. */}
+                {quota && (
+                  <p className="text-[10px] font-bold text-gray-500 dark:text-gray-400">
+                    Publicaciones usadas: {quota.current} / {quota.max}
+                    {quota.current >= quota.max && (
+                      <span className="text-rose-500"> — límite alcanzado, eliminá publicaciones para liberar lugar.</span>
+                    )}
+                  </p>
+                )}
                                 <p className="text-[10px] text-gray-400 dark:text-gray-500 flex items-start gap-1.5 max-w-md">
                   <AlertTriangle size={12} className="flex-shrink-0 mt-px" />
                   <span>
