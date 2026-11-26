@@ -60,9 +60,19 @@ rollback() {
 
     echo -e "${YELLOW}  Reiniciando backend...${NC}"
     pm2 restart "$PM2_APP" --update-env >/dev/null 2>&1 || true
-    sleep 8
 
-    if curl -sf --max-time "$HEALTH_TIMEOUT" "$HEALTH_URL" >/dev/null 2>&1; then
+    # Reintentos: el backend tarda en levantar (Mongo + modelos). Un solo
+    # intento a los 8s da falsos negativos y deja el deploy "fallido" cuando
+    # en realidad el servicio quedó andando.
+    RB_OK=false
+    for _ in $(seq 1 12); do
+      if curl -sf --max-time "$HEALTH_TIMEOUT" "$HEALTH_URL" >/dev/null 2>&1; then
+        RB_OK=true; break
+      fi
+      sleep 5
+    done
+
+    if [ "$RB_OK" = "true" ]; then
       echo -e "${GREEN}  ✓ Rollback exitoso. Servicio restaurado en $PREVIOUS_COMMIT${NC}"
     else
       echo -e "${RED}  ✗ El rollback NO restauró el servicio. REVISAR MANUALMENTE.${NC}"
@@ -188,16 +198,30 @@ systemctl reload nginx 2>/dev/null || true
 ok "Nginx recargado"
 
 # ── 7. Healthcheck ─────────────────────────────────────────────────────────
+# ⚠️ El backend tarda en conectar Mongo y en levantar los modelos (arranca en
+# ~8-15s). Antes hacíamos UN solo intento con sleep 8 y a veces el servicio
+# todavía no respondía → rollback falso (el build estaba bien). Ahora
+# reintentamos durante hasta ~60s antes de declarar el fallo.
 step "8/8  Verificando salud del servicio"
-sleep 8
+HEALTH_RETRIES=12
+HEALTH_SLEEP=5
+HEALTH_OK=false
+for i in $(seq 1 $HEALTH_RETRIES); do
+  if curl -sf --max-time "$HEALTH_TIMEOUT" "$HEALTH_URL" >/dev/null 2>&1; then
+    HEALTH_OK=true
+    ok "Backend responde (intento $i/$HEALTH_RETRIES)"
+    break
+  fi
+  echo "     … esperando al backend ($i/$HEALTH_RETRIES)"
+  sleep "$HEALTH_SLEEP"
+done
 
-if ! curl -sf --max-time "$HEALTH_TIMEOUT" "$HEALTH_URL" >/dev/null 2>&1; then
-  fail "El healthcheck falló ($HEALTH_URL)"
+if [ "$HEALTH_OK" != "true" ]; then
+  fail "El healthcheck falló tras $((HEALTH_RETRIES * HEALTH_SLEEP))s ($HEALTH_URL)"
   echo "     Últimas líneas del log:"
   pm2 logs "$PM2_APP" --lines 20 --nostream --no-color 2>/dev/null | sed 's/^/       /'
   rollback "healthcheck falló tras el deploy"
 fi
-ok "Backend responde correctamente"
 
 # Probe adicional: el frontend servido por nginx
 if ! curl -skf --max-time 10 https://127.0.0.1/ -H "Host: mercadonero.com" >/dev/null 2>&1; then
