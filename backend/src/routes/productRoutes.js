@@ -2,7 +2,7 @@ import express from 'express';
 const router = express.Router();
 import { createProduct, getMyProducts, getMyProductById, deleteProduct, toggleProductStatus , getProducts, getProductById, updateProduct, getVisibleCategories, getProductsByIds} from '../controllers/productController.js';
 import { importFromMercadoLibre } from '../controllers/importController.js';
-import { bulkImport } from '../controllers/bulkImportController.js';
+import { bulkImport, getBulkImportQuota } from '../controllers/bulkImportController.js';
 import verifyAuth from '../middleware/verifyAuth.js';
 import attachUser from '../middleware/attachUser.js';
 import requireSellerOnboarding from '../middleware/requireSellerOnboarding.js';
@@ -23,6 +23,11 @@ router.get('/products',getProducts);
 router.get('/:id', getProductById);
 router.post('/create', verifyAuth, attachUser, requireSellerOnboarding, createProduct);
 router.post('/bulk-import', verifyAuth, attachUser, requireSellerOnboarding, bulkImport);
+// Cupo de publicaciones de la cuenta (informativo, para el panel de carga
+// masiva). Va DESPUÉS de '/bulk-import' a propósito: si fuera un GET /:algo
+// que matchee primero, taparía la ruta. Acá los métodos difieren (GET vs POST)
+// así que no colisionan.
+router.get('/bulk-import/quota', verifyAuth, attachUser, getBulkImportQuota);
 router.post('/import-mercadolibre', verifyAuth, attachUser, importFromMercadoLibre);
 router.post('/import-meli', verifyAuth, attachUser, importFromMercadoLibre);
 router.put('/update/:id', verifyAuth, attachUser, updateProduct);

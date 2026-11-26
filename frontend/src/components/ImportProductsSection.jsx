@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePrivy } from "../Utils/authClient";
 import axios from 'axios';
@@ -26,6 +26,12 @@ import {
 
 const MAX_LINKS = 5;
 const MAX_IMAGES = 3;
+
+// Cupo de publicaciones por cuenta (el backend lo aplica desde
+// BULK_IMPORT_MAX_PRODUCTS, default 300). Acá solo lo usamos para MOSTRARLO:
+// el número "de verdad" es el que devuelve la API, porque la env puede cambiarlo.
+// Si el backend responde con `maxProducts`, ese valor pisa a este.
+const MAX_PRODUCTS_PER_ACCOUNT = 300;
 
 // Mapa de categorías/subcategorías oficiales de la plataforma (fuente única de verdad).
 // Los vendedores NO pueden inventar categorías: deben usar exactamente estos slugs.
@@ -74,9 +80,37 @@ export const ImportSection = () => {
   const [parsedRows, setParsedRows] = useState([]);
   const [parsing, setParsing] = useState(false);
   const [isBulkSubmitting, setIsBulkSubmitting] = useState(false);
-  // Cupo de publicaciones de la cuenta ({ max, current }). Se llena con la
+    // Cupo de publicaciones de la cuenta ({ max, current }). Se llena con la
   // respuesta del backend después de importar; antes de eso es null.
   const [quota, setQuota] = useState(null);
+
+  // ── CARGA INICIAL DEL CUPO ──
+  // Al abrir el panel pedimos el cupo para mostrarlo ANTES de que el vendedor
+  // prepare el archivo (si no, solo lo vería después de importar). Es best-effort:
+  // si falla, no bloqueamos nada, simplemente no se muestra el contador.
+  useEffect(() => {
+    if (!isOpen || quota) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getAccessToken();
+        const { data } = await axios.get(
+          `${import.meta.env.VITE_SERVER_URL}/api/product/bulk-import/quota`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (!cancelled && data?.maxProducts != null) {
+          setQuota({
+            max: data.maxProducts,
+            current: data.currentProducts ?? 0,
+          });
+        }
+      } catch {
+        // Silencioso a propósito: el contador es informativo, no un gate.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isOpen, quota, getAccessToken]);
+
 
 
   const addLink = () => {
@@ -629,8 +663,8 @@ export const ImportSection = () => {
                   <Sparkles size={16} className="text-blue-500" />
                   <h3 className="font-black text-[11px] uppercase tracking-wider dark:text-white text-gray-500">Optimiza tu inventario</h3>
                 </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 max-w-[280px]">
-                  Sincronizá tus productos de otras plataformas en segundos.
+                                <p className="text-xs text-gray-500 dark:text-gray-400 max-w-[280px]">
+                  Sincronizá tus productos de otras plataformas en segundos. Hasta {quota?.max ?? MAX_PRODUCTS_PER_ACCOUNT} publicaciones por cuenta.
                 </p>
               </div>
 
@@ -716,8 +750,12 @@ export const ImportSection = () => {
                   ))}
                 </div>
                                 <p className="text-[10px] text-gray-400 mt-2">
-                  ðŸ’¡ Podés dejar <b>imagen1, imagen2, imagen3</b> vacías y cargar las fotos luego desde el editor del producto. Máximo 3 URLs por producto.
-                </p>
+                                  ¡Podés dejar <b>imagen1, imagen2, imagen3</b> vacías y cargar las fotos luego desde el editor del producto. Máximo 3 URLs por producto.
+                                </p>
+                                <p className="text-[10px] text-gray-400 mt-1.5">
+                                  Límite de <b>{quota?.max ?? MAX_PRODUCTS_PER_ACCOUNT} publicaciones</b> por cuenta (lo ya publicado ocupa lugar). Si necesitás más, escribinos por el formulario de contacto.
+                                </p>
+
                 <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1.5 flex items-start gap-1">
                   <AlertTriangle size={11} className="flex-shrink-0 mt-px" />
                   <span>
@@ -804,9 +842,10 @@ export const ImportSection = () => {
                 {/* Cupo de la cuenta: el backend limita las publicaciones
                     gratuitas. Mostrarlo ANTES de importar evita que el
                     vendedor suba 300 filas y se entere a mitad de camino. */}
-                {quota && (
+                                {quota && (
                   <p className="text-[10px] font-bold text-gray-500 dark:text-gray-400">
                     Publicaciones usadas: {quota.current} / {quota.max}
+                    <span className="text-gray-400 font-medium"> · te quedan {Math.max(0, quota.max - quota.current)}</span>
                     {quota.current >= quota.max && (
                       <span className="text-rose-500"> — límite alcanzado, eliminá publicaciones para liberar lugar.</span>
                     )}

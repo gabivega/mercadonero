@@ -266,6 +266,36 @@ const buildShipping = (productData) => {
 };
 
 /**
+ * GET /api/product/bulk-import/quota
+ * Devuelve el cupo de publicaciones de la cuenta para MOSTRARLO en el panel de
+ * carga masiva antes de importar. Es informativo: el límite real se aplica en
+ * `bulkImport`. No exige onboarding aprobado para poder consultarlo.
+ */
+export const getBulkImportQuota = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const currentProducts = await Product.countDocuments({
+      seller: userId,
+      status: { $in: COUNTED_STATUSES },
+    });
+
+    return res.json({
+      success: true,
+      maxProducts: MAX_PRODUCTS_PER_ACCOUNT,
+      currentProducts,
+      remaining: Math.max(0, MAX_PRODUCTS_PER_ACCOUNT - currentProducts),
+    });
+  } catch (error) {
+    console.error("Error en getBulkImportQuota:", error);
+    res.status(500).json({
+      success: false,
+      message: "No pudimos obtener el cupo de publicaciones.",
+    });
+  }
+};
+
+/**
  * POST /api/product/bulk-import
  * Carga masiva de productos desde Excel/CSV.
  * El body espera: { products: [...] } con cada producto ya mapeado y validado
