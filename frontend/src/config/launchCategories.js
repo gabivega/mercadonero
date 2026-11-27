@@ -132,6 +132,30 @@ export const LAUNCH_CATEGORIES = [
       "otros",
     ],
   },
+  {
+    // ── SEGURIDAD ELECTRÓNICA (alarmas, CCTV, control de accesos) ──
+    //
+    // Por qué esta categoría en un lanzamiento "de tecnología":
+    // MercadoLibre ubica las alarmas y sensores en
+    // Hogar, Muebles y Jardín → Seguridad para el Hogar → Sistemas de
+    // Monitoreo → Alarmas y Sensores. Nuestro catálogo es de DOS niveles
+    // (`allCategories.js`), así que el punto de corte equivalente es
+    // "Seguridad para el Hogar". Es el único lugar donde el comprador busca
+    // estos productos; mandarlos a "Industrias y Oficinas" los enterraría.
+    //
+    // ⚠️ Se habilita la categoría PADRE (no hay forma de ofrecer una
+    // subcategoría sin su padre: el selector es un árbol) pero con UNA SOLA
+    // subcategoría. Las otras 8 de Hogar (muebles, bazar, textiles,
+    // colchones…) quedan afuera a propósito: son rubros con otra logística
+    // (voluminosos) que no operamos en esta etapa. Al no estar en esta lista,
+    // el vendedor no puede publicar un sillón por error.
+    slug: "hogar-muebles-y-jardin",
+    subcategories: [
+      // Alarmas, sensores, cercos perimetrales, detectores de humo/gas,
+      // cerraduras y control de accesos, videoporteros, racks y cableado.
+      "seguridad-para-el-hogar",
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------------------
