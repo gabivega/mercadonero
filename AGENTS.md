@@ -376,6 +376,26 @@ NO hay gas sponsorship premium (Crossmint lo exige en plan pago, sin pricing pú
 
 - **⚠️ OneDrive (mientras el repo esté en `OneDrive/Desktop/Diseño Web/...`):** se detectó
   que `read_file` puede devolver una versión **desincronizada** del archivo real en disco
+- **`escape` de strings multilínea:** NUNCA metas el string de búsqueda dentro del
+  `new_string` al usar `single_find_and_replace` con bloques de varias líneas: si el
+  `old_string` corta a mitad de línea, se pierde el resto del texto. Después de CUALQUIER
+  edición multilínea, verificar con `git diff -- <archivo>` antes de seguir.
+- **⚠️ ARCHIVOS CON BASE64/EMOJIS: NO reescribirlos con PowerShell.** Archivos como
+  `Checkout.jsx` tienen acentos/emojis que en el disco están codificados de forma rara.
+  `Get-Content`/`Out-File`/`File.WriteAllText` LEEN BIEN y ESCRIBEN MAL: al guardar se
+  pierden caracteres y el archivo se **trunca** (síntoma: `ERROR: Expected "}" but found
+  end of file` en `vite build`, con el archivo cortado a mitad de una línea). Si ya lo
+  rompiste: `git checkout -- <archivo>` y reaplicá los cambios con las herramientas de
+  edición. Si necesitás corregir indentación, hacelo con `[System.IO.File]::ReadAllLines`
+  **+ WriteAllLines línea por línea** (conserva las otras líneas intactas), nunca un
+  "leer todo → concatenar → escribir todo".
+- **Validación de pago en órdenes (fix 2026-11):** `updateOrder`/`markAsPaid`/admin
+  complete solo deben mover una orden a `paid`/`completed` si HAY pago. En cripto la
+  prueba es `order.payment.status === "funded"` (escrow fondeado); en transferencia, que
+  la orden haya pasado por `paid`. Los bloques de "notificar pago" y "comprador confirma
+  recepción" ahora exigen `isBuyer && !isSeller` / `isSeller && !isBuyer`: antes un
+  usuario que era ambos (o el comprador con el vendedor) podía cerrar su propia venta sin
+  pagar y liberar el colateral del vendedor gratis.
   (archivos "on-demand"/deshidratados). Síntoma: editás algo que "existe" pero Node ejecuta
   otra cosa → p.ej. **404 en una ruta aunque "se ve" en el editor**. Diagnóstico: verificar
   con `Select-String`/`Get-Content` en PowerShell o listar `router.stack`. **Mitigación:

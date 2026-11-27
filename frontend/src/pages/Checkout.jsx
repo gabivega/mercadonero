@@ -31,6 +31,7 @@ import { productPath } from "../Utils/productUrl";
 import { getReferral, clearReferral } from "../Utils/referralTracker";
 import { usePaymentOptions } from "../Utils/usePaymentOptions";
 import { readAllPaymentBalances } from "../Utils/cryptoBalances";
+import { escapeHtml } from "../Utils/escapeHtml";
 
 export default function Checkout() {
   const { sellerId } = useParams();
@@ -51,14 +52,18 @@ const [selectedAddress, setSelectedAddress] = useState(null);
   // `POST /api/rewards/quote` y se aplica de verdad recién al crear la orden
   // (enviando `useRewards: true`). Acá solo MOSTRAMOS la previsualización.
   const [useRewards, setUseRewards] = useState(false);
-  // Flag de activación del opt-in de recompensas en el checkout. Se puede
-  // apagar por env (`VITE_REWARDS_CHECKOUT_ENABLED=false`) sin tocar código.
-  // Por defecto ON para poder probar el flujo de recompensas.
+  // Flag de activación del opt-in de recompensas en el checkout. Se habilita
+  // SOLO con `VITE_REWARDS_CHECKOUT_ENABLED=true` (env del frontend).
+  // ⚠️ Default OFF (fail-closed), alineado con el backend
+  // (backend/src/config/rewards.js): así el checkout nunca ofrece un descuento
+  // por recompensas que el backend va a ignorar. Sin este flag el bloque del
+  // opt-in ni se renderiza, así que la UI tampoco muestra la opción de forma
+  // engañosa cuando la función está apagada.
   const REWARDS_CHECKOUT_ENABLED =
-    String(import.meta.env.VITE_REWARDS_CHECKOUT_ENABLED ?? "true") !== "false";
+  String(import.meta.env.VITE_REWARDS_CHECKOUT_ENABLED ?? "false") === "true"; 
   const [rewardsQuote, setRewardsQuote] = useState(null);
   const [rewardsSummary, setRewardsSummary] = useState(null);
-
+  
     // ── MÉTODO DE ENTREGA: "shipping" (default) | "pickup" (retiro en sucursal)
   // ── El comprador elige si recibe a domicilio o retira GRATIS en el local.
   const [deliveryMethod, setDeliveryMethod] = useState("shipping");
@@ -433,7 +438,7 @@ const handleSaveBasicData = async () => {
  const productListHtml = sellerProducts.map(p => `
   <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px; padding-left: 10px; border-left: 2px solid #3483fa;">
     <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 250px;">
-      ${p.quantity}x ${p.name}
+            ${escapeHtml(p.quantity)}x ${escapeHtml(p.name)}
     </span>
     <span style="font-weight: 600;">$${formatMoney(p.sale?.price ? p.sale.price * p.quantity : p.price * p.quantity)}</span>
   </div>
@@ -479,18 +484,18 @@ const step1 = await Swal.fire({
             ⚡ <span>Ganás <b>2.5%</b> de cashback en <b>USDT</b> sobre tus productos (se acredita al completar la compra).</span>
           </p>
         </div>
-        <p style="margin: 10px 0 0 0; font-size: 0.85rem;">👤 <b>Vendedor:</b> ${sellerName}</p>
+        <p style="margin: 10px 0 0 0; font-size: 0.85rem;">👤 <b>Vendedor:</b> ${escapeHtml(sellerName)}</p>
       </div>
 
                         <div style="margin-bottom: 15px;">
         ${
           deliveryMethod === "pickup" && selectedPickup
-            ? `<p style="margin: 5px 0;">📍 <b>Retiro en:</b> ${selectedPickup.name} — ${[selectedPickup.street, selectedPickup.streetNumber].filter(Boolean).join(" ")}, ${selectedPickup.city || ""}</p>`
-            : `<p style="margin: 5px 0;">📍 <b>Envío a:</b> ${selectedAddress.street} ${selectedAddress.streetNumber}, ${selectedAddress.city}</p>`
+                        ? `<p style="margin: 5px 0;">📍 <b>Retiro en:</b> ${escapeHtml(selectedPickup.name)} — ${escapeHtml([selectedPickup.street, selectedPickup.streetNumber].filter(Boolean).join(" "))}, ${escapeHtml(selectedPickup.city || "")}</p>`
+            : `<p style="margin: 5px 0;">📍 <b>Envío a:</b> ${escapeHtml(selectedAddress.street)} ${escapeHtml(selectedAddress.streetNumber)}, ${escapeHtml(selectedAddress.city)}</p>`
         }
         ${
           deliveryMethod === "shipping" && selectedShipping
-            ? `<p style="margin: 5px 0;">🚚 <b>Servicio:</b> ${selectedShipping.carrierName || "Logística"}${selectedShipping.serviceName ? ` · ${selectedShipping.serviceName}` : ""}${selectedShipping.price > 0 ? ` — $${formatMoney(selectedShipping.price)}` : " — GRATIS"}${
+            ? `<p style="margin: 5px 0;">🚚 <b>Servicio:</b> ${escapeHtml(selectedShipping.carrierName || "Logística")}${selectedShipping.serviceName ? ` · ${escapeHtml(selectedShipping.serviceName)}` : ""}${selectedShipping.price > 0 ? ` — $${formatMoney(selectedShipping.price)}` : " — GRATIS"}${
                 selectedShipping.minDays != null
                   ? ` <span style="color:#6b7280;">(llega en ${selectedShipping.minDays}-${selectedShipping.maxDays} días)</span>`
                   : ""
@@ -499,10 +504,10 @@ const step1 = await Swal.fire({
         }
         ${
           deliveryMethod === "shipping" && selectedShipping?.pickupPoint
-            ? `<p style="margin: 5px 0;">🏪 <b>Punto de entrega:</b> ${selectedShipping.pickupPoint.name} — ${[selectedShipping.pickupPoint.street, selectedShipping.pickupPoint.streetNumber].filter(Boolean).join(" ")}, ${selectedShipping.pickupPoint.city || ""}</p>`
+            ? `<p style="margin: 5px 0;">🏪 <b>Punto de entrega:</b> ${escapeHtml(selectedShipping.pickupPoint.name)} — ${escapeHtml([selectedShipping.pickupPoint.street, selectedShipping.pickupPoint.streetNumber].filter(Boolean).join(" "))}, ${escapeHtml(selectedShipping.pickupPoint.city || "")}</p>`
             : ""
         }
-        <p style="margin: 5px 0;">🚚 <b>Despacho:</b> El vendedor entrega en <b>${sellerProducts[0]?.shipping?.shippingTime || "48h"}</b></p>
+        <p style="margin: 5px 0;">🚚 <b>Despacho:</b> El vendedor entrega en <b>${escapeHtml(sellerProducts[0]?.shipping?.shippingTime || "48h")}</b></p>
         <p style="margin: 10px 0 0 0; font-size: 0.8rem; color: #10b981; display: flex; align-items: center; gap: 4px;">
           🛡️ Compra protegida por Mercado Nero
         </p>
@@ -658,11 +663,11 @@ const step1 = await Swal.fire({
           html: `
     <div style="text-align: left; font-size: 0.9rem;">
       <div style="background: ${isDark ? "#1f2937" : "#f3f4f6"}; padding: 15px; border-radius: 10px; margin-bottom: 15px;">
-        <p style="margin: 5px 0;"><b>Titular:</b> ${bankAccount?.holderName || 'No disponible'}</p>
-        <p style="margin: 5px 0;"><b>CBU:</b> ${bankAccount?.cbuCvu || 'No disponible'}</p>
-        <p style="margin: 5px 0;"><b>Alias:</b> ${bankAccount?.alias || 'No disponible'}</p>
-        <p style="margin: 5px 0;"><b>Banco:</b> ${bankAccount?.bankName || 'No disponible'}</p>
-        <p style="margin: 5px 0;"><b>Cuit/Cuil:</b> ${bankAccount?.cuitCuil || 'No disponible'}</p>
+                <p style="margin: 5px 0;"><b>Titular:</b> ${escapeHtml(bankAccount?.holderName || 'No disponible')}</p>
+        <p style="margin: 5px 0;"><b>CBU:</b> ${escapeHtml(bankAccount?.cbuCvu || 'No disponible')}</p>
+        <p style="margin: 5px 0;"><b>Alias:</b> ${escapeHtml(bankAccount?.alias || 'No disponible')}</p>
+        <p style="margin: 5px 0;"><b>Banco:</b> ${escapeHtml(bankAccount?.bankName || 'No disponible')}</p>
+        <p style="margin: 5px 0;"><b>Cuit/Cuil:</b> ${escapeHtml(bankAccount?.cuitCuil || 'No disponible')}</p>
                 <p style="margin: 10px 0 0 0; font-size: 1.1rem; color: #3483fa; font-weight: bold;">
           Total: $${formatMoney(amountToTransfer)}
         </p>
@@ -878,10 +883,10 @@ const step1 = await Swal.fire({
           <span style="min-width:0;">
             <span style="display:block; font-weight:800; font-size:0.92rem;">
               ${opt.tokenSymbol}
-              <span style="font-weight:500; font-size:0.75rem; opacity:.6;"> · ${netName}</span>
+                            <span style="font-weight:500; font-size:0.75rem; opacity:.6;"> · ${escapeHtml(netName)}</span>
             </span>
             <span style="display:block; font-size:0.76rem; margin-top:2px; color:#10b981;">
-              Saldo: ${Number(balance).toFixed(2)} ${opt.tokenSymbol}
+              Saldo: ${Number(balance).toFixed(2)} ${escapeHtml(opt.tokenSymbol)}
             </span>
           </span>
           <span style="flex-shrink:0; width:16px; height:16px; border-radius:50%;
@@ -897,7 +902,7 @@ const step1 = await Swal.fire({
         <div style="background-color: ${isDark ? "#1c1917" : "#fff7ed"}; border: 1px solid ${isDark ? "#7c2d12" : "#fdba74"}; padding: 13px; border-radius: 12px; margin-bottom: 13px;">
           <p style="margin: 0 0 4px 0; font-weight: 800; color: #F26722; font-size: 0.92rem;">Total a abonar</p>
           <p style="margin: 0; font-size: 1.5rem; font-weight: 900; color: #F26722;" id="crypto-total-line">
-            ${usdNeeded.toFixed(2)} <span style="font-size: 0.95rem; font-weight: 700;" id="crypto-total-token">${selectedOptionInList()?.tokenSymbol || ""}</span>
+            ${usdNeeded.toFixed(2)} <span style="font-size: 0.95rem; font-weight: 700;" id="crypto-total-token">${escapeHtml(selectedOptionInList()?.tokenSymbol || "")}</span>
           </p>
                     <p style="margin: 5px 0 0 0; font-size: 0.76rem; color: ${isDark ? "#a8a29e" : "#78716c"};">
             ≈ $${formatMoney(amountToPayArs)} ARS · 1 USDT ≈ $${(quote.usdRate || 0).toFixed(2)} ARS
@@ -909,7 +914,7 @@ const step1 = await Swal.fire({
           <p style="margin: 2px 0; font-size: 0.78rem;">📦 Productos: $${formatMoney(total)} ARS</p>
           ${rewardsDiscountArs > 0 ? `<p style="margin: 2px 0; font-size: 0.78rem; color:#10b981;">🎁 Saldo de recompensas: -${formatMoney(rewardsDiscountArs)} ARS</p>` : ""}
           <p style="margin: 2px 0; font-size: 0.78rem;">🚚 Envío: ${shippingTotal > 0 ? "$" + formatMoney(shippingTotal) + " ARS" : (deliveryMethod === "pickup" ? "Retiro en sucursal (GRATIS)" : "GRATIS")}</p>
-          <p style="margin: 2px 0; font-size: 0.78rem;">📍 ${deliveryMethod === "pickup" && selectedPickup ? `Retiro en: ${selectedPickup.name}` : `Envío a: ${selectedAddress.street} ${selectedAddress.streetNumber}, ${selectedAddress.city}`}</p>
+          <p style="margin: 2px 0; font-size: 0.78rem;">📍 ${deliveryMethod === "pickup" && selectedPickup ? `Retiro en: ${escapeHtml(selectedPickup.name)}` : `Envío a: ${escapeHtml(selectedAddress.street)} ${escapeHtml(selectedAddress.streetNumber)}, ${escapeHtml(selectedAddress.city)}`}</p>
         </div>
 
         <p style="margin: 0 0 8px 0; font-weight: 800; font-size: 0.82rem; text-transform: uppercase; letter-spacing: .04em; color:${isDark ? "#a1a1aa" : "#71717a"};">
@@ -975,7 +980,7 @@ const step1 = await Swal.fire({
               note.innerHTML = `<p style="margin:0;font-size:0.78rem;color:#10b981;font-weight:600;">✅ Saldo suficiente. Podés confirmar la compra.</p>`;
             } else {
               note.innerHTML = `<p style="margin:0;font-size:0.78rem;color:#ef4444;font-weight:600;">
-                ⚠️ Saldo insuficiente en ${opt?.tokenSymbol || ""}. Necesitás ${usdNeeded.toFixed(2)} ${opt?.tokenSymbol || ""} (tenés ${bal != null ? Number(bal).toFixed(2) : "0.00"}). Probá otra red.
+                ⚠️ Saldo insuficiente en ${escapeHtml(opt?.tokenSymbol || "")}. Necesitás ${usdNeeded.toFixed(2)} ${escapeHtml(opt?.tokenSymbol || "")} (tenés ${bal != null ? Number(bal).toFixed(2) : "0.00"}). Probá otra red.
               </p>`;
             }
           }

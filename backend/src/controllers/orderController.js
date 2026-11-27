@@ -1462,6 +1462,17 @@ const markAsPaid = async (req, res) => {
         message: "Solo el comprador puede notificar el pago de esta orden.",
       });
     }
+        // ⛔ GUARDA: las órdenes con ESCROW CRIPTO no se "notifican" como pagadas.
+    // Su pago se acredita on-chain al fondear el escrow (confirmEscrowFunding).
+    // Sin esto, el comprador podía empujar su orden crypto a `verifying_payment`
+    // sin haber depositado nada, y más tarde cerrarla como recibida.
+    if (order.payment?.method === "crypto") {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Esta orden se paga con cripto: el pago se acredita automáticamente al fondear el escrow.",
+      });
+    }
     // Solo tiene sentido notificar el pago desde 'pending_payment'.
     if (order.status !== "pending_payment") {
       return res.status(400).json({
@@ -1612,12 +1623,31 @@ const updateOrder = async (req, res) => {
 
     // --- LÓGICA DE PERMISOS POR ESTADO ---
 
-    // --- LÓGICA DE COMPRADOR: NOTIFICAR PAGO ---
+        // --- LÓGICA DE COMPRADOR: NOTIFICAR PAGO ---
     // Aceptamos la notificación si envían el comprobante O si envían el estado explícitamente
     if (
       isBuyer &&
+      !isSeller &&
       (updates.paymentProof || updates.status === "verifying_payment")
     ) {
+      // ─────────────────────────────────────────────────────────────
+      // ⛔ GUARDA CRÍTICA: una orden con ESCROW CRIPTO ya está pagada.
+      // En crypto el dinero NO se transfiere a mano: se FONDEA en el contrato
+      // escrow, y `payment.status` es la fuente de verdad de que hay fondos
+      // retenidos. Este bloque pertenece al flujo de TRANSFERENCIA BANCARIA
+      // (donde el comprador "avisa" que transfirió). Si se dejaba correr para
+      // crypto, el comprador podía empujar su propia orden de `pending_payment`
+      // a `verifying_payment` SIN fondear el escrow y, más tarde, confirmar la
+      // recepción y completarla: el vendedor se quedaba sin cobrar y sin
+      // garantía retenida. Lo bloqueamos explícitamente.
+      // ─────────────────────────────────────────────────────────────
+      if (order.payment?.method === "crypto") {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Esta orden se paga con cripto: el escrow se acredita automáticamente al fondear. No hace falta notificar el pago.",
+        });
+      }
       // Solo permitimos notificar si está pendiente
       if (order.status !== "pending_payment") {
         return res.status(400).json({
@@ -1667,8 +1697,29 @@ const updateOrder = async (req, res) => {
         );
       }
     }
-    // 2. Vendedor confirma pago o carga tracking
-        if (isSeller) {
+        // 2. Vendedor confirma pago o carga tracking
+        if (isSeller && !isBuyer) {
+      // ⛔ GUARDA: nunca dejar pasar a 'paid' una orden CRYPTO sin escrow.
+      // El escrow es la única prueba de que el comprador efectivamente pagó.
+      // Sin esta condición se podía marcar como pagada una orden por cripto
+      // que nadie fondeó y, luego, completarla (liberando el colateral del
+      // vendedor sin haber vendido) o enviarla sin cobrar. Si el escrow YA
+      // está fondeado, la orden no debería estar en pending/verifying: el
+      // fondeo la pasa a 'paid' por su propia cuenta (confirmEscrowFunding).
+      if (
+        order.payment?.method === "crypto" &&
+        updates.status === "paid" &&
+        ["pending_payment", "verifying_payment"].includes(order.status) &&
+        order.payment?.status !== "funded"
+      ) {
+        return res.status(409).json({
+          success: false,
+          code: "ESCROW_NOT_FUNDED",
+          message:
+            "Esta orden se paga con cripto y el escrow todavía no está fondeado. El comprador debe completar el pago para que se marque como pagada.",
+        });
+      }
+
       if (updates.status === "paid" && order.status === "verifying_payment") {
         order.status = "paid";
         order.paymentVerifiedAt = new Date();
@@ -1679,6 +1730,10 @@ const updateOrder = async (req, res) => {
       // 'pending_payment'). Esto evita que el flujo se trabe cuando el
       // comprador paga pero demora/olvida notificar. El front muestra una
       // confirmación extra de seguridad antes de llamar este endpoint.
+      //
+      // ⚠️ Aplicaba también a órdenes 'awaiting_collateral': ahí el vendedor
+      // todavía NO depositó la garantía y ya marcaba la venta como pagada. Lo
+      // limitamos a 'pending_payment' (estado con colateral YA congelado).
       if (updates.status === "paid" && order.status === "pending_payment") {
         order.status = "paid";
         order.paymentVerifiedAt = new Date();
@@ -1888,7 +1943,41 @@ const updateOrder = async (req, res) => {
     // buffer + la resolución manual dan una ventana de seguridad y un único
     // punto auditable de movimiento de fondos (el admin).
     // ════════════════════════════════════════════════════════════════════
-    if (updates.status === "completed" && isBuyer) {
+        if (updates.status === "completed" && isBuyer && !isSeller) {
+      // ⛔ GUARDA DE PAGO: no se puede confirmar la recepción de algo que no se
+      // pagó. Sin este chequeo existían dos caminos para cerrar una venta SIN
+      // pagar, y el vendedor terminaba con su garantía liberada (y con fee
+      // cobrado) por una venta que nunca cobró:
+      //   1) CRYPTO: una orden crypto en `pending_payment`/`verifying_payment`
+      //      (escrow nunca fondeado) llegaba hasta acá.
+      //   2) BANCARIA: el vendedor podía empujar `pending_payment` → `paid` y
+      //      quedar `shipped` sin que hubiera transferencia real; el comprador
+      //      cerraba. Si bien el pago es difícil de verificar sin conciliación,
+      //      al menos exigimos que la orden haya atravesado el estado 'paid'
+      //      (verificado por el vendedor) y NO esté en estado de "sin pago".
+      if (order.payment?.method === "crypto") {
+        // En crypto la ÚNICA prueba es el escrow fondeado.
+        if (order.payment?.status !== "funded") {
+          return res.status(409).json({
+            success: false,
+            code: "ESCROW_NOT_FUNDED",
+            message:
+              "Todavía no se acreditó tu pago en el escrow, así que no podés confirmar la recepción. Si ya pagaste, esperá unos minutos a que se confirme la transacción.",
+          });
+        }
+      } else if (
+        ["pending_payment", "verifying_payment", "awaiting_collateral"].includes(
+          order.status,
+        )
+      ) {
+        // Transferencia bancaria: la orden nunca fue dada por pagada.
+        return res.status(409).json({
+          success: false,
+          code: "PAYMENT_NOT_CONFIRMED",
+          message:
+            "No podés confirmar la recepción porque la orden todavía no figura como pagada. El vendedor debe confirmar que recibió el pago.",
+        });
+      }
       if (order.status === "completed") {
         return res.status(400).json({
           message: "La orden ya está completada.",
@@ -2834,11 +2923,28 @@ const adminCompleteOrder = async (req, res) => {
         message: `La orden debe estar en 'reception_confirmed' para completarla (estado actual: ${order.status}).`,
       });
     }
-    if (order.dispute?.exists && order.dispute.status === "open") {
+        if (order.dispute?.exists && order.dispute.status === "open") {
       return res.status(409).json({
         success: false,
         message:
           "Hay una disputa abierta en esta orden. Resolvela antes de liberar la garantía.",
+      });
+    }
+
+    // ⛔ GUARDA DE PAGO (aplicable también al admin): completar la orden libera
+    // fondos y cobra el fee. No se debe permitir sobre una orden con ESCROW
+    // CRIPTO que nunca se fondeó (no hay dinero retenido): sería "cerrar" una
+    // venta inexistente y liberar el colateral del vendedor sin cobro.
+    if (
+      order.payment?.method === "crypto" &&
+      order.payment?.status !== "funded"
+    ) {
+      return res.status(409).json({
+        success: false,
+        code: "ESCROW_NOT_FUNDED",
+        message:
+          "El escrow de esta orden no está fondeado (no hay fondos retenidos on-chain). No se puede completar ni liberar una venta sin pago.",
+        paymentStatus: order.payment?.status || "unpaid",
       });
     }
 

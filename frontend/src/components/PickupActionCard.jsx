@@ -4,6 +4,7 @@ import axios from 'axios';
 import { usePrivy } from "../Utils/authClient";
 import Swal from 'sweetalert2';
 import LoadingSpinner from './LoadingSpinner';
+import { escapeHtml } from '../Utils/escapeHtml';
 
 /**
  * PickupActionCard
@@ -222,7 +223,10 @@ export default function PickupActionCard({ order, role, onUpdate }) {
     } catch (error) {
       Swal.fire({
         title: 'No se pudo procesar',
-        html: `${error?.response?.data?.message || 'No se pudo completar la orden.'}<br/><br/><span style="font-size:12px;opacity:.7">La orden no se marcó como completada. Podés reintentar o contactar a soporte.</span>`,
+        // ⚠️ `escapeHtml`: el mensaje de error del backend puede contener texto
+        // controlado por el VENDEDOR (ej. el nombre de un producto). Acá se
+        // inyecta en `html:`, así que tiene que ir escapado para no ejecutarse.
+        html: `${escapeHtml(error?.response?.data?.message || 'No se pudo completar la orden.')}<br/><br/><span style="font-size:12px;opacity:.7">La orden no se marcó como completada. Podés reintentar o contactar a soporte.</span>`,
         icon: 'error',
         confirmButtonColor: '#ef4444',
         background: isDark ? '#18181b' : '#fff',
