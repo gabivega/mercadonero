@@ -28,8 +28,12 @@ const orderSchema = new Schema(
         // --- Datos capturados del producto ---
         title: { type: String, required: true },
         description: { type: String, required: true },
-        price: { type: Number, required: true },
+                price: { type: Number, required: true },
+        // ⚠️ `price` es SIEMPRE en ARS (moneda de `productsAmount`/`totalAmount`).
+        // Si el producto se publicó en USD, `createOrder` lo convierte a pesos y
+        // deja la moneda original acá solo para auditoría/trazabilidad.
         currency: { type: String, default: "ARS" },
+        currencyOriginal: { type: String, default: "ARS" },
         condition: String,
 
         // --- Logística capturada ---

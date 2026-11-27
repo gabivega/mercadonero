@@ -430,8 +430,9 @@ export default function OrderDetail() {
             onPayClick={() => setShowPayModal(true)}
           />
         ) : (
-          <PaymentAction
+                    <PaymentAction
             orderId={order._id}
+            order={order}
             onUpdate={() => fetchOrder()}
             sellerId={order.seller._id}
           />

@@ -11,8 +11,10 @@ import {
   Hash,
   Tag,
   Store,
-  ExternalLink,
+    ExternalLink,
 } from 'lucide-react';
+// Formateo del monto respetando la moneda real de la orden (ver Utils/orderAmount).
+import { formatOrderAmount, isOrderTotalInUsd } from '../Utils/orderAmount';
 
 const OrderInfoAccordion = ({ order, role }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -82,24 +84,17 @@ const OrderInfoAccordion = ({ order, role }) => {
   const sellerCreditUsd = Number(order.financials?.sellerCreditUsd || 0);
   const hasRewardsUsed = rewardsUsedUsd > 0;
 
-  // ⚠️ UNIDADES DE `totalAmount` (mezcla de monedas en el backend):
-  //   - Sin recompensas → está en ARS (productos + envío).
-  //   - Con recompensas → está en USD (escrowAmountUsd: efectivo real a pagar).
-  // Por eso NO podemos mostrar siempre "$ totalAmount" como si fueran pesos:
-  // un descuento parcial hacía ver "US$3" como "$3" ARS. Para mostrarlo bien,
-  // calculamos el monto en ARS cuando el valor viene en USD (transferencia con
-  // recompensas), usando la cotización guardada en financials.usdRate.
-    const usdRate = Number(order.financials?.usdRate || 0);
-  const totalAmountIsUsd = hasRewardsUsed && usdRate > 0;
-  const totalDisplayValue = totalAmountIsUsd
-    ? `US$ ${Number(order.totalAmount || 0).toFixed(2)}` +
-      // Mostramos el equivalente en pesos entre paréntesis para transparencia.
-      ` (≈ $ ${(Number(order.totalAmount || 0) * usdRate).toLocaleString('es-AR', { maximumFractionDigits: 0 })})`
-    : `$ ${(order.totalAmount ?? 0).toLocaleString('es-AR')}`;
+    // ⚠️ UNIDADES DE `totalAmount` / `productsAmount`:
+  //   - Sin recompensas → ARS (productos + envío).
+  //   - Con recompensas → USD (efectivo real a pagar, escrowAmountUsd).
+  // La decisión está centralizada en Utils/orderAmount para no duplicar la
+  // condición en cada pantalla (ver el comentario de ese helper).
+  const usdRate = Number(order.financials?.usdRate || 0);
+  const totalAmountIsUsd = isOrderTotalInUsd(order);
+  const totalDisplayValue = formatOrderAmount(order);
 
-  // Mismo criterio para "Precio de Productos": en transferencia CON recompensas
-  // el backend guarda productsAmount en USD (escrowAmountUsd - envío). Lo
-  // mostramos con su moneda correcta para no etiquetar USD como pesos.
+  // "Precio de Productos": con recompensas el backend lo guarda en USD
+  // (escrowAmountUsd - envío convertido). Lo etiquetamos con su moneda real.
   const productsDisplayValue = totalAmountIsUsd
     ? `US$ ${Number(order.productsAmount || 0).toFixed(2)}`
     : `$ ${(order.productsAmount ?? 0).toLocaleString('es-AR')}`;

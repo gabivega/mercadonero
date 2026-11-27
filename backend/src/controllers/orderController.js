@@ -62,6 +62,13 @@ import { makeCreateCryptoOrder } from "./orderCryptoController.js";
 // Interruptor maestro del uso de recompensas en checkout (se sigue acumulando,
 // pero no se gasta hasta habilitarlo). Ver config/rewards.js.
 import { REWARDS_CHECKOUT_ENABLED } from "../config/rewards.js";
+// Normalización de precios: el vendedor puede publicar en USD, pero la orden
+// (y el monto a transferir) SIEMPRE se persiste en ARS. Ver el servicio.
+import {
+  fetchUsdRate,
+  isProductInUsd,
+  toArs,
+} from "../services/priceNormalization.js";
 
 // ─────────────────────────────────────────────────────────────
 // BUFFER DE SEGURIDAD ANTES DE LIBERAR LA GARANTÍA (FASE 1 - MANUAL)
@@ -614,7 +621,23 @@ const createOrder = async (req, res) => {
           "No se pudo determinar el producto de la orden. Refrescá la página e intentá de nuevo.",
       });
     }
-    const dbProducts = await Product.find({ _id: { $in: productIds } });
+        const dbProducts = await Product.find({ _id: { $in: productIds } });
+
+    // Cotización ARS/USD para normalizar precios publicados en dólares.
+    // Solo la pedimos si HAY algún producto en USD (evita una llamada externa
+    // innecesaria en el caso mayoritario, que es todo en pesos). `toArs`
+    // devolverá el precio intacto para los productos en ARS.
+    const needsUsdRate = dbProducts.some((p) => isProductInUsd(p));
+    const usdRate = needsUsdRate ? await fetchUsdRate() : null;
+    if (needsUsdRate && !usdRate) {
+      // No arriesgamos cobrar el número del dólar como pesos: si no hay
+      // cotización, no se puede crear la orden con productos en USD.
+      return res.status(503).json({
+        success: false,
+        message:
+          "No pudimos obtener la cotización del dólar para convertir los precios en USD. Intentá de nuevo en unos minutos.",
+      });
+    }
 
     // 2. Construir el itemsSnapshot validando datos reales
     const itemsSnapshot = effectiveItems.map((cartItem) => {
@@ -658,13 +681,27 @@ const createOrder = async (req, res) => {
         );
       }
 
-      let effectivePrice = actualProduct.price;
+            let effectivePrice = actualProduct.price;
 
       if (actualProduct.sale?.active && actualProduct.sale?.price > 0) {
         effectivePrice = actualProduct.sale.price;
       }
 
-      const itemTotal = effectivePrice * cartItem.quantity;
+      // ─────────────────────────────────────────────────────────────
+      // ⚠️ CONVERSIÓN DE MONEDA: los productos pueden estar publicados en
+      // USD (`product.currency === "USD"`), pero `Order.productsAmount` /
+      // `totalAmount` (y la transferencia bancaria) SIEMPRE se guardan en
+      // ARS. Sin esto, un producto de "US$ 1.200" generaba una orden de
+      // "$1.200 ARS": el comprador veía el número del dólar como si fueran
+      // pesos. Convertimos con el mismo TDC que se usa para el escrow.
+      // `usdRate` se resuelve una sola vez, antes del map (ver abajo).
+      // ─────────────────────────────────────────────────────────────
+      const { amountArs: effectivePriceArs } = toArs(
+        { price: effectivePrice, currency: actualProduct.currency },
+        usdRate,
+      );
+
+      const itemTotal = effectivePriceArs * cartItem.quantity;
       calculatedTotal += itemTotal;
 
 
@@ -676,13 +713,18 @@ const createOrder = async (req, res) => {
         maxShippingCost = shippingCost;
       }
 
-      return {
+            return {
         productId: actualProduct._id,
         quantity: cartItem.quantity,
         title: actualProduct.name,
         description: actualProduct.description,
-        price: effectivePrice,
-        currency: actualProduct.currency,
+        // ⚠️ Precio UNITARIO en ARS (ya convertido si el producto estaba en
+        // USD). `currency` es SIEMPRE "ARS" en el snapshot porque todos los
+        // montos de la orden (productsAmount/totalAmount) viven en pesos.
+        // Guardamos de dónde vino para auditoría en `currencyOriginal`.
+        price: effectivePriceArs,
+        currency: "ARS",
+        currencyOriginal: actualProduct.currency || "ARS",
         condition: actualProduct.condition,
         shipping: actualProduct.shipping,
         images: actualProduct.images.map((img) => img.url),
@@ -1066,12 +1108,22 @@ const createOrder = async (req, res) => {
         financials.rewardsUsedUsd > 0 && financials.escrowAmountUsd != null
           ? financials.escrowAmountUsd
           : calculatedTotal + maxShippingCost,
-      productsAmount:
+            productsAmount:
         financials.rewardsUsedUsd > 0 && financials.escrowAmountUsd != null
           ? Math.max(
               0,
               Number(
-                (financials.escrowAmountUsd - maxShippingCost).toFixed(2),
+                // ⚠️ MIXTO ARREGLADO: `escrowAmountUsd` está en USD y
+                // `maxShippingCost` en ARS. Antes se restaban directamente
+                // (USD - ARS) y quedaba un "precio de productos" absurdo. El
+                // envío se convierte a USD con el mismo TC de la orden para
+                // que la resta sea homogénea (el resultado sigue en USD).
+                (
+                  financials.escrowAmountUsd -
+                  (financials.usdRate > 0
+                    ? maxShippingCost / financials.usdRate
+                    : 0)
+                ).toFixed(2),
               ),
             )
           : calculatedTotal,

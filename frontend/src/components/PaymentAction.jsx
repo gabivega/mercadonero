@@ -4,8 +4,10 @@ import axios from "axios";
 import { usePrivy } from "../Utils/authClient";
 import Swal from "sweetalert2";
 import LoadingSpinner from "./LoadingSpinner";
+// Formateo del monto respetando la moneda real de la orden (ver Utils/orderAmount).
+import { formatOrderAmount } from "../Utils/orderAmount";
 
-export default function PaymentAction({ orderId, onUpdate, sellerId }) {
+export default function PaymentAction({ orderId, onUpdate, sellerId, order }) {
   const { getAccessToken } = usePrivy();
   const [loading, setLoading] = useState(false);
   const [sellerBankingAccount, setSellerBankingAccount] = useState(null);
@@ -110,7 +112,28 @@ export default function PaymentAction({ orderId, onUpdate, sellerId }) {
         inferior para que el vendedor sea notificado.
       </p>
 
-      <div className="bg-white dark:bg-[#252525] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 mb-6">
+            <div className="bg-white dark:bg-[#252525] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 mb-6">
+        {/* MONTO A TRANSFERIR. Antes esta tarjeta mostraba SOLO el CBU del
+            vendedor, sin decirle al comprador CUÁNTO transferir: tenía que ir a
+            otra pantalla. Lo mostramos con formatOrderAmount para respetar la
+            moneda real (ARS, o USD cuando usó saldo de recompensas). */}
+        {order && (
+          <div className="mb-5 pb-5 border-b border-gray-100 dark:border-gray-800 text-center">
+            <p className="text-[10px] font-black uppercase tracking-widest text-[#F26722] mb-1">
+              Monto a transferir
+            </p>
+            <p className="text-2xl font-black dark:text-white italic">
+              {formatOrderAmount(order)}
+            </p>
+            {Number(order?.financials?.rewardsUsedUsd || 0) > 0 && (
+              <p className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold mt-1">
+                Incluye el saldo de recompensas aplicado (US${" "}
+                {Number(order.financials.rewardsUsedUsd).toFixed(2)}): transferí
+                solo el monto indicado.
+              </p>
+            )}
+          </div>
+        )}
         <h4 className="text-xs font-black uppercase text-center tracking-widest text-[#F26722] mb-4">
           Datos Bancarios del Vendedor
         </h4>

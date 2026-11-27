@@ -110,11 +110,21 @@ export const makeCreateCryptoOrder = () => {
         financials.rewardsUsedUsd > 0 && financials.escrowAmountUsd != null
           ? financials.escrowAmountUsd
           : calculatedTotal + maxShippingCost,
-      productsAmount:
+            productsAmount:
         financials.rewardsUsedUsd > 0 && financials.escrowAmountUsd != null
           ? Math.max(
               0,
-              Number((financials.escrowAmountUsd - maxShippingCost).toFixed(2)),
+              // ⚠️ MIXTO ARREGLADO (idéntico a createOrder bancario):
+              // `escrowAmountUsd` está en USD y `maxShippingCost` en ARS. Se
+              // convierte el envío a USD con el TC de la orden antes de restar.
+              Number(
+                (
+                  financials.escrowAmountUsd -
+                  (financials.usdRate > 0
+                    ? maxShippingCost / financials.usdRate
+                    : 0)
+                ).toFixed(2),
+              ),
             )
           : calculatedTotal,
       shippingAmount: maxShippingCost,
