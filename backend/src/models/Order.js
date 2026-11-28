@@ -23,7 +23,21 @@ const orderSchema = new Schema(
       {
         // --- Vínculo y Cantidad (Esenciales) ---
         productId: { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
-        quantity: { type: Number, required: true, default: 1 },
+        // ⛔ C6: la cantidad SIEMPRE es un entero >= 1. El `validate` del schema
+        // es la ÚLTIMA barrera: aunque un handler futuro (importador, admin,
+        // script) olvide sanear el input, no se puede persistir una orden con
+        // cantidad 0, negativa o fraccionaria. El tope de 999 vive en el
+        // controlador porque es política de negocio; acá el mínimo existe para
+        // no dejar pasar totales en $0 o negativos a la base.
+        quantity: {
+          type: Number,
+          required: true,
+          default: 1,
+          validate: {
+            validator: (v) => Number.isInteger(v) && v >= 1,
+            message: "La cantidad debe ser un entero mayor o igual a 1.",
+          },
+        },
 
         // --- Datos capturados del producto ---
         title: { type: String, required: true },

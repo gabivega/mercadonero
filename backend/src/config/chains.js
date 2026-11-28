@@ -143,13 +143,31 @@ export function getGasDripParams(chainId) {
 // según la red; (2) verificar montos con los decimales correctos; (3) liberar o
 // reembolsar según el modelo de fondeo.
 const ESCROW_CHAINS = {
-  [BSC_TESTNET_CHAIN_ID]: {
+    [BSC_TESTNET_CHAIN_ID]: {
     key: "bscTestnet",
-    // Fallback legacy: el escrow se deployó en BSC con esta variable.
-    contractAddress:
-      process.env.ESCROW_CONTRACT_ADDRESS_BSC ||
-      process.env.ESCROW_CONTRACT_ADDRESS ||
-      "",
+        // ⚠️ BSC: APAGADA HASTA EL REDEPLOY (post-lanzamiento).
+    //
+    // Historial de esta variable (relevante para no repetir el error):
+    //   - Existía un fallback a `ESCROW_CONTRACT_ADDRESS` (legacy) con un
+    //     contrato que quedó huérfano al pasar al deploy multichain. Mientras
+    //     `ESCROW_CONTRACT_BSC` estuvo VACÍA, el backend caía en ese legacy en
+    //     SILENCIO (si alguien usaba BSC, fondeaba un contrato no auditado).
+    //   - Hoy `ESCROW_CONTRACT_BSC` SÍ está seteada (desde el 2026-11-24) a
+    //     `0x9e49...10A0`, un `NeroEscrow` válido (responde admin/feeBps), pero
+    //     que AÚN TIENE `fundOrderNative` — la función rota que reparte el
+    //     balance completo del contrato (C4).
+    // Por eso, mientras no se redespliegue: BSC se deja sin dirección. Así la
+    // red no se ofrece, y ningún usuario puede fondear el contrato vulnerable.
+    // Quedarse con la dirección buena pero "poco usada" NO alcanza: el riesgo
+    // es on-chain y no depende de la UI.
+    //
+    // Cómo reactivar (post-lanzamiento):
+    //   1) Desplegar un NeroEscrow NUEVO (sin fundOrderNative, con
+    //      buyer = msg.sender y token fijo).
+    //   2) Crossmint no soporta BSC testnet -> probar contra mainnet con montos
+    //      propios chicos ANTES de abrir la red.
+    //   3) Setear SÓLO `ESCROW_CONTRACT_BSC` con la dirección nueva.
+    contractAddress: "",
     // Token FIJO de pago (USDT). Fallback a la var legacy usada en BSC.
     tokenAddress:
       process.env.ESCROW_TOKEN_BSC ||

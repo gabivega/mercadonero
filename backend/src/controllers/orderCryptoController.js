@@ -261,11 +261,82 @@ export const confirmEscrowFunding = async (req, res) => {
     if (!verification.success || !verification.funded) {
       return res.status(409).json({ success: false, message: "No pudimos verificar el fondeo on-chain. ¿Estás seguro de que hiciste la transacción al contrato correcto?", error: verification.error || "El escrow no está fondeado on-chain.", fundTxHash });
     }
-    if (verification.amountMatches === false) {
+        if (verification.amountMatches === false) {
       return res.status(409).json({ success: false, message: "El monto retenido on-chain no coincide con el total de la orden. Verificá el importe fondeado.", escrow: verification.escrow });
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // ⛔ C3: VALIDACIÓN DE IDENTIDAD DEL ESCROW (comprador, vendedor y token)
+    //
+    // `fundOrder` es PÚBLICA: cualquiera puede llamarla directo al contrato con
+    // curl/ethers, sin pasar por nuestro frontend. Hasta acá solo comparábamos
+    // `deposited` y el MONTO, así que un atacante podía:
+    //   (a) fondearte con un ERC20 propio sin valor (token falso),
+    //   (b) poner SU segunda billetera como `_seller` y recuperar el 97% del
+    //       pago cuando se libere el escrow (vendedor falso),
+    //   (c) figurar como otro comprador (buyer falso).
+    // Los tres datos ya los leía `getEscrow` on-chain: hasta ahora se
+    // descartaban. Los comparamos contra la ORDEN y contra la wallet del
+    // vendedor, y contra el token que la red tiene declarado. Sin esta guarda,
+    // "verificar el fondeo" no probaba quién pagó ni con qué.
+    // ─────────────────────────────────────────────────────────────
+    const escrowChainCfg = getEscrowChainConfig(escrowChainId);
     const escrowInfo = verification.escrow || {};
+
+    // (1) TOKEN: debe ser el declarado para la red en el .env, y NO puede ser
+    //     address(0). Un token nativo (address(0)) llega sólo por
+    //     `fundOrderNative`, que está rota (reparte el balance total del
+    //     contrato, ver C4). Nada del flujo de la app lo usa, así que se
+    //     rechaza por completo: cerrar esa puerta es más barato que confiar en
+    //     que nadie la toque.
+    const expectedToken = String(escrowChainCfg?.tokenAddress || "").toLowerCase();
+    const onchainToken = String(escrowInfo.token || "").toLowerCase();
+    if (!onchainToken || onchainToken === "0x0000000000000000000000000000000000000000") {
+      return res.status(409).json({
+        success: false,
+        code: "ESCROW_NATIVE_NOT_SUPPORTED",
+        message: "El escrow se fondeó con la moneda nativa, que no está soportada. Usá el pago con stablecoin.",
+      });
+    }
+    if (expectedToken && onchainToken !== expectedToken) {
+      console.warn(`[Escrow] Token falso en orden ${order._id}: esperado ${expectedToken}, on-chain ${onchainToken}`);
+      return res.status(409).json({
+        success: false,
+        code: "ESCROW_TOKEN_MISMATCH",
+        message: "El escrow se fondeó con un token distinto al de esta red. El pago no es válido.",
+      });
+    }
+
+    // (2) COMPRADOR: quien figura en el escrow debe ser la wallet del comprador
+    //     de la orden. Si no, el que pagó no es el que recibe el producto.
+    const buyer = await User.findById(order.buyer).select("walletAddress");
+    const expectedBuyer = String(buyer?.walletAddress || order.payment?.buyerWalletAddress || "").toLowerCase();
+    const onchainBuyer = String(escrowInfo.buyer || "").toLowerCase();
+    if (!expectedBuyer || onchainBuyer !== expectedBuyer) {
+      console.warn(`[Escrow] Buyer mismatch en orden ${order._id}: esperado ${expectedBuyer || "(sin wallet)"}, on-chain ${onchainBuyer}`);
+      return res.status(409).json({
+        success: false,
+        code: "ESCROW_BUYER_MISMATCH",
+        message: "El escrow no fue fondeado desde tu billetera. Revisá el pago antes de continuar.",
+      });
+    }
+
+    // (3) VENDEDOR: si el escrow apunta a OTRA billetera como vendedor, al
+    //     liberarse el dinero iría a quien no corresponde. El vendedor real se
+    //     cobra desde el escrow, así que este chequeo es el que evita el robo
+    //     del 97% del pago.
+    const sellerDoc = await User.findById(order.seller).select("walletAddress");
+    const expectedSeller = String(sellerDoc?.walletAddress || "").toLowerCase();
+    const onchainSeller = String(escrowInfo.seller || "").toLowerCase();
+    if (!expectedSeller || onchainSeller !== expectedSeller) {
+      console.warn(`[Escrow] Seller mismatch en orden ${order._id}: esperado ${expectedSeller || "(vendedor sin wallet)"}, on-chain ${onchainSeller}`);
+      return res.status(409).json({
+        success: false,
+        code: "ESCROW_SELLER_MISMATCH",
+        message: "Los datos del escrow no coinciden con el vendedor de la orden. No podemos dar el pago por válido.",
+      });
+    }
+
     const resolvedFundingMode = fundingMode || order.payment?.fundingMode || (escrowInfo.isNative ? "native" : "token");
 
     order.payment.status = "funded";

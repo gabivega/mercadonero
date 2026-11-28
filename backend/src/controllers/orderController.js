@@ -639,6 +639,64 @@ const createOrder = async (req, res) => {
       });
     }
 
+        // ─────────────────────────────────────────────────────────────
+    // ⛔ C6: VALIDACIÓN DE CANTIDAD (entero positivo, acotado y deduplicado).
+    //
+    // `quantity` llega del cliente y se multiplica por el precio sin ninguna
+    // validación. Tres abusos concretos, todos de una sola petición:
+    //   - `quantity: 0.001`  -> el total sale 1000x más barato. En una orden
+    //     cripto el comprador fondea ese monto reducido y la orden pasa sola a
+    //     pagada: compra el producto por centavos.
+    //   - `quantity: -5`     -> resta del total (un segundo ítem negativo
+    //     "paga" el primero).
+    //   - `quantity: 1e8`    -> `Array.from({length: ...})` en el cálculo de
+    //     envío crea cientos de millones de elementos y cuelga el proceso.
+    // Sanear acá, ANTES de cualquier multiplicación, corta los tres.
+    // ─────────────────────────────────────────────────────────────
+    {
+      const MAX_QTY = 999;
+
+      // Deduplicar: dos líneas del MISMO producto permitían saltarse topes de
+      // stock y de cantidad sumando varias filas del mismo ítem.
+      const vistos = new Set();
+      for (const item of effectiveItems) {
+        const key = String(item?.productId || "");
+        if (!key) continue;
+        if (vistos.has(key)) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "El carrito tiene el mismo producto repetido en varias líneas. Unificá la cantidad e intentá de nuevo.",
+          });
+        }
+        vistos.add(key);
+      }
+
+      for (const item of effectiveItems) {
+        const qty = item?.quantity;
+        // `Number(qty)` acepta "3" (string del form) pero también rechazamos
+        // null/""/undefined/null que caerían a 0 y dejarían el total en $0.
+        const parsed = Number(qty);
+        if (
+          qty === undefined ||
+          qty === null ||
+          qty === "" ||
+          !Number.isFinite(parsed) ||
+          !Number.isInteger(parsed) ||
+          parsed < 1 ||
+          parsed > MAX_QTY
+        ) {
+          return res.status(400).json({
+            success: false,
+            message: `La cantidad de cada producto debe ser un número entero entre 1 y ${MAX_QTY}.`,
+          });
+        }
+        // Normalizamos a número y a string ("3" -> 3) para que el snapshot y
+        // todas las multiplicaciones posteriores trabajen con un entero seguro.
+        item.quantity = parsed;
+      }
+    }
+
     // 2. Construir el itemsSnapshot validando datos reales
     const itemsSnapshot = effectiveItems.map((cartItem) => {
       const actualProduct = dbProducts.find(

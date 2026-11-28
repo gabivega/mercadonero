@@ -62,10 +62,21 @@ router.post(
 // 3) Cerrar el grupo (SOLO ADMIN): fija precio final + crea las órdenes.
 router.post("/:id/close", verifyAuth, attachUser, isAdmin, closePool);
 // 4) Liberar la porción de un comprador (confirmó recepción).
+//
+// ⛔ C5: SOLO ADMIN. Antes esta ruta solo exigía `verifyAuth` + `attachUser`:
+// el handler comprobaba que quien llama fuera MIEMBRO del grupo, pero unirse a
+// un grupo es gratis. Cualquier usuario podía crear/se unir a un pool y
+// disparar una liberación de escrow firmada por la wallet admin, sin que
+// estuvieran validados el estado del grupo, de la orden ni del pago. En
+// combinación con el fondeo nativo (C4) eso permitía vaciar el balance nativo
+// del contrato de escrow.
+// Liberar fondos es una acción privilegiada: la decide el admin, no el
+// comprador. (Las compras grupales están deshabilitadas hoy: no rompe nada.)
 router.post(
   "/:id/release-member",
   verifyAuth,
   attachUser,
+  isAdmin,
   releasePoolMember,
 );
 

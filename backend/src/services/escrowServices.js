@@ -184,10 +184,32 @@ export async function verifyOrderFunded(
   expectedAmountUsd,
   chainId = ESCROW_DEFAULT_CHAIN_ID,
 ) {
-  const escrow = await getEscrow(orderId, chainId);
+    const escrow = await getEscrow(orderId, chainId);
   if (!escrow.success) {
     return { ...escrow, funded: false };
   }
+
+  // ⛔ C4: LOS FONDOS NATIVOS NO SE ACEPTAN COMO PAGO VÁLIDO.
+  //
+  // `NeroEscrow.fundOrderNative` está ROTA y es pública:
+  //   1) guarda `_amount` sin compararlo con `msg.value` (se fondea con 1 wei
+  //      declarando el monto completo), y
+  //   2) `settle` en modo nativo reparte `address(this).balance` — TODO el saldo
+  //      nativo del contrato, no el de esa orden, así que quien cancele se
+  //      lleva lo de las demás.
+  // Ninguna parte de la app usa esta vía (el modal la bloquea y su ABI ni la
+  // declara), pero cualquiera puede llamarla directo al contrato. Acá la
+  // tratamos como NO fondeada: la orden no avanza, no se marca pagada, no se
+  // libera colateral. Se cierra la puerta sin esperar al redeploy que la quite.
+  if (escrow.isNative) {
+    return {
+      ...escrow,
+      funded: false,
+      nativeRejected: true,
+      error: "El escrow fue fondeado con la moneda nativa, que no está soportada.",
+    };
+  }
+
   const funded = escrow.deposited === true && !escrow.released;
 
   // Tolerancia: el monto del contrato puede venir TRUNCADO por la unidad común
